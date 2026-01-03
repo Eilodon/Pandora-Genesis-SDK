@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::domain::{Observation, BeliefState};
+use crate::domain::{Observation, CausalBeliefState};
 
 /// Causal variable nodes representing observable and latent factors in the system.
 /// These form the vertices of the Directed Acyclic Graph (DAG).
@@ -193,7 +193,7 @@ impl CausalGraph {
     /// - Uncertainty quantification
     pub fn predict_outcome(
         &self,
-        current_state: &BeliefState,
+        current_state: &crate::belief::BeliefState,
         proposed_action: &ActionPolicy,
     ) -> PredictedState {
         // Extract current variable values from belief state
@@ -230,23 +230,25 @@ impl CausalGraph {
         }
     }
 
-    /// Extract normalized variable values from belief state.
+    /// Extract normalized variable values from canonical belief state.
+    /// Converts the 5-mode belief::BeliefState to causal variable space.
     /// Returns a vector of size Variable::COUNT with values in [0, 1].
-    pub fn extract_state_values(&self, belief_state: &BeliefState) -> Vec<f32> {
+    pub fn extract_state_values(&self, belief_state: &crate::belief::BeliefState) -> Vec<f32> {
         let mut values = vec![0.0; Variable::COUNT];
         
-        // Map belief state to causal variables (normalized to [0, 1])
+        // Map canonical belief state (5-mode) to causal variables (normalized to [0, 1])
+        // belief_state.p = [Calm, Stress, Focus, Sleepy, Energize]
         // These mappings are heuristic and will be refined with learning
         
-        // Bio state: Aroused -> high HR, low HRV
-        let arousal_level = belief_state.bio_state[1]; // Aroused probability
-        values[Variable::HeartRate.index()] = arousal_level;
-        values[Variable::HeartRateVariability.index()] = 1.0 - arousal_level;
+        // Bio state: Stress mode -> high HR, low HRV
+        let stress_level = belief_state.p[1]; // Stress probability
+        values[Variable::HeartRate.index()] = stress_level;
+        values[Variable::HeartRateVariability.index()] = 1.0 - stress_level;
         
-        // Cognitive state: Distracted -> high notification pressure
-        let distraction_level = belief_state.cognitive_state[1]; // Distracted probability
-        values[Variable::NotificationPressure.index()] = distraction_level;
-        values[Variable::InteractionIntensity.index()] = distraction_level;
+        // Cognitive state: Focus mode affects notification pressure inversely
+        let focus_level = belief_state.p[2]; // Focus probability
+        values[Variable::NotificationPressure.index()] = 1.0 - focus_level;
+        values[Variable::InteractionIntensity.index()] = 1.0 - focus_level;
         
         // Placeholder for other variables (will be populated from Observation)
         values[Variable::Location.index()] = 0.5;
@@ -456,8 +458,8 @@ pub struct ObservationSnapshot {
     pub observation: Observation,
     /// Action taken (if any)
     pub action: Option<ActionPolicy>,
-    /// Belief state at this time
-    pub belief_state: Option<BeliefState>,
+    /// Belief state at this time (using CausalBeliefState for 3-factor representation)
+    pub belief_state: Option<CausalBeliefState>,
 }
 
 impl CausalBuffer {
@@ -691,7 +693,7 @@ mod tests {
     #[test]
     fn test_predict_outcome() {
         let graph = CausalGraph::with_priors();
-        let belief_state = BeliefState::default();
+        let belief_state = crate::belief::BeliefState::default();
         let action = ActionPolicy {
             action_type: ActionType::BreathGuidance,
             intensity: 0.8,

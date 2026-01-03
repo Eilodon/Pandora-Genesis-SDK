@@ -26,6 +26,10 @@ pub struct WorkerMetrics {
     pub retries: AtomicU64,
     pub emergency_dumps: AtomicU64,
     pub channel_full_drops: AtomicU64,
+    /// PR2: Track dropped HighFreq events separately for visibility
+    pub highfreq_drops: AtomicU64,
+    /// PR2: Track coalesced HighFreq events
+    pub highfreq_coalesced: AtomicU64,
 }
 
 impl WorkerMetrics {
@@ -36,6 +40,8 @@ impl WorkerMetrics {
             retries: self.retries.load(Ordering::Relaxed),
             emergency_dumps: self.emergency_dumps.load(Ordering::Relaxed),
             channel_full_drops: self.channel_full_drops.load(Ordering::Relaxed),
+            highfreq_drops: self.highfreq_drops.load(Ordering::Relaxed),
+            highfreq_coalesced: self.highfreq_coalesced.load(Ordering::Relaxed),
         }
     }
 }
@@ -47,6 +53,8 @@ pub struct MetricsSnapshot {
     pub retries: u64,
     pub emergency_dumps: u64,
     pub channel_full_drops: u64,
+    pub highfreq_drops: u64,
+    pub highfreq_coalesced: u64,
 }
 
 /// Commands sent to worker thread
@@ -94,16 +102,46 @@ impl AsyncWorker {
         }
     }
     
-    /// Submit append command (non-blocking)
+    /// PR2: Submit append command with priority-aware delivery.
+    /// Critical events use blocking send (GUARANTEED delivery).
+    /// HighFreq events use try_send with drop visibility.
     pub fn submit_append(&self, session_id: SessionId, envelopes: Vec<Envelope>) -> Result<(), &'static str> {
-        let cmd = WorkerCmd::Append { session_id, envelopes };
+        use zenb_core::domain::EventPriority;
         
-        match self.tx.try_send(cmd) {
-            Ok(_) => Ok(()),
-            Err(_) => {
-                // Channel full - backpressure
-                self.metrics.channel_full_drops.fetch_add(1, Ordering::Relaxed);
-                Err("channel_full")
+        // Classify batch priority: Critical if ANY event is Critical
+        let has_critical = envelopes.iter().any(|e| e.event.priority() == EventPriority::Critical);
+        
+        let cmd = WorkerCmd::Append { session_id, envelopes: envelopes.clone() };
+        
+        if has_critical {
+            // CRITICAL PATH: Blocking send - MUST NOT DROP
+            // This will block the caller until space is available in the channel.
+            // Acceptable because Critical events are rare (session lifecycle, decisions).
+            match self.tx.send(cmd) {
+                Ok(_) => Ok(()),
+                Err(_) => {
+                    // Channel closed - worker shutdown
+                    // Last resort: emergency dump
+                    self.metrics.emergency_dumps.fetch_add(1, Ordering::Relaxed);
+                    if let Err(e) = Self::emergency_dump(&session_id, &envelopes, "worker_shutdown") {
+                        eprintln!("CRITICAL: Emergency dump failed during shutdown: {:?}", e);
+                    }
+                    Err("worker_shutdown")
+                }
+            }
+        } else {
+            // HIGH-FREQ PATH: Non-blocking send - can drop with visibility
+            match self.tx.try_send(cmd) {
+                Ok(_) => Ok(()),
+                Err(_) => {
+                    // Channel full - backpressure
+                    // Count drops for visibility (PR2 requirement)
+                    self.metrics.channel_full_drops.fetch_add(1, Ordering::Relaxed);
+                    self.metrics.highfreq_drops.fetch_add(envelopes.len() as u64, Ordering::Relaxed);
+                    
+                    eprintln!("WARN: Dropped {} HighFreq events due to backpressure", envelopes.len());
+                    Err("channel_full")
+                }
             }
         }
     }

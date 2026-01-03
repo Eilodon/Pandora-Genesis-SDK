@@ -7,6 +7,36 @@ use blake3::Hasher;
 use crate::config::ZenbConfig;
 
 // ============================================================================
+// PR4: STRICT TIME HELPERS — Prevent Wraparound
+// ============================================================================
+
+/// PR4: Compute time delta with saturating subtraction to prevent wraparound.
+/// If clocks go backwards (now < last), returns 0 instead of wrapping to huge value.
+/// 
+/// # Arguments
+/// * `now_us` - Current timestamp in microseconds
+/// * `last_us` - Previous timestamp in microseconds
+/// 
+/// # Returns
+/// Elapsed time in microseconds, guaranteed non-negative (0 if clocks went backwards)
+#[inline]
+pub fn dt_us(now_us: i64, last_us: i64) -> u64 {
+    if now_us >= last_us {
+        (now_us - last_us) as u64
+    } else {
+        // Clock went backwards - return 0 instead of wrapping
+        0
+    }
+}
+
+/// PR4: Compute time delta in seconds with saturating subtraction.
+/// Convenience wrapper around dt_us for floating-point calculations.
+#[inline]
+pub fn dt_sec(now_us: i64, last_us: i64) -> f32 {
+    (dt_us(now_us, last_us) as f32) / 1_000_000.0
+}
+
+// ============================================================================
 // INPUT LAYER: Multi-Dimensional Observation Space
 // ============================================================================
 
@@ -159,8 +189,13 @@ pub enum SocialState {
     Overwhelmed,
 }
 
-/// Factorized belief state representation.
-/// Instead of a single mode, the system maintains probability distributions over
+/// CANONICAL DECISION (PR1): This type is RENAMED to CausalBeliefState.
+/// The canonical BeliefState is in crate::belief::BeliefState (5-mode collapsed representation).
+/// This factorized 3-factor representation is used ONLY by the causal reasoning layer
+/// for extracting state values into the causal graph's variable space.
+///
+/// Factorized belief state representation for causal extraction.
+/// Instead of a single mode, this maintains probability distributions over
 /// multiple independent (or weakly coupled) state factors. This enables:
 /// 1. More nuanced state representation (e.g., "Calm but Distracted")
 /// 2. Partial observability handling (update only observed factors)
@@ -168,7 +203,7 @@ pub enum SocialState {
 ///
 /// Each distribution is a probability vector summing to 1.0.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BeliefState {
+pub struct CausalBeliefState {
     /// Probability distribution over biological states [Calm, Aroused, Fatigue].
     /// Index 0 = Calm, 1 = Aroused, 2 = Fatigue.
     /// Used for: breath guidance, stress interventions, energy management.
@@ -192,7 +227,7 @@ pub struct BeliefState {
     pub last_update_us: i64,
 }
 
-impl Default for BeliefState {
+impl Default for CausalBeliefState {
     fn default() -> Self {
         Self {
             // Uniform prior: maximum uncertainty
@@ -205,7 +240,7 @@ impl Default for BeliefState {
     }
 }
 
-impl BeliefState {
+impl CausalBeliefState {
     /// Get the most likely biological state (MAP estimate).
     pub fn most_likely_bio_state(&self) -> BioState {
         let max_idx = self.bio_state.iter()
@@ -274,6 +309,17 @@ pub struct Envelope {
     pub meta: serde_json::Value,
 }
 
+/// PR2: Event priority classification for audit guarantees.
+/// Critical events MUST NEVER be dropped silently.
+/// HighFreq events can be coalesced/backpressured with visibility.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventPriority {
+    /// MUST NEVER DROP: Decision/Trauma/Error/Session lifecycle/Config/Schema changes
+    Critical,
+    /// Can be coalesced or backpressured: Sensor data, belief updates
+    HighFreq,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
     SessionStarted { mode: String },
@@ -288,6 +334,42 @@ pub enum Event {
     PolicyChosen { mode: u8, reason_bits: u32, conf: f32 },
     ControlDecisionDenied { reason: String, timestamp: i64 },
     ConfigUpdated { config: ZenbConfig },
+}
+
+impl Event {
+    /// PR2: Classify event priority for audit guarantees.
+    /// Critical events MUST be persisted; HighFreq can be coalesced.
+    pub fn priority(&self) -> EventPriority {
+        match self {
+            // CRITICAL: Session lifecycle (forensic requirement)
+            Event::SessionStarted { .. } => EventPriority::Critical,
+            Event::SessionEnded { .. } => EventPriority::Critical,
+            
+            // CRITICAL: Control decisions and denials (safety audit)
+            Event::ControlDecisionMade { .. } => EventPriority::Critical,
+            Event::ControlDecisionDenied { .. } => EventPriority::Critical,
+            
+            // CRITICAL: Configuration changes (schema evolution)
+            Event::ConfigUpdated { .. } => EventPriority::Critical,
+            
+            // CRITICAL: Pattern adjustments (intervention tracking)
+            Event::PatternAdjusted { .. } => EventPriority::Critical,
+            
+            // CRITICAL: Tombstone (trauma/error markers)
+            Event::Tombstone { .. } => EventPriority::Critical,
+            
+            // HIGH-FREQ: Sensor data (can be downsampled)
+            Event::SensorFeaturesIngested { .. } => EventPriority::HighFreq,
+            
+            // HIGH-FREQ: Belief updates (1-2Hz, can coalesce)
+            Event::BeliefUpdated { .. } => EventPriority::HighFreq,
+            Event::BeliefUpdatedV2 { .. } => EventPriority::HighFreq,
+            Event::PolicyChosen { .. } => EventPriority::HighFreq,
+            
+            // HIGH-FREQ: Cycle completions (low-frequency telemetry)
+            Event::CycleCompleted { .. } => EventPriority::HighFreq,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -459,5 +541,53 @@ impl BreathState {
         
         let out = hasher.finalize();
         *out.as_bytes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dt_us_normal_forward() {
+        // Normal case: time moves forward
+        let now = 1000000;
+        let last = 500000;
+        assert_eq!(dt_us(now, last), 500000);
+    }
+
+    #[test]
+    fn test_dt_us_backwards_clock() {
+        // PR4: Clock went backwards - should return 0, not wrap
+        let now = 500000;
+        let last = 1000000;
+        assert_eq!(dt_us(now, last), 0);
+        
+        // Verify we don't get huge wraparound value
+        assert!(dt_us(now, last) < 1000);
+    }
+
+    #[test]
+    fn test_dt_us_same_timestamp() {
+        // Edge case: same timestamp
+        let ts = 1000000;
+        assert_eq!(dt_us(ts, ts), 0);
+    }
+
+    #[test]
+    fn test_dt_sec_conversion() {
+        // Verify microseconds to seconds conversion
+        let now = 2000000; // 2 seconds
+        let last = 1000000; // 1 second
+        let dt = dt_sec(now, last);
+        assert!((dt - 1.0).abs() < 0.0001); // Should be ~1.0 second
+    }
+
+    #[test]
+    fn test_dt_sec_backwards_clock() {
+        // PR4: Backwards clock in dt_sec should also return 0
+        let now = 1000000;
+        let last = 2000000;
+        assert_eq!(dt_sec(now, last), 0.0);
     }
 }

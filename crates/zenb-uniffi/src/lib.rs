@@ -54,6 +54,10 @@ impl From<RuntimeError> for ZenbError {
     }
 }
 
+/// PR2 INVARIANT: seq is MONOTONIC per session_id.
+/// seq is NEVER reset due to buffer flush or channel backpressure.
+/// seq is derived from last envelope in buf, NOT from buffer length.
+/// This ensures forensic-grade audit trail integrity.
 pub struct Runtime {
     worker: AsyncWorker,
     session_id: SessionId,
@@ -298,8 +302,9 @@ impl Runtime {
 
     /// Advance runtime time, tick engine, create control decision events as appropriate
     pub fn tick(&mut self, ts_us: i64) {
+        // PR4: Use dt_us helper to prevent wraparound if clocks go backwards
         let dt_us = match self.last_ts_us {
-            Some(last) => (ts_us - last) as u64,
+            Some(last) => zenb_core::domain::dt_us(ts_us, last),
             None => 0u64,
         };
         self.last_ts_us = Some(ts_us);
@@ -314,13 +319,10 @@ impl Runtime {
             self.dash.apply(&env);
         }
 
-        // Make a control decision based on last estimate
+        // PR3: Make a control decision based on last estimate
+        // Engine now uses internal trauma_cache (intrinsic safety - cannot be bypassed)
         if let Some(est) = &self.last_estimate {
-            // Note: make_control needs store for trauma query
-            // Since AsyncWorker doesn't expose store, we pass None for now
-            // This means trauma checks are disabled in async mode
-            // TODO: Add trauma query support to AsyncWorker if needed
-            let (decision, changed, policy, deny_reason) = self.engine.make_control(est, ts_us, None);
+            let (decision, changed, policy, deny_reason) = self.engine.make_control(est, ts_us);
             let need_persist = if changed { true } else { 
                 // also persist periodically (min interval)
                 self.last_decision_persist_ts_us.map_or(true, |t| (ts_us - t) >= DECISION_MIN_INTERVAL_US)
@@ -384,15 +386,21 @@ impl Runtime {
         }
     }
 
+    /// PR2: Flush buffer to async worker with priority-aware delivery.
+    /// Critical events are guaranteed to be delivered (blocking send).
+    /// HighFreq events may be dropped under backpressure (with visibility).
     pub fn flush(&mut self) -> Result<(), RuntimeError> {
         if self.buf.is_empty() { return Ok(()); }
         let v: Vec<_> = self.buf.drain(..).collect();
         
-        // Submit to async worker (non-blocking)
+        // PR2: Submit to async worker with priority-aware delivery
+        // If batch contains Critical events, submit_append will block until delivered
+        // If batch is HighFreq only, submit_append will drop on backpressure with metrics
         if let Err(e) = self.worker.submit_append(self.session_id.clone(), v) {
-            eprintln!("Async append failed (channel full): {}", e);
-            // Channel full - backpressure detected
-            // Events are lost but this is acceptable for high-frequency telemetry
+            // Only HighFreq events can reach this error path
+            // Critical events use blocking send and will not return Err("channel_full")
+            eprintln!("WARN: Async append failed (backpressure): {}", e);
+            // Metrics tracked in AsyncWorker: highfreq_drops counter
         }
         
         self.buf_bytes = 0;

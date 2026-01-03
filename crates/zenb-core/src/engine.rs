@@ -114,26 +114,29 @@ impl Engine {
         let (trans, cycles) = self.breath.tick(dt_us);
         
         // Push current observation into causal buffer if available
+        // Map canonical belief::BeliefState (5-mode) to CausalBeliefState (3-factor)
         if let Some(ref obs) = self.last_observation {
             let snapshot = ObservationSnapshot {
                 timestamp_us: obs.timestamp_us,
                 observation: obs.clone(),
                 action: None,
-                belief_state: Some(crate::domain::BeliefState {
+                belief_state: Some(crate::domain::CausalBeliefState {
+                    // Map 5-mode belief to 3-factor causal representation
+                    // p = [Calm, Stress, Focus, Sleepy, Energize]
                     bio_state: [
-                        self.belief_state.p[0],
-                        self.belief_state.p[1],
-                        self.belief_state.p[2],
+                        self.belief_state.p[0], // Calm
+                        self.belief_state.p[1], // Stress (Aroused)
+                        self.belief_state.p[3], // Sleepy (Fatigue)
                     ],
                     cognitive_state: [
-                        self.belief_state.p[0],
-                        self.belief_state.p[1],
-                        self.belief_state.p[2],
+                        self.belief_state.p[2], // Focus
+                        1.0 - self.belief_state.p[2], // Distracted (inverse of Focus)
+                        0.0, // Flow (not directly mapped)
                     ],
                     social_state: [
-                        self.belief_state.p[0],
-                        self.belief_state.p[1],
-                        self.belief_state.p[2],
+                        0.33, // Solitary (uniform prior - not tracked in 5-mode)
+                        0.33, // Interactive
+                        0.33, // Overwhelmed
                     ],
                     confidence: self.belief_state.conf,
                     last_update_us: obs.timestamp_us,
@@ -228,13 +231,17 @@ impl Engine {
         }
     }
 
-    /// Make a control decision from estimate. Returns ControlDecision and whether it should be persisted.
-    /// Make a control decision from estimate. Returns ControlDecision and whether it should be persisted, and optional policy info (mode, reason_bits, conf)
-    pub fn make_control(&mut self, est: &Estimate, ts_us: i64, _trauma: Option<&dyn TraumaSource>) -> (ControlDecision, bool, Option<(u8, u32, f32)>, Option<String>) {
+    /// PR3: Make a control decision from estimate with INTRINSIC SAFETY.
+    /// Safety cannot be bypassed - Engine always uses internal trauma_cache.
+    /// If cache is empty/uninitialized, returns SafeFallback decision.
+    /// 
+    /// Returns: (ControlDecision, should_persist, policy_info, deny_reason)
+    pub fn make_control(&mut self, est: &Estimate, ts_us: i64) -> (ControlDecision, bool, Option<(u8, u32, f32)>, Option<String>) {
         // Run control-tick belief update (1-2Hz) using cached latest sensor features
         if let (Some(sf), Some(phys)) = (self.last_sf, self.last_phys) {
+            // PR4: Use dt_sec helper to prevent wraparound if clocks go backwards
             let dt_sec = match self.last_control_ts_us {
-                Some(last) => (((ts_us - last).max(0)) as f32) / 1_000_000f32,
+                Some(last) => crate::domain::dt_sec(ts_us, last),
                 None => 0.0,
             };
             self.last_control_ts_us = Some(ts_us);
@@ -371,7 +378,8 @@ mod tests {
         let mut eng = Engine::new(6.0);
         eng.update_context(crate::belief::Context { local_hour: 23, is_charging: true, recent_sessions: 1 });
         let est = eng.ingest_sensor(&[60.0, 40.0, 6.0], 0);
-        let (dec, persist, policy, deny) = eng.make_control(&est, 0, None);
+        // PR3: make_control no longer takes Option<TraumaSource> - intrinsic safety
+        let (dec, persist, policy, deny) = eng.make_control(&est, 0);
         assert!(dec.confidence >= 0.0);
         assert!(policy.is_some());
         assert!(deny.is_none());
