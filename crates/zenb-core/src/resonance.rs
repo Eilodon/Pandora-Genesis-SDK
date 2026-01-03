@@ -75,7 +75,12 @@ impl ResonanceTracker {
         }
     }
 
-    fn compute_v2(&self, guide_phase_norm: f32, guide_bpm: f32, cfg: &ZenbConfig) -> Option<ResonanceFeatures> {
+    fn compute_v2(
+        &self,
+        guide_phase_norm: f32,
+        guide_bpm: f32,
+        cfg: &ZenbConfig,
+    ) -> Option<ResonanceFeatures> {
         let target_freq_hz = (guide_bpm / 60.0).max(0.001);
         let fs_hz = 4.0f32;
         let dt_us = (1_000_000f32 / fs_hz).round() as i64;
@@ -119,7 +124,9 @@ struct SignalWindow {
 
 impl Default for SignalWindow {
     fn default() -> Self {
-        Self { buf: VecDeque::new() }
+        Self {
+            buf: VecDeque::new(),
+        }
     }
 }
 

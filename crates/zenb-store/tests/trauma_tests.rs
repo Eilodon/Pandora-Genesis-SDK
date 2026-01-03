@@ -23,10 +23,7 @@ fn severity_decays_with_time() {
 
     // 1 day later => exp(-1)
     let one_day_us: i64 = 86_400_000_000;
-    let hit1 = store
-        .query_trauma(&sig, now + one_day_us)
-        .unwrap()
-        .unwrap();
+    let hit1 = store.query_trauma(&sig, now + one_day_us).unwrap().unwrap();
     assert!(hit1.sev_eff < hit0.sev_eff);
     assert!((hit1.sev_eff - (1.0f32 * (-1.0f32).exp())).abs() < 1e-3);
 }
@@ -39,9 +36,7 @@ fn inhibit_until_blocks_even_if_sev_low() {
     let sig = [9u8; 32];
 
     // Insert row by recording once, then set inhibit_until_ts_us directly.
-    store
-        .record_trauma(&sig, 1, 10, 5, 0.01, 0, 10.0)
-        .unwrap();
+    store.record_trauma(&sig, 1, 10, 5, 0.01, 0, 10.0).unwrap();
 
     let db = rusqlite::Connection::open(tf.path()).unwrap();
     db.execute(

@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::resonance::ResonanceFeatures;
 use crate::config::ZenbConfig;
+use crate::resonance::ResonanceFeatures;
 
 /// Belief latent basis (collapsed modes)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,18 +14,26 @@ pub enum BeliefBasis {
 }
 
 impl Default for BeliefBasis {
-    fn default() -> Self { BeliefBasis::Calm }
+    fn default() -> Self {
+        BeliefBasis::Calm
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BeliefState {
-    pub p: [f32;5],
+    pub p: [f32; 5],
     pub conf: f32,
     pub mode: BeliefBasis,
 }
 
 impl Default for BeliefState {
-    fn default() -> Self { Self { p: [0.0;5], conf: 0.0, mode: BeliefBasis::Calm } }
+    fn default() -> Self {
+        Self {
+            p: [0.0; 5],
+            conf: 0.0,
+            mode: BeliefBasis::Calm,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -82,55 +90,80 @@ pub struct PhysioState {
 
 #[derive(Debug, Clone, Copy)]
 pub struct PathwayOut {
-    pub logits: [f32;5],
+    pub logits: [f32; 5],
     pub conf: f32,
     pub explain: u32,
 }
 
 /// math helpers
-pub fn softmax(mut logits: [f32;5]) -> [f32;5] {
+pub fn softmax(mut logits: [f32; 5]) -> [f32; 5] {
     // stable softmax
-    let max = logits.iter().cloned().fold(std::f32::NEG_INFINITY, f32::max);
+    let max = logits
+        .iter()
+        .cloned()
+        .fold(std::f32::NEG_INFINITY, f32::max);
     let mut sum = 0.0f32;
     for v in logits.iter_mut() {
         *v = (*v - max).exp();
         sum += *v;
     }
-    if sum == 0.0 { return [0.2;5]; }
-    for v in logits.iter_mut() { *v /= sum; }
+    if sum == 0.0 {
+        return [0.2; 5];
+    }
+    for v in logits.iter_mut() {
+        *v /= sum;
+    }
     logits
 }
 
-pub fn argmax(p: &[f32;5]) -> usize {
+pub fn argmax(p: &[f32; 5]) -> usize {
     let mut best = 0usize;
     for (i, v) in p.iter().enumerate() {
-        if *v > p[best] { best = i; }
+        if *v > p[best] {
+            best = i;
+        }
     }
     best
 }
 
-pub fn ema_vec(prev: &[f32;5], next: &[f32;5], alpha: f32) -> [f32;5] {
-    let mut out = [0.0f32;5];
-    for i in 0..5 { out[i] = prev[i] * (1.0 - alpha) + next[i] * alpha; }
+pub fn ema_vec(prev: &[f32; 5], next: &[f32; 5], alpha: f32) -> [f32; 5] {
+    let mut out = [0.0f32; 5];
+    for i in 0..5 {
+        out[i] = prev[i] * (1.0 - alpha) + next[i] * alpha;
+    }
     out
 }
 
-pub fn hysteresis_collapse(prev: BeliefBasis, p: &[f32;5], enter_th: f32, exit_th: f32) -> BeliefBasis {
+pub fn hysteresis_collapse(
+    prev: BeliefBasis,
+    p: &[f32; 5],
+    enter_th: f32,
+    exit_th: f32,
+) -> BeliefBasis {
     let idx = argmax(p);
     // if current mode is chosen and above exit_th, keep; else only enter if above enter_th
     let curr = prev as usize;
     if idx == curr {
-        if p[idx] >= exit_th { return prev; } // remain
-        else { return prev; }
+        if p[idx] >= exit_th {
+            return prev;
+        }
+        // remain
+        else {
+            return prev;
+        }
     }
     // switching
-    if p[idx] >= enter_th { match idx {
-        0 => BeliefBasis::Calm,
-        1 => BeliefBasis::Stress,
-        2 => BeliefBasis::Focus,
-        3 => BeliefBasis::Sleepy,
-        _ => BeliefBasis::Energize,
-    }} else { prev }
+    if p[idx] >= enter_th {
+        match idx {
+            0 => BeliefBasis::Calm,
+            1 => BeliefBasis::Stress,
+            2 => BeliefBasis::Focus,
+            3 => BeliefBasis::Sleepy,
+            _ => BeliefBasis::Energize,
+        }
+    } else {
+        prev
+    }
 }
 
 /// Pathway trait
@@ -142,42 +175,76 @@ pub trait Pathway: Send + Sync {
 /// A simple logical pathway based on hr/rr/rmssd trends (rule-based)
 pub struct LogicalPathway;
 impl Pathway for LogicalPathway {
-    fn name(&self) -> &'static str { "Logical" }
+    fn name(&self) -> &'static str {
+        "Logical"
+    }
     fn eval(&self, x: &SensorFeatures, phys: &PhysioState, _ctx: &Context) -> PathwayOut {
         // heuristics: high rmssd -> calm, low rmssd -> stress; rr high -> sleepy, motion -> energize
-        let mut logits = [0.0f32;5];
+        let mut logits = [0.0f32; 5];
         let rm = phys.rmssd.unwrap_or(20.0);
-        if rm > 50.0 { logits[0] += 2.0; } else { logits[1] += (50.0 - rm) / 50.0; }
-        if let Some(rr) = phys.rr_bpm { if rr > 12.0 { logits[3] += 1.5; } }
-        if x.motion > 0.5 { logits[4] += 2.0; }
-        if phys.hr_bpm.unwrap_or(60.0) > 100.0 { logits[1] += 1.0; }
-        PathwayOut { logits, conf: phys.confidence.clamp(0.0,1.0), explain: 0 }
+        if rm > 50.0 {
+            logits[0] += 2.0;
+        } else {
+            logits[1] += (50.0 - rm) / 50.0;
+        }
+        if let Some(rr) = phys.rr_bpm {
+            if rr > 12.0 {
+                logits[3] += 1.5;
+            }
+        }
+        if x.motion > 0.5 {
+            logits[4] += 2.0;
+        }
+        if phys.hr_bpm.unwrap_or(60.0) > 100.0 {
+            logits[1] += 1.0;
+        }
+        PathwayOut {
+            logits,
+            conf: phys.confidence.clamp(0.0, 1.0),
+            explain: 0,
+        }
     }
 }
 
 /// Contextual pathway based on time of day and recent session history
 pub struct ContextualPathway;
 impl Pathway for ContextualPathway {
-    fn name(&self) -> &'static str { "Contextual" }
+    fn name(&self) -> &'static str {
+        "Contextual"
+    }
     fn eval(&self, _x: &SensorFeatures, _phys: &PhysioState, ctx: &Context) -> PathwayOut {
-        let mut logits = [0.0f32;5];
-        if ctx.local_hour >= 22 || ctx.local_hour <= 6 { logits[3] += 2.0; }
-        if ctx.recent_sessions > 3 { logits[2] += 1.0; }
-        PathwayOut { logits, conf: 0.7, explain: 0 }
+        let mut logits = [0.0f32; 5];
+        if ctx.local_hour >= 22 || ctx.local_hour <= 6 {
+            logits[3] += 2.0;
+        }
+        if ctx.recent_sessions > 3 {
+            logits[2] += 1.0;
+        }
+        PathwayOut {
+            logits,
+            conf: 0.7,
+            explain: 0,
+        }
     }
 }
 
 /// Biometric pathway sensitive to quality and motion
 pub struct BiometricPathway;
 impl Pathway for BiometricPathway {
-    fn name(&self) -> &'static str { "Biometric" }
+    fn name(&self) -> &'static str {
+        "Biometric"
+    }
     fn eval(&self, x: &SensorFeatures, phys: &PhysioState, _ctx: &Context) -> PathwayOut {
-        let mut logits = [0.0f32;5];
+        let mut logits = [0.0f32; 5];
         // quality pushes confidence and calms if quality good
         logits[0] += x.quality * 2.0;
         logits[4] += x.motion * 1.5;
-        let conf = (x.quality * phys.confidence).clamp(0.0,1.0);
-        PathwayOut { logits, conf, explain: 0 }
+        let conf = (x.quality * phys.confidence).clamp(0.0, 1.0);
+        PathwayOut {
+            logits,
+            conf,
+            explain: 0,
+        }
     }
 }
 
@@ -189,7 +256,7 @@ pub struct BeliefDebug {
 pub struct BeliefEngine {
     pub pathways: Vec<Box<dyn Pathway>>,
     pub w: Vec<f32>,
-    pub prior_logits: [f32;5],
+    pub prior_logits: [f32; 5],
     pub smooth_tau_sec: f32,
     pub enter_th: f32,
     pub exit_th: f32,
@@ -204,7 +271,7 @@ impl BeliefEngine {
         let paths: Vec<Box<dyn Pathway>> = vec![
             Box::new(LogicalPathway),
             Box::new(ContextualPathway),
-            Box::new(BiometricPathway)
+            Box::new(BiometricPathway),
         ];
         Self {
             pathways: paths,
@@ -219,16 +286,16 @@ impl BeliefEngine {
     /// Process feedback from action outcomes to adjust model parameters.
     /// This implements Active Inference learning: the model adjusts its uncertainty
     /// based on prediction accuracy.
-    /// 
+    ///
     /// # Arguments
     /// * `fep_state` - Current FEP state to update
     /// * `config` - Current configuration (will be modified)
     /// * `success` - Whether the action was successful
-    /// 
+    ///
     /// # Active Inference Logic
     /// - **Success**: Model was correct → Decrease process noise (increase precision)
     /// - **Failure**: Model was wrong → Increase process noise (acknowledge uncertainty)
-    /// 
+    ///
     /// This creates a self-regulating system that becomes more confident when correct
     /// and more cautious when wrong.
     pub fn process_feedback(
@@ -241,58 +308,62 @@ impl BeliefEngine {
         const MAX_PROCESS_NOISE: f32 = 0.2;
         const PRECISION_BOOST_FACTOR: f32 = 0.9;
         const PRECISION_PENALTY_FACTOR: f32 = 1.2;
-        
+
         if success {
             // Success: Model prediction was accurate
             // → Increase precision (decrease noise)
             // → Boost learning rate slightly (model is on track)
-            
-            config.process_noise = (config.process_noise * PRECISION_BOOST_FACTOR)
-                .max(MIN_PROCESS_NOISE);
-            
+
+            config.process_noise =
+                (config.process_noise * PRECISION_BOOST_FACTOR).max(MIN_PROCESS_NOISE);
+
             // Reduce uncertainty in posterior
             for sigma in fep_state.sigma.iter_mut() {
                 *sigma = (*sigma * PRECISION_BOOST_FACTOR).max(0.001);
             }
-            
+
             // Slight learning rate boost (but respect bounds)
             fep_state.lr = (fep_state.lr * 1.05).min(config.lr_max);
-            
+
             eprintln!(
                 "FEEDBACK: SUCCESS → process_noise={:.4} (decreased), lr={:.3} (boosted)",
-                config.process_noise,
-                fep_state.lr
+                config.process_noise, fep_state.lr
             );
         } else {
             // Failure: Model prediction was inaccurate
             // → Decrease precision (increase noise) - acknowledge high entropy
             // → Reduce learning rate (be more cautious)
-            
-            config.process_noise = (config.process_noise * PRECISION_PENALTY_FACTOR)
-                .min(MAX_PROCESS_NOISE);
-            
+
+            config.process_noise =
+                (config.process_noise * PRECISION_PENALTY_FACTOR).min(MAX_PROCESS_NOISE);
+
             // Increase uncertainty in posterior
             for sigma in fep_state.sigma.iter_mut() {
                 *sigma = (*sigma * PRECISION_PENALTY_FACTOR).min(10.0);
             }
-            
+
             // Reduce learning rate (be more conservative)
             fep_state.lr = (fep_state.lr * 0.85).max(config.lr_min);
-            
+
             // Increase free energy to reflect surprise
-            fep_state.free_energy_ema = (fep_state.free_energy_ema + NOISE_ADJUSTMENT_FACTOR)
-                .min(10.0);
-            
+            fep_state.free_energy_ema =
+                (fep_state.free_energy_ema + NOISE_ADJUSTMENT_FACTOR).min(10.0);
+
             eprintln!(
                 "FEEDBACK: FAILURE → process_noise={:.4} (increased), lr={:.3} (reduced), FE={:.3}",
-                config.process_noise,
-                fep_state.lr,
-                fep_state.free_energy_ema
+                config.process_noise, fep_state.lr, fep_state.free_energy_ema
             );
         }
     }
 
-    pub fn update(&self, prev: &BeliefState, x: &SensorFeatures, phys: &PhysioState, ctx: &Context, dt_sec: f64) -> (BeliefState, BeliefDebug) {
+    pub fn update(
+        &self,
+        prev: &BeliefState,
+        x: &SensorFeatures,
+        phys: &PhysioState,
+        ctx: &Context,
+        dt_sec: f64,
+    ) -> (BeliefState, BeliefDebug) {
         // evaluate pathways deterministically in order
         let mut logits_total = self.prior_logits;
         let mut per = Vec::new();
@@ -302,20 +373,35 @@ impl BeliefEngine {
             let out = p.eval(x, phys, ctx);
             per.push((p.name().to_string(), out));
             let w = *self.w.get(i).unwrap_or(&1.0);
-            for j in 0..5 { logits_total[j] += w * out.conf * out.logits[j]; }
+            for j in 0..5 {
+                logits_total[j] += w * out.conf * out.logits[j];
+            }
             conf_sum += w * out.conf;
             weight_sum += w;
         }
         let p = softmax(logits_total);
         let alpha = (dt_sec / (self.smooth_tau_sec as f64 + dt_sec)) as f32;
         let p_smooth = ema_vec(&prev.p, &p, alpha);
-        let conf = if weight_sum > 0.0 { (conf_sum / weight_sum).clamp(0.0,1.0) } else { 0.0 };
+        let conf = if weight_sum > 0.0 {
+            (conf_sum / weight_sum).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         let mode = hysteresis_collapse(prev.mode, &p_smooth, self.enter_th, self.exit_th);
-        let st = BeliefState { p: p_smooth, conf, mode };
+        let st = BeliefState {
+            p: p_smooth,
+            conf,
+            mode,
+        };
         (st, BeliefDebug { per_pathway: per })
     }
 
-    pub fn fused_logits_and_conf(&self, x: &SensorFeatures, phys: &PhysioState, ctx: &Context) -> ([f32; 5], f32) {
+    pub fn fused_logits_and_conf(
+        &self,
+        x: &SensorFeatures,
+        phys: &PhysioState,
+        ctx: &Context,
+    ) -> ([f32; 5], f32) {
         let mut logits_total = self.prior_logits;
         let mut weight_sum = 0.0f32;
         let mut conf_sum = 0.0f32;
@@ -412,7 +498,8 @@ impl BeliefEngine {
         } else {
             (dt_sec / (tau_fe + dt_sec)).clamp(0.0, 1.0)
         };
-        let free_energy_ema = (prev_fep.free_energy_ema * (1.0 - alpha_fe) + pe * alpha_fe).max(0.0);
+        let free_energy_ema =
+            (prev_fep.free_energy_ema * (1.0 - alpha_fe) + pe * alpha_fe).max(0.0);
 
         let lr_base = cfg.fep.lr_base;
         let lr_min = cfg.fep.lr_min;
@@ -428,7 +515,11 @@ impl BeliefEngine {
         let mode = hysteresis_collapse(prev_mode, &mu_post, self.enter_th, self.exit_th);
 
         FepUpdateOut {
-            belief: BeliefState { p: mu_post, conf, mode },
+            belief: BeliefState {
+                p: mu_post,
+                conf,
+                mode,
+            },
             fep: FepState {
                 mu: mu_post,
                 sigma: sigma_post,
@@ -443,12 +534,12 @@ impl BeliefEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resonance::ResonanceFeatures;
     use crate::config::ZenbConfig;
+    use crate::resonance::ResonanceFeatures;
 
     #[test]
     fn softmax_basic() {
-        let l = [1.0,2.0,3.0,2.0,1.0];
+        let l = [1.0, 2.0, 3.0, 2.0, 1.0];
         let p = softmax(l);
         let s: f32 = p.iter().sum();
         assert!((s - 1.0).abs() < 1e-6);
@@ -457,10 +548,29 @@ mod tests {
     #[test]
     fn belief_engine_stable() {
         let be = BeliefEngine::new();
-        let prev = BeliefState { p: [0.2;5], conf: 0.8, mode: BeliefBasis::Calm };
-        let x = SensorFeatures { hr_bpm: Some(60.0), rmssd: Some(40.0), rr_bpm: Some(6.0), quality: 0.9, motion: 0.1 };
-        let phys = PhysioState { hr_bpm: Some(60.0), rr_bpm: Some(6.0), rmssd: Some(40.0), confidence: 0.9 };
-        let ctx = Context { local_hour: 12, is_charging: true, recent_sessions: 0 };
+        let prev = BeliefState {
+            p: [0.2; 5],
+            conf: 0.8,
+            mode: BeliefBasis::Calm,
+        };
+        let x = SensorFeatures {
+            hr_bpm: Some(60.0),
+            rmssd: Some(40.0),
+            rr_bpm: Some(6.0),
+            quality: 0.9,
+            motion: 0.1,
+        };
+        let phys = PhysioState {
+            hr_bpm: Some(60.0),
+            rr_bpm: Some(6.0),
+            rmssd: Some(40.0),
+            confidence: 0.9,
+        };
+        let ctx = Context {
+            local_hour: 12,
+            is_charging: true,
+            recent_sessions: 0,
+        };
         let (out, dbg) = be.update(&prev, &x, &phys, &ctx, 0.5);
         assert!(out.conf >= 0.0 && out.conf <= 1.0);
         assert_eq!(dbg.per_pathway.len(), 3);
@@ -470,12 +580,36 @@ mod tests {
     fn fep_low_obs_conf_small_update() {
         let be = BeliefEngine::new();
         let prev_mode = BeliefBasis::Calm;
-        let prev_fep = FepState { mu: [0.2; 5], sigma: [0.5; 5], free_energy_ema: 0.0, lr: 0.5 };
+        let prev_fep = FepState {
+            mu: [0.2; 5],
+            sigma: [0.5; 5],
+            free_energy_ema: 0.0,
+            lr: 0.5,
+        };
 
-        let x = SensorFeatures { hr_bpm: Some(60.0), rmssd: Some(40.0), rr_bpm: Some(6.0), quality: 0.0, motion: 0.0 };
-        let phys = PhysioState { hr_bpm: Some(60.0), rr_bpm: Some(6.0), rmssd: Some(40.0), confidence: 0.05 };
-        let ctx = Context { local_hour: 12, is_charging: true, recent_sessions: 0 };
-        let res = ResonanceFeatures { phase_diff_norm: 0.0, resonance_score: 1.0, stability_score: 1.0 };
+        let x = SensorFeatures {
+            hr_bpm: Some(60.0),
+            rmssd: Some(40.0),
+            rr_bpm: Some(6.0),
+            quality: 0.0,
+            motion: 0.0,
+        };
+        let phys = PhysioState {
+            hr_bpm: Some(60.0),
+            rr_bpm: Some(6.0),
+            rmssd: Some(40.0),
+            confidence: 0.05,
+        };
+        let ctx = Context {
+            local_hour: 12,
+            is_charging: true,
+            recent_sessions: 0,
+        };
+        let res = ResonanceFeatures {
+            phase_diff_norm: 0.0,
+            resonance_score: 1.0,
+            stability_score: 1.0,
+        };
 
         let out = be.update_fep(prev_mode, &prev_fep, &x, &phys, &ctx, 1.0, res);
         let max_delta = out
@@ -492,14 +626,42 @@ mod tests {
     fn fep_high_resonance_higher_lr_than_low_resonance() {
         let be = BeliefEngine::new();
         let prev_mode = BeliefBasis::Calm;
-        let prev_fep = FepState { mu: [0.2; 5], sigma: [0.5; 5], free_energy_ema: 0.0, lr: 0.6 };
+        let prev_fep = FepState {
+            mu: [0.2; 5],
+            sigma: [0.5; 5],
+            free_energy_ema: 0.0,
+            lr: 0.6,
+        };
 
-        let x = SensorFeatures { hr_bpm: Some(60.0), rmssd: Some(10.0), rr_bpm: Some(14.0), quality: 1.0, motion: 0.0 };
-        let phys = PhysioState { hr_bpm: Some(60.0), rr_bpm: Some(14.0), rmssd: Some(10.0), confidence: 1.0 };
-        let ctx = Context { local_hour: 12, is_charging: true, recent_sessions: 0 };
+        let x = SensorFeatures {
+            hr_bpm: Some(60.0),
+            rmssd: Some(10.0),
+            rr_bpm: Some(14.0),
+            quality: 1.0,
+            motion: 0.0,
+        };
+        let phys = PhysioState {
+            hr_bpm: Some(60.0),
+            rr_bpm: Some(14.0),
+            rmssd: Some(10.0),
+            confidence: 1.0,
+        };
+        let ctx = Context {
+            local_hour: 12,
+            is_charging: true,
+            recent_sessions: 0,
+        };
 
-        let high = ResonanceFeatures { phase_diff_norm: 0.0, resonance_score: 1.0, stability_score: 1.0 };
-        let low = ResonanceFeatures { phase_diff_norm: 1.0, resonance_score: 0.0, stability_score: 1.0 };
+        let high = ResonanceFeatures {
+            phase_diff_norm: 0.0,
+            resonance_score: 1.0,
+            stability_score: 1.0,
+        };
+        let low = ResonanceFeatures {
+            phase_diff_norm: 1.0,
+            resonance_score: 0.0,
+            stability_score: 1.0,
+        };
 
         let out_high = be.update_fep(prev_mode, &prev_fep, &x, &phys, &ctx, 1.0, high);
         let out_low = be.update_fep(prev_mode, &prev_fep, &x, &phys, &ctx, 1.0, low);
@@ -511,12 +673,36 @@ mod tests {
     fn config_lr_base_zero_freezes_learning() {
         let be = BeliefEngine::new();
         let prev_mode = BeliefBasis::Calm;
-        let prev_fep = FepState { mu: [0.2; 5], sigma: [0.5; 5], free_energy_ema: 0.0, lr: 0.6 };
+        let prev_fep = FepState {
+            mu: [0.2; 5],
+            sigma: [0.5; 5],
+            free_energy_ema: 0.0,
+            lr: 0.6,
+        };
 
-        let x = SensorFeatures { hr_bpm: Some(90.0), rmssd: Some(5.0), rr_bpm: Some(14.0), quality: 1.0, motion: 0.0 };
-        let phys = PhysioState { hr_bpm: Some(90.0), rr_bpm: Some(14.0), rmssd: Some(5.0), confidence: 1.0 };
-        let ctx = Context { local_hour: 12, is_charging: true, recent_sessions: 0 };
-        let res = ResonanceFeatures { phase_diff_norm: 0.0, resonance_score: 1.0, stability_score: 1.0 };
+        let x = SensorFeatures {
+            hr_bpm: Some(90.0),
+            rmssd: Some(5.0),
+            rr_bpm: Some(14.0),
+            quality: 1.0,
+            motion: 0.0,
+        };
+        let phys = PhysioState {
+            hr_bpm: Some(90.0),
+            rr_bpm: Some(14.0),
+            rmssd: Some(5.0),
+            confidence: 1.0,
+        };
+        let ctx = Context {
+            local_hour: 12,
+            is_charging: true,
+            recent_sessions: 0,
+        };
+        let res = ResonanceFeatures {
+            phase_diff_norm: 0.0,
+            resonance_score: 1.0,
+            stability_score: 1.0,
+        };
 
         let mut cfg = ZenbConfig::default();
         cfg.fep.lr_base = 0.0;

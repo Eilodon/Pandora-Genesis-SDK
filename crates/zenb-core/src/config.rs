@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -221,50 +221,59 @@ impl ZenbConfig {
 
         // FEP overrides
         if let Ok(val) = env::var("ZENB_FEP_PROCESS_NOISE") {
-            self.fep.process_noise = val.parse()
-                .map_err(|_| ConfigError::Validation("Invalid ZENB_FEP_PROCESS_NOISE".to_string()))?;
+            self.fep.process_noise = val.parse().map_err(|_| {
+                ConfigError::Validation("Invalid ZENB_FEP_PROCESS_NOISE".to_string())
+            })?;
         }
         if let Ok(val) = env::var("ZENB_FEP_BASE_OBS_VAR") {
-            self.fep.base_obs_var = val.parse()
-                .map_err(|_| ConfigError::Validation("Invalid ZENB_FEP_BASE_OBS_VAR".to_string()))?;
+            self.fep.base_obs_var = val.parse().map_err(|_| {
+                ConfigError::Validation("Invalid ZENB_FEP_BASE_OBS_VAR".to_string())
+            })?;
         }
         if let Ok(val) = env::var("ZENB_FEP_LR_BASE") {
-            self.fep.lr_base = val.parse()
+            self.fep.lr_base = val
+                .parse()
                 .map_err(|_| ConfigError::Validation("Invalid ZENB_FEP_LR_BASE".to_string()))?;
         }
 
         // Resonance overrides
         if let Ok(val) = env::var("ZENB_RESONANCE_WINDOW_SIZE_SEC") {
-            self.resonance.window_size_sec = val.parse()
-                .map_err(|_| ConfigError::Validation("Invalid ZENB_RESONANCE_WINDOW_SIZE_SEC".to_string()))?;
+            self.resonance.window_size_sec = val.parse().map_err(|_| {
+                ConfigError::Validation("Invalid ZENB_RESONANCE_WINDOW_SIZE_SEC".to_string())
+            })?;
         }
 
         // Safety overrides
         if let Ok(val) = env::var("ZENB_SAFETY_TRAUMA_HARD_TH") {
-            self.safety.trauma_hard_th = val.parse()
-                .map_err(|_| ConfigError::Validation("Invalid ZENB_SAFETY_TRAUMA_HARD_TH".to_string()))?;
+            self.safety.trauma_hard_th = val.parse().map_err(|_| {
+                ConfigError::Validation("Invalid ZENB_SAFETY_TRAUMA_HARD_TH".to_string())
+            })?;
         }
 
         // Breath overrides
         if let Ok(val) = env::var("ZENB_BREATH_DEFAULT_TARGET_BPM") {
-            self.breath.default_target_bpm = val.parse()
-                .map_err(|_| ConfigError::Validation("Invalid ZENB_BREATH_DEFAULT_TARGET_BPM".to_string()))?;
+            self.breath.default_target_bpm = val.parse().map_err(|_| {
+                ConfigError::Validation("Invalid ZENB_BREATH_DEFAULT_TARGET_BPM".to_string())
+            })?;
         }
 
         // Belief overrides
         if let Ok(val) = env::var("ZENB_BELIEF_SMOOTH_TAU_SEC") {
-            self.belief.smooth_tau_sec = val.parse()
-                .map_err(|_| ConfigError::Validation("Invalid ZENB_BELIEF_SMOOTH_TAU_SEC".to_string()))?;
+            self.belief.smooth_tau_sec = val.parse().map_err(|_| {
+                ConfigError::Validation("Invalid ZENB_BELIEF_SMOOTH_TAU_SEC".to_string())
+            })?;
         }
 
         // Performance overrides
         if let Ok(val) = env::var("ZENB_PERFORMANCE_BATCH_SIZE") {
-            self.performance.batch_size = val.parse()
-                .map_err(|_| ConfigError::Validation("Invalid ZENB_PERFORMANCE_BATCH_SIZE".to_string()))?;
+            self.performance.batch_size = val.parse().map_err(|_| {
+                ConfigError::Validation("Invalid ZENB_PERFORMANCE_BATCH_SIZE".to_string())
+            })?;
         }
         if let Ok(val) = env::var("ZENB_PERFORMANCE_FLUSH_INTERVAL_MS") {
-            self.performance.flush_interval_ms = val.parse()
-                .map_err(|_| ConfigError::Validation("Invalid ZENB_PERFORMANCE_FLUSH_INTERVAL_MS".to_string()))?;
+            self.performance.flush_interval_ms = val.parse().map_err(|_| {
+                ConfigError::Validation("Invalid ZENB_PERFORMANCE_FLUSH_INTERVAL_MS".to_string())
+            })?;
         }
 
         Ok(())
@@ -275,87 +284,87 @@ impl ZenbConfig {
         // FEP validation
         if self.fep.process_noise <= 0.0 || self.fep.process_noise > 1.0 {
             return Err(ConfigError::Validation(
-                "fep.process_noise must be in (0, 1]".to_string()
+                "fep.process_noise must be in (0, 1]".to_string(),
             ));
         }
         if self.fep.base_obs_var <= 0.0 {
             return Err(ConfigError::Validation(
-                "fep.base_obs_var must be positive".to_string()
+                "fep.base_obs_var must be positive".to_string(),
             ));
         }
         if self.fep.lr_min < 0.0 || self.fep.lr_min > self.fep.lr_max {
             return Err(ConfigError::Validation(
-                "fep.lr_min must be in [0, lr_max]".to_string()
+                "fep.lr_min must be in [0, lr_max]".to_string(),
             ));
         }
         if self.fep.lr_max > 1.0 {
             return Err(ConfigError::Validation(
-                "fep.lr_max must be <= 1.0".to_string()
+                "fep.lr_max must be <= 1.0".to_string(),
             ));
         }
 
         // Resonance validation
         if self.resonance.window_size_sec <= 0.0 {
             return Err(ConfigError::Validation(
-                "resonance.window_size_sec must be positive".to_string()
+                "resonance.window_size_sec must be positive".to_string(),
             ));
         }
         if self.resonance.coherence_threshold < 0.0 || self.resonance.coherence_threshold > 1.0 {
             return Err(ConfigError::Validation(
-                "resonance.coherence_threshold must be in [0, 1]".to_string()
+                "resonance.coherence_threshold must be in [0, 1]".to_string(),
             ));
         }
 
         // Safety validation
         if self.safety.trauma_hard_th <= self.safety.trauma_soft_th {
             return Err(ConfigError::Validation(
-                "safety.trauma_hard_th must be > trauma_soft_th".to_string()
+                "safety.trauma_hard_th must be > trauma_soft_th".to_string(),
             ));
         }
         if self.safety.trauma_decay_default < 0.0 || self.safety.trauma_decay_default > 1.0 {
             return Err(ConfigError::Validation(
-                "safety.trauma_decay_default must be in [0, 1]".to_string()
+                "safety.trauma_decay_default must be in [0, 1]".to_string(),
             ));
         }
 
         // Breath validation
         if self.breath.default_target_bpm < 1.0 || self.breath.default_target_bpm > 30.0 {
             return Err(ConfigError::Validation(
-                "breath.default_target_bpm must be in [1, 30]".to_string()
+                "breath.default_target_bpm must be in [1, 30]".to_string(),
             ));
         }
 
         // Belief validation
         if self.belief.pathway_weights.len() != 3 {
             return Err(ConfigError::Validation(
-                "belief.pathway_weights must have exactly 3 elements".to_string()
+                "belief.pathway_weights must have exactly 3 elements".to_string(),
             ));
         }
         if self.belief.pathway_weights.iter().any(|&w| w < 0.0) {
             return Err(ConfigError::Validation(
-                "belief.pathway_weights must be non-negative".to_string()
+                "belief.pathway_weights must be non-negative".to_string(),
             ));
         }
         if self.belief.smooth_tau_sec <= 0.0 {
             return Err(ConfigError::Validation(
-                "belief.smooth_tau_sec must be positive".to_string()
+                "belief.smooth_tau_sec must be positive".to_string(),
             ));
         }
         if self.belief.enter_threshold <= self.belief.exit_threshold {
             return Err(ConfigError::Validation(
-                "belief.enter_threshold must be > exit_threshold".to_string()
+                "belief.enter_threshold must be > exit_threshold".to_string(),
             ));
         }
 
         // Performance validation
         if self.performance.batch_size == 0 {
             return Err(ConfigError::Validation(
-                "performance.batch_size must be > 0".to_string()
+                "performance.batch_size must be > 0".to_string(),
             ));
         }
         if self.performance.max_buffer_size < self.performance.batch_size {
             return Err(ConfigError::Validation(
-                "performance.max_buffer_size must be >= batch_size".to_string()
+                "performance.max_buffer_size must be >= batch_size".to_string(),
             ));
         }
 
@@ -369,7 +378,8 @@ impl ZenbConfig {
 
     /// Save configuration to file
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), ConfigError> {
-        let content = self.to_toml_string()
+        let content = self
+            .to_toml_string()
             .map_err(|e| ConfigError::Validation(format!("TOML serialization error: {}", e)))?;
         fs::write(path, content)?;
         Ok(())

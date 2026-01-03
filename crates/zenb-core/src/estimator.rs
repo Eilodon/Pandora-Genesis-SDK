@@ -25,10 +25,10 @@ pub struct Estimator {
 
 impl Default for Estimator {
     fn default() -> Self {
-        Self { 
-            hr_ema: None, 
-            rr_ema: None, 
-            rmssd_ema: None, 
+        Self {
+            hr_ema: None,
+            rr_ema: None,
+            rmssd_ema: None,
             last_ts_us: None,
             last_estimate: None,
         }
@@ -60,13 +60,13 @@ impl Estimator {
 
         // dt in seconds
         let dt_s = (dt_us as f32) / 1_000_000f32;
-        
+
         // First sample (dt_us == 0) uses alpha=1.0 for direct initialization
         // Subsequent samples use exponential decay based on dt
-        let alpha = if dt_us == 0 { 
-            1.0 
-        } else { 
-            (1.0 - (-dt_s).exp()).clamp(0.01, 0.9) 
+        let alpha = if dt_us == 0 {
+            1.0
+        } else {
+            (1.0 - (-dt_s).exp()).clamp(0.01, 0.9)
         };
 
         if let Some(v) = hr {
@@ -92,11 +92,19 @@ impl Estimator {
 
         // confidence heuristic: presence of rr + hr and rmssd, and magnitude of rmssd
         let mut conf = 0.0f32;
-        if self.hr_ema.is_some() { conf += 0.35; }
-        if self.rr_ema.is_some() { conf += 0.35; }
-        if self.rmssd_ema.is_some() { conf += 0.3; }
+        if self.hr_ema.is_some() {
+            conf += 0.35;
+        }
+        if self.rr_ema.is_some() {
+            conf += 0.35;
+        }
+        if self.rmssd_ema.is_some() {
+            conf += 0.3;
+        }
         // more rmssd implies better signal (not perfect, but simple)
-        if let Some(rm) = self.rmssd_ema { conf *= (rm / (rm + 20.0)).clamp(0.0, 1.0); }
+        if let Some(rm) = self.rmssd_ema {
+            conf *= (rm / (rm + 20.0)).clamp(0.0, 1.0);
+        }
         let conf = conf.clamp(0.0, 1.0);
 
         let estimate = Estimate {
@@ -106,10 +114,10 @@ impl Estimator {
             rmssd: self.rmssd_ema,
             confidence: conf,
         };
-        
+
         // Cache estimate for burst protection
         self.last_estimate = Some(estimate.clone());
-        
+
         estimate
     }
 }

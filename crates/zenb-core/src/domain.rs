@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use thiserror::Error;
 use blake3::Hasher;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use uuid::Uuid;
 
 use crate::config::ZenbConfig;
 
@@ -12,11 +12,11 @@ use crate::config::ZenbConfig;
 
 /// PR4: Compute time delta with saturating subtraction to prevent wraparound.
 /// If clocks go backwards (now < last), returns 0 instead of wrapping to huge value.
-/// 
+///
 /// # Arguments
 /// * `now_us` - Current timestamp in microseconds
 /// * `last_us` - Previous timestamp in microseconds
-/// 
+///
 /// # Returns
 /// Elapsed time in microseconds, guaranteed non-negative (0 if clocks went backwards)
 #[inline]
@@ -79,12 +79,12 @@ pub struct BioMetrics {
     /// Active Inference uses this as a proxy for autonomic arousal state.
     /// Typical range: 40-200 BPM.
     pub hr_bpm: Option<f32>,
-    
+
     /// Heart Rate Variability (HRV) measured as RMSSD in milliseconds.
     /// Higher HRV generally indicates better parasympathetic tone and stress resilience.
     /// Typical range: 20-100 ms for adults.
     pub hrv_rmssd: Option<f32>,
-    
+
     /// Respiratory rate in breaths per minute.
     /// Key input for breath-based interventions and arousal assessment.
     /// Typical range: 8-20 breaths/min.
@@ -98,11 +98,11 @@ pub struct EnvironmentalContext {
     /// Type of location the user is currently in.
     /// Influences intervention appropriateness (e.g., no audio in meetings).
     pub location_type: Option<LocationType>,
-    
+
     /// Ambient noise level in decibels (dB) or normalized 0-1 scale.
     /// High noise can indicate stressful environment or limit audio interventions.
     pub noise_level: Option<f32>,
-    
+
     /// Whether the device is currently charging.
     /// Affects power budget for continuous monitoring and interventions.
     pub is_charging: bool,
@@ -115,12 +115,12 @@ pub struct DigitalContext {
     /// Category of the currently active application.
     /// Helps infer cognitive state and intervention timing.
     pub active_app_category: Option<AppCategory>,
-    
+
     /// Interaction intensity normalized to [0, 1].
     /// 0 = passive consumption, 1 = high-frequency interaction (typing, swiping).
     /// Derived from touch events, keyboard activity, or app usage patterns.
     pub interaction_intensity: Option<f32>,
-    
+
     /// Notification pressure: rate or volume of incoming notifications.
     /// High values indicate potential for interruption-driven stress.
     /// Can be measured as notifications per hour or cumulative attention demand.
@@ -135,15 +135,15 @@ pub struct Observation {
     /// Timestamp of the observation in microseconds since epoch.
     /// Critical for temporal inference and time-series analysis.
     pub timestamp_us: i64,
-    
+
     /// Biological sensor data (heart rate, HRV, respiration).
     /// Optional to handle cases where wearables are not connected.
     pub bio_metrics: Option<BioMetrics>,
-    
+
     /// Environmental context (location, noise, charging state).
     /// Optional but provides important priors for intervention planning.
     pub environmental_context: Option<EnvironmentalContext>,
-    
+
     /// Digital context (app usage, interaction patterns, notifications).
     /// Optional but essential for digital wellbeing interventions.
     pub digital_context: Option<DigitalContext>,
@@ -208,21 +208,21 @@ pub struct CausalBeliefState {
     /// Index 0 = Calm, 1 = Aroused, 2 = Fatigue.
     /// Used for: breath guidance, stress interventions, energy management.
     pub bio_state: [f32; 3],
-    
+
     /// Probability distribution over cognitive states [Focus, Distracted, Flow].
     /// Index 0 = Focus, 1 = Distracted, 2 = Flow.
     /// Used for: notification management, app suggestions, break timing.
     pub cognitive_state: [f32; 3],
-    
+
     /// Probability distribution over social states [Solitary, Interactive, Overwhelmed].
     /// Index 0 = Solitary, 1 = Interactive, 2 = Overwhelmed.
     /// Used for: communication boundaries, social recovery interventions.
     pub social_state: [f32; 3],
-    
+
     /// Overall confidence in the belief state (0-1).
     /// Low confidence triggers more exploratory policies or requests for more data.
     pub confidence: f32,
-    
+
     /// Timestamp of last belief update in microseconds.
     pub last_update_us: i64,
 }
@@ -231,9 +231,9 @@ impl Default for CausalBeliefState {
     fn default() -> Self {
         Self {
             // Uniform prior: maximum uncertainty
-            bio_state: [1.0/3.0, 1.0/3.0, 1.0/3.0],
-            cognitive_state: [1.0/3.0, 1.0/3.0, 1.0/3.0],
-            social_state: [1.0/3.0, 1.0/3.0, 1.0/3.0],
+            bio_state: [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0],
+            cognitive_state: [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0],
+            social_state: [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0],
             confidence: 0.0,
             last_update_us: 0,
         }
@@ -243,42 +243,48 @@ impl Default for CausalBeliefState {
 impl CausalBeliefState {
     /// Get the most likely biological state (MAP estimate).
     pub fn most_likely_bio_state(&self) -> BioState {
-        let max_idx = self.bio_state.iter()
+        let max_idx = self
+            .bio_state
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx)
             .unwrap_or(0);
-        
+
         match max_idx {
             0 => BioState::Calm,
             1 => BioState::Aroused,
             _ => BioState::Fatigue,
         }
     }
-    
+
     /// Get the most likely cognitive state (MAP estimate).
     pub fn most_likely_cognitive_state(&self) -> CognitiveState {
-        let max_idx = self.cognitive_state.iter()
+        let max_idx = self
+            .cognitive_state
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx)
             .unwrap_or(0);
-        
+
         match max_idx {
             0 => CognitiveState::Focus,
             1 => CognitiveState::Distracted,
             _ => CognitiveState::Flow,
         }
     }
-    
+
     /// Get the most likely social state (MAP estimate).
     pub fn most_likely_social_state(&self) -> SocialState {
-        let max_idx = self.social_state.iter()
+        let max_idx = self
+            .social_state
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
             .map(|(idx, _)| idx)
             .unwrap_or(0);
-        
+
         match max_idx {
             0 => SocialState::Solitary,
             1 => SocialState::Interactive,
@@ -322,18 +328,49 @@ pub enum EventPriority {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Event {
-    SessionStarted { mode: String },
-    SensorFeaturesIngested { features: Vec<f32>, downsampled: bool },
-    ControlDecisionMade { decision: ControlDecision },
-    PatternAdjusted { pattern_id: String },
-    CycleCompleted { cycles: u32 },
+    SessionStarted {
+        mode: String,
+    },
+    SensorFeaturesIngested {
+        features: Vec<f32>,
+        downsampled: bool,
+    },
+    ControlDecisionMade {
+        decision: ControlDecision,
+    },
+    PatternAdjusted {
+        pattern_id: String,
+    },
+    CycleCompleted {
+        cycles: u32,
+    },
     SessionEnded {},
     Tombstone {},
-    BeliefUpdated { p: [f32;5], conf: f32, mode: u8 },
-    BeliefUpdatedV2 { p: [f32;5], conf: f32, mode: u8, free_energy_ema: f32, lr: f32, resonance_score: f32 },
-    PolicyChosen { mode: u8, reason_bits: u32, conf: f32 },
-    ControlDecisionDenied { reason: String, timestamp: i64 },
-    ConfigUpdated { config: ZenbConfig },
+    BeliefUpdated {
+        p: [f32; 5],
+        conf: f32,
+        mode: u8,
+    },
+    BeliefUpdatedV2 {
+        p: [f32; 5],
+        conf: f32,
+        mode: u8,
+        free_energy_ema: f32,
+        lr: f32,
+        resonance_score: f32,
+    },
+    PolicyChosen {
+        mode: u8,
+        reason_bits: u32,
+        conf: f32,
+    },
+    ControlDecisionDenied {
+        reason: String,
+        timestamp: i64,
+    },
+    ConfigUpdated {
+        config: ZenbConfig,
+    },
 }
 
 impl Event {
@@ -344,28 +381,28 @@ impl Event {
             // CRITICAL: Session lifecycle (forensic requirement)
             Event::SessionStarted { .. } => EventPriority::Critical,
             Event::SessionEnded { .. } => EventPriority::Critical,
-            
+
             // CRITICAL: Control decisions and denials (safety audit)
             Event::ControlDecisionMade { .. } => EventPriority::Critical,
             Event::ControlDecisionDenied { .. } => EventPriority::Critical,
-            
+
             // CRITICAL: Configuration changes (schema evolution)
             Event::ConfigUpdated { .. } => EventPriority::Critical,
-            
+
             // CRITICAL: Pattern adjustments (intervention tracking)
             Event::PatternAdjusted { .. } => EventPriority::Critical,
-            
+
             // CRITICAL: Tombstone (trauma/error markers)
             Event::Tombstone { .. } => EventPriority::Critical,
-            
+
             // HIGH-FREQ: Sensor data (can be downsampled)
             Event::SensorFeaturesIngested { .. } => EventPriority::HighFreq,
-            
+
             // HIGH-FREQ: Belief updates (1-2Hz, can coalesce)
             Event::BeliefUpdated { .. } => EventPriority::HighFreq,
             Event::BeliefUpdatedV2 { .. } => EventPriority::HighFreq,
             Event::PolicyChosen { .. } => EventPriority::HighFreq,
-            
+
             // HIGH-FREQ: Cycle completions (low-frequency telemetry)
             Event::CycleCompleted { .. } => EventPriority::HighFreq,
         }
@@ -414,7 +451,7 @@ pub struct BreathState {
     pub last_decision: Option<ControlDecision>,
     pub current_mode: Option<u8>,
     pub belief_conf: Option<f32>,
-    pub belief_p: Option<[f32;5]>,
+    pub belief_p: Option<[f32; 5]>,
     pub config_hash: Option<[u8; 32]>,
 }
 
@@ -422,12 +459,18 @@ pub struct BreathState {
 /// This ensures identical hashes across platforms regardless of floating-point representation
 fn f32_to_canonical(val: f32) -> i64 {
     const SCALE: f32 = 1_000_000.0;
-    
+
     // Handle edge cases for complete determinism
-    if val.is_nan() { return i64::MAX; }
-    if val == f32::INFINITY { return i64::MAX - 1; }
-    if val == f32::NEG_INFINITY { return i64::MIN; }
-    
+    if val.is_nan() {
+        return i64::MAX;
+    }
+    if val == f32::INFINITY {
+        return i64::MAX - 1;
+    }
+    if val == f32::NEG_INFINITY {
+        return i64::MIN;
+    }
+
     // Clamp to safe range to prevent overflow
     let clamped = val.clamp(-2147.0, 2147.0);
     (clamped * SCALE).round() as i64
@@ -453,16 +496,30 @@ impl BreathState {
                 self.belief_conf = Some(*conf);
                 self.belief_p = Some(*p);
             }
-            Event::BeliefUpdatedV2 { p, conf, mode, free_energy_ema: _, lr: _, resonance_score: _ } => {
+            Event::BeliefUpdatedV2 {
+                p,
+                conf,
+                mode,
+                free_energy_ema: _,
+                lr: _,
+                resonance_score: _,
+            } => {
                 self.current_mode = Some(*mode);
                 self.belief_conf = Some(*conf);
                 self.belief_p = Some(*p);
             }
-            Event::PolicyChosen { mode, reason_bits: _, conf } => {
+            Event::PolicyChosen {
+                mode,
+                reason_bits: _,
+                conf,
+            } => {
                 self.current_mode = Some(*mode);
                 self.belief_conf = Some(*conf);
             }
-            Event::ControlDecisionDenied { reason: _, timestamp: _ } => {
+            Event::ControlDecisionDenied {
+                reason: _,
+                timestamp: _,
+            } => {
                 // Denials do not change deterministic breath state, but are recorded as events for auditing.
             }
             Event::ConfigUpdated { config } => {
@@ -479,13 +536,13 @@ impl BreathState {
     pub fn hash(&self) -> [u8; 32] {
         // Deterministic manual hashing instead of JSON to ensure cross-platform consistency
         let mut hasher = Hasher::new();
-        
+
         // Hash session_active
         hasher.update(&[if self.session_active { 1u8 } else { 0u8 }]);
-        
+
         // Hash total_cycles
         hasher.update(&self.total_cycles.to_le_bytes());
-        
+
         // Hash last_decision with fixed-point conversion
         match &self.last_decision {
             Some(decision) => {
@@ -495,29 +552,35 @@ impl BreathState {
                 hasher.update(&target_fixed.to_le_bytes());
                 hasher.update(&conf_fixed.to_le_bytes());
                 hasher.update(&decision.recommended_poll_interval_ms.to_le_bytes());
-            },
-            None => { hasher.update(&[0u8]); }
+            }
+            None => {
+                hasher.update(&[0u8]);
+            }
         }
-        
+
         // Hash current_mode
         match self.current_mode {
             Some(mode) => {
                 hasher.update(&[1u8]);
                 hasher.update(&[mode]);
-            },
-            None => { hasher.update(&[0u8]); }
+            }
+            None => {
+                hasher.update(&[0u8]);
+            }
         }
-        
+
         // Hash belief_conf with fixed-point conversion
         match self.belief_conf {
             Some(conf) => {
                 hasher.update(&[1u8]);
                 let conf_fixed = f32_to_canonical(conf);
                 hasher.update(&conf_fixed.to_le_bytes());
-            },
-            None => { hasher.update(&[0u8]); }
+            }
+            None => {
+                hasher.update(&[0u8]);
+            }
         }
-        
+
         // Hash belief_p array with fixed-point conversion
         match self.belief_p {
             Some(p) => {
@@ -526,19 +589,23 @@ impl BreathState {
                     let val_fixed = f32_to_canonical(*val);
                     hasher.update(&val_fixed.to_le_bytes());
                 }
-            },
-            None => { hasher.update(&[0u8]); }
+            }
+            None => {
+                hasher.update(&[0u8]);
+            }
         }
-        
+
         // Hash config_hash
         match &self.config_hash {
             Some(hash) => {
                 hasher.update(&[1u8]);
                 hasher.update(hash);
-            },
-            None => { hasher.update(&[0u8]); }
+            }
+            None => {
+                hasher.update(&[0u8]);
+            }
         }
-        
+
         let out = hasher.finalize();
         *out.as_bytes()
     }
@@ -562,7 +629,7 @@ mod tests {
         let now = 500000;
         let last = 1000000;
         assert_eq!(dt_us(now, last), 0);
-        
+
         // Verify we don't get huge wraparound value
         assert!(dt_us(now, last) < 1000);
     }

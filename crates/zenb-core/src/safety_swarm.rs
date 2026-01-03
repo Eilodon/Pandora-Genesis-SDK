@@ -2,6 +2,7 @@ use crate::belief::BeliefState;
 use crate::belief::Context as BeliefCtx;
 use crate::belief::PhysioState;
 use blake3::Hasher;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -13,7 +14,7 @@ pub struct TraumaHit {
 }
 
 pub trait TraumaSource {
-    fn query_trauma(&self, sig_hash: &[u8], now_ts_us: i64) -> Option<TraumaHit>;
+    fn query_trauma(&self, sig_hash: &[u8], now_ts_us: i64) -> Result<Option<TraumaHit>, String>;
 }
 
 /// TraumaRegistry for recording negative feedback from action outcomes.
@@ -125,8 +126,8 @@ impl TraumaRegistry {
 }
 
 impl TraumaSource for TraumaRegistry {
-    fn query_trauma(&self, sig_hash: &[u8], _now_ts_us: i64) -> Option<TraumaHit> {
-        self.query(sig_hash)
+    fn query_trauma(&self, sig_hash: &[u8], _now_ts_us: i64) -> Result<Option<TraumaHit>, String> {
+        Ok(self.query(sig_hash))
     }
 }
 
@@ -349,9 +350,22 @@ impl<'a> Guard for TraumaGuard<'a> {
         ctx: &BeliefCtx,
         now_ts_us: i64,
     ) -> Vote {
+        const MAX_FUTURE_SKEW_US: i64 = 365 * 24 * 60 * 60 * 1_000_000; // 1 year
+
+        // Time sanity: reject zero/negative or far-future timestamps to avoid bypassing inhibit logic.
+        if now_ts_us <= 0 {
+            return Vote::Deny("trauma_invalid_time");
+        }
+        let current_ts_us = Utc::now().timestamp_micros();
+        if now_ts_us > current_ts_us + MAX_FUTURE_SKEW_US {
+            return Vote::Deny("trauma_invalid_time_future");
+        }
+
         let sig = Self::sig_hash(patch, belief, ctx);
-        let Some(hit) = self.source.query_trauma(&sig, now_ts_us) else {
-            return Vote::Allow(Clamp::default(), 1.0, 0x0);
+        let hit = match self.source.query_trauma(&sig, now_ts_us) {
+            Ok(Some(hit)) => hit,
+            Ok(None) => return Vote::Allow(Clamp::default(), 1.0, 0x0),
+            Err(_e) => return Vote::Deny("trauma_lookup_failed"),
         };
 
         if now_ts_us < hit.inhibit_until_ts_us {
@@ -460,8 +474,12 @@ mod tests {
         hit: Option<TraumaHit>,
     }
     impl TraumaSource for DummyTrauma {
-        fn query_trauma(&self, _sig_hash: &[u8], _now_ts_us: i64) -> Option<TraumaHit> {
-            self.hit
+        fn query_trauma(
+            &self,
+            _sig_hash: &[u8],
+            _now_ts_us: i64,
+        ) -> Result<Option<TraumaHit>, String> {
+            Ok(self.hit)
         }
     }
 

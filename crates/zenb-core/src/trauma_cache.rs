@@ -1,4 +1,4 @@
-use crate::safety_swarm::{TraumaSource, TraumaHit};
+use crate::safety_swarm::{TraumaHit, TraumaSource};
 use lru::LruCache;
 use std::num::NonZeroUsize;
 
@@ -37,12 +37,12 @@ impl Default for TraumaCache {
 }
 
 impl TraumaSource for TraumaCache {
-    fn query_trauma(&self, sig_hash: &[u8], _now_ts_us: i64) -> Option<TraumaHit> {
+    fn query_trauma(&self, sig_hash: &[u8], _now_ts_us: i64) -> Result<Option<TraumaHit>, String> {
         if sig_hash.len() != 32 {
-            return None;
+            return Ok(None);
         }
         let mut key = [0u8; 32];
         key.copy_from_slice(sig_hash);
-        self.cache.peek(&key).copied()
+        Ok(self.cache.peek(&key).copied())
     }
 }

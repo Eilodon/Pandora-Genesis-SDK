@@ -30,7 +30,12 @@ pub struct PhaseMachine {
 
 impl PhaseMachine {
     pub fn new(durations: PhaseDurations) -> Self {
-        PhaseMachine { phase: Phase::Inhale, elapsed_us: 0, durations, cycle_index: 0 }
+        PhaseMachine {
+            phase: Phase::Inhale,
+            elapsed_us: 0,
+            durations,
+            cycle_index: 0,
+        }
     }
 
     /// Compute remaining time in current phase
@@ -52,7 +57,11 @@ impl PhaseMachine {
             Phase::Inhale => Phase::HoldIn,
             Phase::HoldIn => Phase::Exhale,
             Phase::Exhale => Phase::HoldOut,
-            Phase::HoldOut => { cycle_completed = true; self.cycle_index += 1; Phase::Inhale }
+            Phase::HoldOut => {
+                cycle_completed = true;
+                self.cycle_index += 1;
+                Phase::Inhale
+            }
         };
         cycle_completed
     }
@@ -71,7 +80,9 @@ impl PhaseMachine {
                 dt_us = dt_us.saturating_sub(left);
                 let cycle = self.transition();
                 trans.push(self.phase.clone());
-                if cycle { cycles += 1; }
+                if cycle {
+                    cycles += 1;
+                }
                 // continue looping if dt_us still > 0
             }
         }
@@ -88,7 +99,9 @@ impl PhaseMachine {
             Phase::Inhale => 0,
             Phase::HoldIn => self.durations.inhale_us,
             Phase::Exhale => self.durations.inhale_us + self.durations.hold_in_us,
-            Phase::HoldOut => self.durations.inhale_us + self.durations.hold_in_us + self.durations.exhale_us,
+            Phase::HoldOut => {
+                self.durations.inhale_us + self.durations.hold_in_us + self.durations.exhale_us
+            }
         };
         let pos = before.saturating_add(self.elapsed_us).min(total);
         (pos as f32) / (total as f32)
@@ -101,7 +114,12 @@ mod tests {
 
     #[test]
     fn phase_cycle() {
-        let durations = PhaseDurations { inhale_us: 1_000, hold_in_us: 100, exhale_us: 1_000, hold_out_us: 200 };
+        let durations = PhaseDurations {
+            inhale_us: 1_000,
+            hold_in_us: 100,
+            exhale_us: 1_000,
+            hold_out_us: 200,
+        };
         let mut pm = PhaseMachine::new(durations);
         let (t, c) = pm.tick(500);
         assert!(t.is_empty());

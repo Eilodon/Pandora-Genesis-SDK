@@ -5,21 +5,20 @@
 //! The canonical BeliefState is crate::belief::BeliefState (5-mode collapsed).
 //! CausalBeliefState (3-factor) is exported for causal layer use only.
 
-pub mod domain;
-pub mod replay;
-pub mod policy;
+pub mod belief;
+pub mod breath_engine;
+pub mod causal;
 pub mod config;
+pub mod controller;
+pub mod domain;
+pub mod engine;
 pub mod estimator;
-pub mod safety;
+pub mod phase_machine;
+pub mod policy;
+pub mod replay;
+pub mod resonance;
 pub mod safety_swarm;
 pub mod trauma_cache;
-pub mod controller;
-pub mod phase_machine;
-pub mod breath_engine;
-pub mod belief;
-pub mod resonance;
-pub mod engine;
-pub mod causal;
 
 // ============================================================================
 // CURATED PUBLIC API EXPORTS (PR1: No more wildcard exports)
@@ -27,78 +26,90 @@ pub mod causal;
 
 // Domain types (event sourcing infrastructure)
 pub use domain::{
-    SessionId, Envelope, Event, EventPriority, ControlDecision, DomainError, BreathState,
-    Observation, BioMetrics, EnvironmentalContext, DigitalContext,
-    LocationType, AppCategory,
-    BioState, CognitiveState, SocialState,
+    dt_sec, // PR4: Time delta helpers (prevent wraparound)
+    dt_us,
+    AppCategory,
+    BioMetrics,
+    BioState,
+    BreathState,
     CausalBeliefState, // 3-factor representation for causal layer ONLY
-    dt_us, dt_sec, // PR4: Time delta helpers (prevent wraparound)
+    CognitiveState,
+    ControlDecision,
+    DigitalContext,
+    DomainError,
+    Envelope,
+    EnvironmentalContext,
+    Event,
+    EventPriority,
+    LocationType,
+    Observation,
+    SessionId,
+    SocialState,
 };
 
 // Replay infrastructure
-pub use replay::{Replayer, ReplayError};
+pub use replay::{ReplayError, Replayer};
 
 // Policy types
-pub use policy::{PolicyMode, PolicyConfig};
+pub use policy::{PolicyConfig, PolicyMode};
 
 // Configuration
-pub use config::{ZenbConfig, BreathConfig, BeliefConfig, FepConfig, ResonanceConfig, SafetyConfig};
+pub use config::{
+    BeliefConfig, BreathConfig, FepConfig, ResonanceConfig, SafetyConfig, ZenbConfig,
+};
 
 // Estimator
-pub use estimator::{Estimator, Estimate};
-
-// Safety envelope
-pub use safety::SafetyEnvelope;
+pub use estimator::{Estimate, Estimator};
 
 // Safety swarm (trauma system)
 pub use safety_swarm::{
-    TraumaHit, TraumaSource, TraumaRegistry, Guard, TraumaGuard, ConfidenceGuard,
-    BreathBoundsGuard, RateLimitGuard, ComfortGuard, ResourceGuard,
-    PatternPatch, Clamp, decide, trauma_sig_hash,
+    decide, trauma_sig_hash, BreathBoundsGuard, Clamp, ComfortGuard, ConfidenceGuard, Guard,
+    PatternPatch, RateLimitGuard, ResourceGuard, TraumaGuard, TraumaHit, TraumaRegistry,
+    TraumaSource,
 };
 
 // Trauma cache
 pub use trauma_cache::TraumaCache;
 
 // Controller
-pub use controller::{AdaptiveController, ControllerConfig, compute_poll_interval};
+pub use controller::{compute_poll_interval, AdaptiveController, ControllerConfig};
 
 // Phase machine
-pub use phase_machine::{PhaseMachine, BreathPhase, PhaseDurations, PhaseTransition};
+pub use phase_machine::{BreathPhase, PhaseDurations, PhaseMachine, PhaseTransition};
 
 // Breath engine
 pub use breath_engine::{BreathEngine, BreathMode};
 
 // Belief engine (CANONICAL BeliefState is here)
 pub use belief::{
-    BeliefState,      // CANONICAL: 5-mode collapsed belief state
-    BeliefBasis,      // Enum: Calm, Stress, Focus, Sleepy, Energize
-    FepState,         // Free Energy Principle state
-    FepUpdateOut,     // FEP update output
-    BeliefEngine,     // Belief update engine
-    BeliefDebug,      // Debug info
-    Context,          // Contextual info (hour, charging, sessions)
-    SensorFeatures,   // Sensor input
-    PhysioState,      // Physiological state
-    PathwayOut,       // Pathway output
-    Pathway,          // Pathway trait
+    BeliefBasis,    // Enum: Calm, Stress, Focus, Sleepy, Energize
+    BeliefDebug,    // Debug info
+    BeliefEngine,   // Belief update engine
+    BeliefState,    // CANONICAL: 5-mode collapsed belief state
+    Context,        // Contextual info (hour, charging, sessions)
+    FepState,       // Free Energy Principle state
+    FepUpdateOut,   // FEP update output
+    Pathway,        // Pathway trait
+    PathwayOut,     // Pathway output
+    PhysioState,    // Physiological state
+    SensorFeatures, // Sensor input
 };
 
 // Resonance tracker
-pub use resonance::{ResonanceTracker, ResonanceFeatures};
+pub use resonance::{ResonanceFeatures, ResonanceTracker};
 
 // Engine (high-level orchestrator)
 pub use engine::Engine;
 
 // Causal reasoning
 pub use causal::{
-    Variable, CausalGraph, ActionType, ActionPolicy, PredictedState,
-    ObservationSnapshot, CausalBuffer,
+    ActionPolicy, ActionType, CausalBuffer, CausalGraph, ObservationSnapshot, PredictedState,
+    Variable,
 };
 
+#[cfg(test)]
+mod tests_config;
 #[cfg(test)]
 mod tests_determinism;
 #[cfg(test)]
 mod tests_estimator;
-#[cfg(test)]
-mod tests_config;

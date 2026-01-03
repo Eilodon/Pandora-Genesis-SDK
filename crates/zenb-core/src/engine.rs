@@ -1,18 +1,16 @@
-use crate::controller::AdaptiveController;
-use crate::estimator::Estimator;
-use crate::safety::SafetyEnvelope;
-use crate::safety_swarm::{TraumaSource, TraumaRegistry};
-use crate::trauma_cache::TraumaCache;
-use crate::resonance::ResonanceTracker;
 use crate::breath_engine::BreathEngine;
-use crate::domain::ControlDecision;
+use crate::causal::{CausalBuffer, CausalGraph, ObservationSnapshot};
 use crate::config::ZenbConfig;
-use crate::causal::{CausalGraph, CausalBuffer, ObservationSnapshot};
+use crate::controller::AdaptiveController;
+use crate::domain::ControlDecision;
+use crate::estimator::Estimator;
+use crate::resonance::ResonanceTracker;
+use crate::safety_swarm::{TraumaRegistry, TraumaSource};
+use crate::trauma_cache::TraumaCache;
 
 /// High-level engine that holds estimator, safety envelope, controller and breath engine.
 pub struct Engine {
     pub estimator: Estimator,
-    pub safety: SafetyEnvelope,
     pub controller: AdaptiveController,
     pub breath: BreathEngine,
     pub belief_engine: crate::belief::BeliefEngine,
@@ -45,20 +43,26 @@ impl Engine {
     pub fn new_with_config(default_bpm: f32, config: Option<ZenbConfig>) -> Self {
         let cfg = config.unwrap_or_default();
         let est = Estimator::default();
-        let safety = SafetyEnvelope::new(Default::default());
         let controller = AdaptiveController::new(Default::default());
         let mut breath = BreathEngine::new(crate::breath_engine::BreathMode::Dynamic(default_bpm));
-        let target_bpm = if default_bpm > 0.0 { default_bpm } else { cfg.breath.default_target_bpm };
+        let target_bpm = if default_bpm > 0.0 {
+            default_bpm
+        } else {
+            cfg.breath.default_target_bpm
+        };
         breath.set_target_bpm(target_bpm);
         Self {
             estimator: est,
-            safety,
             controller,
             breath,
             belief_engine: crate::belief::BeliefEngine::from_config(&cfg.belief),
             belief_state: crate::belief::BeliefState::default(),
             fep_state: crate::belief::FepState::default(),
-            context: crate::belief::Context { local_hour: 0, is_charging: false, recent_sessions: 0 },
+            context: crate::belief::Context {
+                local_hour: 0,
+                is_charging: false,
+                recent_sessions: 0,
+            },
             config: cfg,
             last_ts_us: None,
             last_control_ts_us: None,
@@ -88,7 +92,12 @@ impl Engine {
     }
 
     /// Convenience: ingest sensor features and update context atomically
-    pub fn ingest_sensor_with_context(&mut self, features: &[f32], ts_us: i64, ctx: crate::belief::Context) -> Estimate {
+    pub fn ingest_sensor_with_context(
+        &mut self,
+        features: &[f32],
+        ts_us: i64,
+        ctx: crate::belief::Context,
+    ) -> Estimate {
         self.update_context(ctx);
         self.ingest_sensor(features, ts_us)
     }
@@ -101,9 +110,23 @@ impl Engine {
     pub fn ingest_sensor(&mut self, features: &[f32], ts_us: i64) -> Estimate {
         let est = self.estimator.ingest(features, ts_us);
         // Build SensorFeatures and PhysioState for control-tick belief/FEP update
-        debug_assert!(features.len() >= 3, "features layout must be [hr, rmssd, rr, quality, motion] (quality/motion optional)");
-        let sf = crate::belief::SensorFeatures { hr_bpm: est.hr_bpm, rmssd: est.rmssd, rr_bpm: est.rr_bpm, quality: features.get(3).cloned().unwrap_or(1.0), motion: features.get(4).cloned().unwrap_or(0.0) };
-        let phys = crate::belief::PhysioState { hr_bpm: est.hr_bpm, rr_bpm: est.rr_bpm, rmssd: est.rmssd, confidence: est.confidence };
+        debug_assert!(
+            features.len() >= 3,
+            "features layout must be [hr, rmssd, rr, quality, motion] (quality/motion optional)"
+        );
+        let sf = crate::belief::SensorFeatures {
+            hr_bpm: est.hr_bpm,
+            rmssd: est.rmssd,
+            rr_bpm: est.rr_bpm,
+            quality: features.get(3).cloned().unwrap_or(1.0),
+            motion: features.get(4).cloned().unwrap_or(0.0),
+        };
+        let phys = crate::belief::PhysioState {
+            hr_bpm: est.hr_bpm,
+            rr_bpm: est.rr_bpm,
+            rmssd: est.rmssd,
+            confidence: est.confidence,
+        };
         self.last_sf = Some(sf);
         self.last_phys = Some(phys);
         est
@@ -112,7 +135,7 @@ impl Engine {
     /// Advance engine time and compute any cycles (returns cycle count)
     pub fn tick(&mut self, dt_us: u64) -> u64 {
         let (trans, cycles) = self.breath.tick(dt_us);
-        
+
         // Push current observation into causal buffer if available
         // Map canonical belief::BeliefState (5-mode) to CausalBeliefState (3-factor)
         if let Some(ref obs) = self.last_observation {
@@ -129,9 +152,9 @@ impl Engine {
                         self.belief_state.p[3], // Sleepy (Fatigue)
                     ],
                     cognitive_state: [
-                        self.belief_state.p[2], // Focus
+                        self.belief_state.p[2],       // Focus
                         1.0 - self.belief_state.p[2], // Distracted (inverse of Focus)
-                        0.0, // Flow (not directly mapped)
+                        0.0,                          // Flow (not directly mapped)
                     ],
                     social_state: [
                         0.33, // Solitary (uniform prior - not tracked in 5-mode)
@@ -144,10 +167,10 @@ impl Engine {
             };
             self.causal_buffer.push(snapshot);
         }
-        
+
         cycles
     }
-    
+
     /// Ingest a full observation (for causal reasoning layer)
     pub fn ingest_observation(&mut self, observation: crate::domain::Observation) {
         self.last_observation = Some(observation);
@@ -155,7 +178,7 @@ impl Engine {
 
     /// Sync trauma hits from persistent storage into the in-memory cache.
     /// This should be called by the Runtime layer on startup to hydrate the cache.
-    /// 
+    ///
     /// # Arguments
     /// * `hits` - Vector of (context_hash, TraumaHit) pairs from persistent storage
     pub fn sync_trauma(&mut self, hits: Vec<([u8; 32], crate::safety_swarm::TraumaHit)>) {
@@ -167,19 +190,19 @@ impl Engine {
     /// Learn from action outcome feedback.
     /// This method coordinates updates to both the TraumaRegistry and BeliefEngine
     /// based on whether the action was successful.
-    /// 
+    ///
     /// # Arguments
     /// * `success` - Whether the action was successful
     /// * `action_type` - Type of action that was executed (for trauma logging)
     /// * `ts_us` - Timestamp of the outcome
     /// * `severity` - Severity of failure (0.0-5.0), ignored if success=true
-    /// 
+    ///
     /// # Safety Behavior
     /// On failure, the system becomes MORE CONSERVATIVE:
     /// - Trauma registry records the failure with exponential backoff
     /// - Belief engine increases process noise (acknowledges uncertainty)
     /// - Learning rate is reduced (more cautious updates)
-    /// 
+    ///
     /// On success, the system becomes MORE CONFIDENT:
     /// - Process noise decreases (model is accurate)
     /// - Learning rate slightly increases (model is on track)
@@ -204,7 +227,8 @@ impl Engine {
             intensity: 0.8,
         };
         const CAUSAL_LEARNING_RATE: f32 = 0.05;
-        self.causal_graph.update_weights(&context_state, &action, success, CAUSAL_LEARNING_RATE);
+        self.causal_graph
+            .update_weights(&context_state, &action, success, CAUSAL_LEARNING_RATE);
 
         // If failure, record trauma to prevent repeating the same mistake
         if !success {
@@ -234,9 +258,18 @@ impl Engine {
     /// PR3: Make a control decision from estimate with INTRINSIC SAFETY.
     /// Safety cannot be bypassed - Engine always uses internal trauma_cache.
     /// If cache is empty/uninitialized, returns SafeFallback decision.
-    /// 
+    ///
     /// Returns: (ControlDecision, should_persist, policy_info, deny_reason)
-    pub fn make_control(&mut self, est: &Estimate, ts_us: i64) -> (ControlDecision, bool, Option<(u8, u32, f32)>, Option<String>) {
+    pub fn make_control(
+        &mut self,
+        est: &Estimate,
+        ts_us: i64,
+    ) -> (
+        ControlDecision,
+        bool,
+        Option<(u8, u32, f32)>,
+        Option<String>,
+    ) {
         // Run control-tick belief update (1-2Hz) using cached latest sensor features
         if let (Some(sf), Some(phys)) = (self.last_sf, self.last_phys) {
             // PR4: Use dt_sec helper to prevent wraparound if clocks go backwards
@@ -249,14 +282,30 @@ impl Engine {
             let guide_phase = self.breath.guide_phase_norm();
             let guide_bpm = {
                 let total_us = self.breath.pm.durations.total_us();
-                if total_us == 0 { 0.0 } else { 60_000_000f32 / (total_us as f32) }
+                if total_us == 0 {
+                    0.0
+                } else {
+                    60_000_000f32 / (total_us as f32)
+                }
             };
-            let res = self.resonance_tracker.update(ts_us, guide_phase, guide_bpm, phys.rr_bpm, &self.config);
+            let res = self.resonance_tracker.update(
+                ts_us,
+                guide_phase,
+                guide_bpm,
+                phys.rr_bpm,
+                &self.config,
+            );
             self.last_resonance_score = res.resonance_score;
 
             let tau_res = 6.0f32;
-            let alpha = if dt_sec <= 0.0 { 0.0 } else { (dt_sec / (tau_res + dt_sec)).clamp(0.0, 1.0) };
-            self.resonance_score_ema = (self.resonance_score_ema * (1.0 - alpha) + res.resonance_score * alpha).clamp(0.0, 1.0);
+            let alpha = if dt_sec <= 0.0 {
+                0.0
+            } else {
+                (dt_sec / (tau_res + dt_sec)).clamp(0.0, 1.0)
+            };
+            self.resonance_score_ema = (self.resonance_score_ema * (1.0 - alpha)
+                + res.resonance_score * alpha)
+                .clamp(0.0, 1.0);
 
             let out = self.belief_engine.update_fep_with_config(
                 self.belief_state.mode,
@@ -285,16 +334,35 @@ impl Engine {
         };
         // fallback to estimator rr if present
         let proposed = est.rr_bpm.unwrap_or(base).clamp(4.0, 12.0);
-        
-        let mut patch = crate::safety_swarm::PatternPatch { target_bpm: proposed, hold_sec: 30.0, pattern_id: self.last_pattern_id, goal: self.last_goal };
+
+        let mut patch = crate::safety_swarm::PatternPatch {
+            target_bpm: proposed,
+            hold_sec: 30.0,
+            pattern_id: self.last_pattern_id,
+            goal: self.last_goal,
+        };
 
         // build guards
         let mut guards: Vec<Box<dyn crate::safety_swarm::Guard>> = Vec::new();
-        guards.push(Box::new(crate::safety_swarm::TraumaGuard { source: &self.trauma_cache, hard_th: self.config.safety.trauma_hard_th, soft_th: self.config.safety.trauma_soft_th }));
+        guards.push(Box::new(crate::safety_swarm::TraumaGuard {
+            source: &self.trauma_cache,
+            hard_th: self.config.safety.trauma_hard_th,
+            soft_th: self.config.safety.trauma_soft_th,
+        }));
         guards.extend(vec![
             Box::new(crate::safety_swarm::ConfidenceGuard { min_conf: 0.2 }),
-            Box::new(crate::safety_swarm::BreathBoundsGuard { clamp: crate::safety_swarm::Clamp { rr_min: 4.0, rr_max: 12.0, hold_max_sec: 60.0, max_delta_rr_per_min: 6.0 } }),
-            Box::new(crate::safety_swarm::RateLimitGuard { min_interval_sec: 10.0, last_patch_sec: None }),
+            Box::new(crate::safety_swarm::BreathBoundsGuard {
+                clamp: crate::safety_swarm::Clamp {
+                    rr_min: 4.0,
+                    rr_max: 12.0,
+                    hold_max_sec: 60.0,
+                    max_delta_rr_per_min: 6.0,
+                },
+            }),
+            Box::new(crate::safety_swarm::RateLimitGuard {
+                min_interval_sec: 10.0,
+                last_patch_sec: None,
+            }),
             Box::new(crate::safety_swarm::ComfortGuard),
             Box::new(crate::safety_swarm::ResourceGuard),
         ]);
@@ -303,66 +371,120 @@ impl Engine {
             &guards,
             &patch,
             &self.belief_state,
-            &crate::belief::PhysioState { hr_bpm: est.hr_bpm, rr_bpm: est.rr_bpm, rmssd: est.rmssd, confidence: est.confidence },
+            &crate::belief::PhysioState {
+                hr_bpm: est.hr_bpm,
+                rr_bpm: est.rr_bpm,
+                rmssd: est.rmssd,
+                confidence: est.confidence,
+            },
             &self.context,
             ts_us,
         );
-        
+
         // CRITICAL: Causal Veto Check (happens AFTER safety guards but BEFORE final decision)
         // This prevents actions that historically fail in this context
         const MIN_SUCCESS_PROB: f32 = 0.3;
         const HIGH_SUCCESS_PROB: f32 = 0.8;
-        
+
         let context_state = self.causal_graph.extract_state_values(&self.belief_state);
         let breath_action = crate::causal::ActionPolicy {
             action_type: crate::causal::ActionType::BreathGuidance,
             intensity: 0.8,
         };
-        let success_prob = self.causal_graph.predict_success_probability(&context_state, &breath_action);
-        
+        let success_prob = self
+            .causal_graph
+            .predict_success_probability(&context_state, &breath_action);
+
         match decide {
             Err(s) => {
                 // Denied by safety guards -> freeze and surface reason
                 let reason = s.to_string();
-                let poll_interval = crate::controller::compute_poll_interval(self.belief_state.mode, false, &self.context);
-                (ControlDecision { target_rate_bpm: self.controller.last_decision_bpm.unwrap_or(proposed), confidence: est.confidence, recommended_poll_interval_ms: poll_interval }, false, Some((self.belief_state.mode as u8, 0, self.belief_state.conf)), Some(reason))
+                let poll_interval = crate::controller::compute_poll_interval(
+                    self.belief_state.mode,
+                    false,
+                    &self.context,
+                );
+                (
+                    ControlDecision {
+                        target_rate_bpm: self.controller.last_decision_bpm.unwrap_or(proposed),
+                        confidence: est.confidence,
+                        recommended_poll_interval_ms: poll_interval,
+                    },
+                    false,
+                    Some((self.belief_state.mode as u8, 0, self.belief_state.conf)),
+                    Some(reason),
+                )
             }
             Ok((applied, bits)) => {
                 // Safety guards passed - now apply causal veto
                 if success_prob < MIN_SUCCESS_PROB {
                     // CAUSAL VETO: Action historically fails in this context
-                    eprintln!("DEBUG: Action Vetoed by Causal Graph (Prob: {:.3})", success_prob);
-                    
+                    eprintln!(
+                        "DEBUG: Action Vetoed by Causal Graph (Prob: {:.3})",
+                        success_prob
+                    );
+
                     // Fallback to safe default: maintain last decision or use gentle baseline
                     let fallback_bpm = self.controller.last_decision_bpm.unwrap_or(6.0);
-                    let poll_interval = crate::controller::compute_poll_interval(self.belief_state.mode, false, &self.context);
-                    
-                    return (ControlDecision { 
-                        target_rate_bpm: fallback_bpm, 
-                        confidence: est.confidence * 0.5, // Reduced confidence for vetoed action
-                        recommended_poll_interval_ms: poll_interval 
-                    }, false, Some((self.belief_state.mode as u8, 0, self.belief_state.conf)), Some(format!("causal_veto_low_prob_{:.2}", success_prob)));
+                    let poll_interval = crate::controller::compute_poll_interval(
+                        self.belief_state.mode,
+                        false,
+                        &self.context,
+                    );
+
+                    return (
+                        ControlDecision {
+                            target_rate_bpm: fallback_bpm,
+                            confidence: est.confidence * 0.5, // Reduced confidence for vetoed action
+                            recommended_poll_interval_ms: poll_interval,
+                        },
+                        false,
+                        Some((self.belief_state.mode as u8, 0, self.belief_state.conf)),
+                        Some(format!("causal_veto_low_prob_{:.2}", success_prob)),
+                    );
                 }
-                
+
                 // Action approved by both safety guards and causal graph
                 let final_bpm = applied.target_bpm;
-                let changed = match self.controller.last_decision_bpm { Some(prev) => (prev - final_bpm).abs() > self.controller.cfg.decision_epsilon_bpm, None => true } && match self.controller.last_decision_ts_us { Some(last_ts) => (ts_us - last_ts) >= self.controller.cfg.min_decision_interval_us, None => true };
+                let changed = match self.controller.last_decision_bpm {
+                    Some(prev) => {
+                        (prev - final_bpm).abs() > self.controller.cfg.decision_epsilon_bpm
+                    }
+                    None => true,
+                } && match self.controller.last_decision_ts_us {
+                    Some(last_ts) => {
+                        (ts_us - last_ts) >= self.controller.cfg.min_decision_interval_us
+                    }
+                    None => true,
+                };
                 if changed {
                     self.controller.last_decision_bpm = Some(final_bpm);
                     self.controller.last_decision_ts_us = Some(ts_us);
-                    self.safety.record_patch(ts_us, final_bpm);
                 }
-                
+
                 // Causal boost: high-success actions get confidence boost
                 let confidence_boost = if success_prob > HIGH_SUCCESS_PROB {
                     1.2 // 20% confidence boost for historically successful actions
                 } else {
                     1.0
                 };
-                
-                let poll_interval = crate::controller::compute_poll_interval(self.belief_state.mode, changed, &self.context);
+
+                let poll_interval = crate::controller::compute_poll_interval(
+                    self.belief_state.mode,
+                    changed,
+                    &self.context,
+                );
                 let boosted_confidence = (est.confidence * confidence_boost).min(1.0);
-                (ControlDecision { target_rate_bpm: final_bpm, confidence: boosted_confidence, recommended_poll_interval_ms: poll_interval }, changed, Some((self.belief_state.mode as u8, bits, self.belief_state.conf)), None)
+                (
+                    ControlDecision {
+                        target_rate_bpm: final_bpm,
+                        confidence: boosted_confidence,
+                        recommended_poll_interval_ms: poll_interval,
+                    },
+                    changed,
+                    Some((self.belief_state.mode as u8, bits, self.belief_state.conf)),
+                    None,
+                )
             }
         }
     }
@@ -376,7 +498,11 @@ mod tests {
     #[test]
     fn engine_decision_flow() {
         let mut eng = Engine::new(6.0);
-        eng.update_context(crate::belief::Context { local_hour: 23, is_charging: true, recent_sessions: 1 });
+        eng.update_context(crate::belief::Context {
+            local_hour: 23,
+            is_charging: true,
+            recent_sessions: 1,
+        });
         let est = eng.ingest_sensor(&[60.0, 40.0, 6.0], 0);
         // PR3: make_control no longer takes Option<TraumaSource> - intrinsic safety
         let (dec, persist, policy, deny) = eng.make_control(&est, 0);
