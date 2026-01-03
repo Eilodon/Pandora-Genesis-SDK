@@ -6,7 +6,7 @@
 //! - Emergency dump to disk for unrecoverable failures
 //! - Atomic metrics for observability
 
-use crossbeam_channel::{Receiver, Sender, bounded, TryRecvError};
+use crossbeam_channel::{bounded, Receiver, Sender, TryRecvError};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -17,6 +17,7 @@ use zenb_store::{EventStore, StoreError};
 const CHANNEL_CAPACITY: usize = 50;
 const MAX_RETRIES: u8 = 3;
 const RETRY_BACKOFF_MS: u64 = 100;
+const MAX_RETRY_QUEUE_SIZE: usize = 1000;
 
 /// Worker metrics tracked atomically
 #[derive(Debug, Default)]
@@ -30,6 +31,8 @@ pub struct WorkerMetrics {
     pub highfreq_drops: AtomicU64,
     /// PR2: Track coalesced HighFreq events
     pub highfreq_coalesced: AtomicU64,
+    /// Track retry queue evictions when queue is full
+    pub retry_queue_evictions: AtomicU64,
 }
 
 impl WorkerMetrics {
@@ -42,6 +45,7 @@ impl WorkerMetrics {
             channel_full_drops: self.channel_full_drops.load(Ordering::Relaxed),
             highfreq_drops: self.highfreq_drops.load(Ordering::Relaxed),
             highfreq_coalesced: self.highfreq_coalesced.load(Ordering::Relaxed),
+            retry_queue_evictions: self.retry_queue_evictions.load(Ordering::Relaxed),
         }
     }
 }
@@ -55,6 +59,7 @@ pub struct MetricsSnapshot {
     pub channel_full_drops: u64,
     pub highfreq_drops: u64,
     pub highfreq_coalesced: u64,
+    pub retry_queue_evictions: u64,
 }
 
 /// Commands sent to worker thread
@@ -90,40 +95,57 @@ impl AsyncWorker {
         let (tx, rx) = bounded(CHANNEL_CAPACITY);
         let metrics = Arc::new(WorkerMetrics::default());
         let metrics_clone = Arc::clone(&metrics);
-        
+
         let worker_thread = thread::spawn(move || {
             Self::loop_forever(store, rx, metrics_clone);
         });
-        
+
         AsyncWorker {
             tx,
             metrics,
             worker_thread: Some(worker_thread),
         }
     }
-    
+
     /// PR2: Submit append command with priority-aware delivery.
-    /// Critical events use blocking send (GUARANTEED delivery).
+    /// Critical events use send_timeout (GUARANTEED delivery with emergency_dump fallback).
     /// HighFreq events use try_send with drop visibility.
-    pub fn submit_append(&self, session_id: SessionId, envelopes: Vec<Envelope>) -> Result<(), &'static str> {
+    pub fn submit_append(
+        &self,
+        session_id: SessionId,
+        envelopes: Vec<Envelope>,
+    ) -> Result<(), &'static str> {
         use zenb_core::domain::EventPriority;
-        
+
         // Classify batch priority: Critical if ANY event is Critical
-        let has_critical = envelopes.iter().any(|e| e.event.priority() == EventPriority::Critical);
-        
-        let cmd = WorkerCmd::Append { session_id, envelopes: envelopes.clone() };
-        
+        let has_critical = envelopes
+            .iter()
+            .any(|e| e.event.priority() == EventPriority::Critical);
+
+        let cmd = WorkerCmd::Append {
+            session_id,
+            envelopes: envelopes.clone(),
+        };
+
         if has_critical {
-            // CRITICAL PATH: Blocking send - MUST NOT DROP
-            // This will block the caller until space is available in the channel.
-            // Acceptable because Critical events are rare (session lifecycle, decisions).
-            match self.tx.send(cmd) {
+            // CRITICAL PATH: Use send_timeout - wait up to 100ms
+            // If timeout occurs, emergency dump to disk (DO NOT DROP)
+            match self.tx.send_timeout(cmd, Duration::from_millis(100)) {
                 Ok(_) => Ok(()),
-                Err(_) => {
-                    // Channel closed - worker shutdown
-                    // Last resort: emergency dump
+                Err(crossbeam_channel::SendTimeoutError::Timeout(_)) => {
+                    // Channel blocked - emergency dump to preserve Critical data
                     self.metrics.emergency_dumps.fetch_add(1, Ordering::Relaxed);
-                    if let Err(e) = Self::emergency_dump(&session_id, &envelopes, "worker_shutdown") {
+                    if let Err(e) = Self::emergency_dump(&session_id, &envelopes, "channel_timeout")
+                    {
+                        eprintln!("CRITICAL: Emergency dump failed on timeout: {:?}", e);
+                    }
+                    Err("channel_timeout")
+                }
+                Err(crossbeam_channel::SendTimeoutError::Disconnected(_)) => {
+                    // Channel closed - worker shutdown
+                    self.metrics.emergency_dumps.fetch_add(1, Ordering::Relaxed);
+                    if let Err(e) = Self::emergency_dump(&session_id, &envelopes, "worker_shutdown")
+                    {
                         eprintln!("CRITICAL: Emergency dump failed during shutdown: {:?}", e);
                     }
                     Err("worker_shutdown")
@@ -136,50 +158,104 @@ impl AsyncWorker {
                 Err(_) => {
                     // Channel full - backpressure
                     // Count drops for visibility (PR2 requirement)
-                    self.metrics.channel_full_drops.fetch_add(1, Ordering::Relaxed);
-                    self.metrics.highfreq_drops.fetch_add(envelopes.len() as u64, Ordering::Relaxed);
-                    
-                    eprintln!("WARN: Dropped {} HighFreq events due to backpressure", envelopes.len());
+                    self.metrics
+                        .channel_full_drops
+                        .fetch_add(1, Ordering::Relaxed);
+                    self.metrics
+                        .highfreq_drops
+                        .fetch_add(envelopes.len() as u64, Ordering::Relaxed);
+
+                    eprintln!(
+                        "WARN: Dropped {} HighFreq events due to backpressure",
+                        envelopes.len()
+                    );
                     Err("channel_full")
                 }
             }
         }
     }
-    
+
     /// Flush and wait for completion (blocking)
     pub fn flush_sync(&self) -> Result<(), StoreError> {
         let (response_tx, response_rx) = crossbeam_channel::bounded(1);
-        
-        self.tx.send(WorkerCmd::FlushSync { response_tx })
+
+        self.tx
+            .send(WorkerCmd::FlushSync { response_tx })
             .map_err(|_| StoreError::CryptoError("worker channel closed".into()))?;
-        
-        response_rx.recv()
+
+        response_rx
+            .recv()
             .map_err(|_| StoreError::CryptoError("flush response channel closed".into()))?
     }
-    
+
     /// Get current metrics snapshot
     pub fn metrics(&self) -> MetricsSnapshot {
         self.metrics.snapshot()
     }
-    
+
     /// Shutdown worker gracefully
     pub fn shutdown(mut self) {
         let _ = self.tx.send(WorkerCmd::Shutdown);
-        
+
         if let Some(handle) = self.worker_thread.take() {
             let _ = handle.join();
         }
     }
-    
+
+    /// Check if envelopes contain any Critical events
+    fn has_critical_events(envelopes: &[Envelope]) -> bool {
+        use zenb_core::domain::EventPriority;
+        envelopes
+            .iter()
+            .any(|e| e.event.priority() == EventPriority::Critical)
+    }
+
+    /// Evict oldest non-critical entry from retry queue, or emergency dump oldest if all critical
+    fn evict_from_retry_queue(
+        retry_queue: &mut Vec<RetryEntry>,
+        metrics: &Arc<WorkerMetrics>,
+    ) {
+        // Find oldest non-critical entry
+        if let Some(pos) = retry_queue
+            .iter()
+            .position(|entry| !Self::has_critical_events(&entry.envelopes))
+        {
+            // Evict non-critical entry
+            let evicted = retry_queue.remove(pos);
+            metrics.retry_queue_evictions.fetch_add(1, Ordering::Relaxed);
+            eprintln!(
+                "WARN: Evicted non-critical batch from retry queue (size limit reached). {} envelopes dropped.",
+                evicted.envelopes.len()
+            );
+        } else {
+            // All entries are critical - emergency dump the oldest
+            let oldest = retry_queue.remove(0);
+            metrics.retry_queue_evictions.fetch_add(1, Ordering::Relaxed);
+            metrics.emergency_dumps.fetch_add(1, Ordering::Relaxed);
+            
+            if let Err(e) = Self::emergency_dump(
+                &oldest.session_id,
+                &oldest.envelopes,
+                "retry_queue_full_all_critical",
+            ) {
+                eprintln!("CRITICAL: Emergency dump failed during eviction: {:?}", e);
+            } else {
+                eprintln!(
+                    "WARN: Emergency dumped oldest critical batch from retry queue (size limit reached)."
+                );
+            }
+        }
+    }
+
     /// Main worker loop - processes retry queue and channel
     fn loop_forever(store: EventStore, rx: Receiver<WorkerCmd>, metrics: Arc<WorkerMetrics>) {
         let mut retry_queue: Vec<RetryEntry> = Vec::new();
-        
+
         loop {
             // 1. Process Retry Queue (Priority: clear backlog first)
             if !retry_queue.is_empty() {
                 let entry = retry_queue.remove(0);
-                
+
                 match Self::try_append(&store, &entry.session_id, &entry.envelopes) {
                     Ok(_) => {
                         metrics.appends_success.fetch_add(1, Ordering::Relaxed);
@@ -195,22 +271,28 @@ impl AsyncWorker {
                                 retry_count: entry.retry_count + 1,
                                 last_error: format!("{:?}", e),
                             });
-                            
+
                             // Backoff before next retry
-                            thread::sleep(Duration::from_millis(RETRY_BACKOFF_MS * (entry.retry_count as u64)));
+                            thread::sleep(Duration::from_millis(
+                                RETRY_BACKOFF_MS * (entry.retry_count as u64),
+                            ));
                         } else {
                             // Max retries exceeded - emergency dump
                             metrics.emergency_dumps.fetch_add(1, Ordering::Relaxed);
                             metrics.appends_failed.fetch_add(1, Ordering::Relaxed);
-                            
-                            if let Err(dump_err) = Self::emergency_dump(&entry.session_id, &entry.envelopes, &entry.last_error) {
+
+                            if let Err(dump_err) = Self::emergency_dump(
+                                &entry.session_id,
+                                &entry.envelopes,
+                                &entry.last_error,
+                            ) {
                                 eprintln!("CRITICAL: Emergency dump failed: {:?}", dump_err);
                             }
                         }
                     }
                 }
             }
-            
+
             // 2. Process Channel (use try_recv if retrying to avoid blocking)
             let msg = if retry_queue.is_empty() {
                 // No retries pending - block on channel
@@ -226,15 +308,23 @@ impl AsyncWorker {
                     Err(TryRecvError::Disconnected) => break,
                 }
             };
-            
+
             match msg {
-                Some(WorkerCmd::Append { session_id, envelopes }) => {
+                Some(WorkerCmd::Append {
+                    session_id,
+                    envelopes,
+                }) => {
                     match Self::try_append(&store, &session_id, &envelopes) {
                         Ok(_) => {
                             metrics.appends_success.fetch_add(1, Ordering::Relaxed);
                         }
                         Err(e) => {
-                            // Failed - push to retry queue
+                            // Failed - push to retry queue with size limit enforcement
+                            if retry_queue.len() >= MAX_RETRY_QUEUE_SIZE {
+                                // Queue full - evict oldest non-critical or emergency dump
+                                Self::evict_from_retry_queue(&mut retry_queue, &metrics);
+                            }
+                            
                             retry_queue.push(RetryEntry {
                                 session_id,
                                 envelopes,
@@ -244,19 +334,19 @@ impl AsyncWorker {
                         }
                     }
                 }
-                
+
                 Some(WorkerCmd::FlushSync { response_tx }) => {
                     // Process all pending retries first
                     while !retry_queue.is_empty() {
                         let entry = retry_queue.remove(0);
                         let _ = Self::try_append(&store, &entry.session_id, &entry.envelopes);
                     }
-                    
+
                     // WAL checkpoint
                     let result = Self::checkpoint_wal(&store);
                     let _ = response_tx.send(result);
                 }
-                
+
                 Some(WorkerCmd::Shutdown) => {
                     // Process remaining retries before shutdown
                     while !retry_queue.is_empty() {
@@ -265,7 +355,7 @@ impl AsyncWorker {
                     }
                     break;
                 }
-                
+
                 None => {
                     // No message, continue retry loop
                     continue;
@@ -273,33 +363,41 @@ impl AsyncWorker {
             }
         }
     }
-    
+
     /// Attempt to append batch to store
-    fn try_append(store: &EventStore, session_id: &SessionId, envelopes: &[Envelope]) -> Result<(), StoreError> {
+    fn try_append(
+        store: &EventStore,
+        session_id: &SessionId,
+        envelopes: &[Envelope],
+    ) -> Result<(), StoreError> {
         store.append_batch(session_id, envelopes)
     }
-    
+
     /// WAL checkpoint for flush
     fn checkpoint_wal(store: &EventStore) -> Result<(), StoreError> {
         // SQLite WAL checkpoint - forces write to main DB file
         store.checkpoint_full()
     }
-    
+
     /// Emergency dump to disk when all retries fail
-    fn emergency_dump(session_id: &SessionId, envelopes: &[Envelope], last_error: &str) -> Result<(), std::io::Error> {
+    fn emergency_dump(
+        session_id: &SessionId,
+        envelopes: &[Envelope],
+        last_error: &str,
+    ) -> Result<(), std::io::Error> {
         use std::fs::{create_dir_all, OpenOptions};
         use std::io::Write;
-        
+
         // Create emergency dump directory
         let dump_dir = std::path::Path::new("emergency_dumps");
         create_dir_all(dump_dir)?;
-        
+
         // Generate filename with timestamp
         let timestamp = chrono::Utc::now().timestamp_micros();
         let session_hex = hex::encode(&session_id.0);
         let filename = format!("dump_{}_{}.json", session_hex, timestamp);
         let filepath = dump_dir.join(filename);
-        
+
         // Serialize envelopes with metadata
         let dump_data = serde_json::json!({
             "session_id": session_hex,
@@ -308,21 +406,25 @@ impl AsyncWorker {
             "envelope_count": envelopes.len(),
             "envelopes": envelopes,
         });
-        
+
         let json = serde_json::to_string_pretty(&dump_data)?;
-        
+
         // Write to file
         let mut file = OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(&filepath)?;
-        
+
         file.write_all(json.as_bytes())?;
         file.sync_all()?;
-        
-        eprintln!("EMERGENCY DUMP: Saved {} envelopes to {:?}", envelopes.len(), filepath);
-        
+
+        eprintln!(
+            "EMERGENCY DUMP: Saved {} envelopes to {:?}",
+            envelopes.len(),
+            filepath
+        );
+
         Ok(())
     }
 }
@@ -331,7 +433,7 @@ impl Drop for AsyncWorker {
     fn drop(&mut self) {
         // Send shutdown signal
         let _ = self.tx.send(WorkerCmd::Shutdown);
-        
+
         // Wait for worker thread to finish
         if let Some(handle) = self.worker_thread.take() {
             let _ = handle.join();
@@ -343,12 +445,12 @@ impl Drop for AsyncWorker {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
-    use zenb_core::domain::{Event, ControlDecision};
-    
+    use zenb_core::domain::{ControlDecision, Event};
+
     fn mk_key() -> [u8; 32] {
         [99u8; 32]
     }
-    
+
     fn mk_envelope(sid: &SessionId, seq: u64) -> Envelope {
         Envelope {
             session_id: sid.clone(),
@@ -363,61 +465,65 @@ mod tests {
             meta: serde_json::json!({}),
         }
     }
-    
+
     #[test]
     fn test_worker_basic_append() {
         let tf = NamedTempFile::new().unwrap();
         let store = EventStore::open(tf.path(), mk_key()).unwrap();
         let sid = SessionId::new();
         store.create_session_key(&sid).unwrap();
-        
+
         let worker = AsyncWorker::start(store);
-        
+
         let envelopes = vec![mk_envelope(&sid, 1), mk_envelope(&sid, 2)];
         worker.submit_append(sid.clone(), envelopes).unwrap();
-        
+
         // Flush and verify
         worker.flush_sync().unwrap();
-        
+
         let metrics = worker.metrics();
         assert!(metrics.appends_success > 0);
-        
+
         worker.shutdown();
     }
-    
+
     #[test]
     fn test_worker_retry_on_failure() {
         let tf = NamedTempFile::new().unwrap();
         let store = EventStore::open(tf.path(), mk_key()).unwrap();
         let sid = SessionId::new();
         store.create_session_key(&sid).unwrap();
-        
+
         let worker = AsyncWorker::start(store);
-        
+
         // Submit valid batch
-        worker.submit_append(sid.clone(), vec![mk_envelope(&sid, 1)]).unwrap();
+        worker
+            .submit_append(sid.clone(), vec![mk_envelope(&sid, 1)])
+            .unwrap();
         worker.flush_sync().unwrap();
-        
+
         // Submit invalid batch (wrong sequence) - should retry
-        worker.submit_append(sid.clone(), vec![mk_envelope(&sid, 10)]).unwrap();
-        
+        worker
+            .submit_append(sid.clone(), vec![mk_envelope(&sid, 10)])
+            .unwrap();
+
         std::thread::sleep(Duration::from_millis(500));
-        
+
         let metrics = worker.metrics();
         assert!(metrics.retries > 0 || metrics.emergency_dumps > 0);
-        
+
         worker.shutdown();
     }
-    
+
     #[test]
     fn test_backpressure() {
         let tf = NamedTempFile::new().unwrap();
         let store = EventStore::open(tf.path(), mk_key()).unwrap();
         let sid = SessionId::new();
         store.create_session_key(&sid).unwrap();
-        
+
         let worker = AsyncWorker::start(store);
-        
+
         // Flood channel beyond capacity
         let mut dropped = 0;
         for i in 0..100 {
@@ -426,10 +532,10 @@ mod tests {
                 dropped += 1;
             }
         }
-        
+
         // Should have some drops due to backpressure
         assert!(dropped > 0 || worker.metrics().channel_full_drops.load(Ordering::Relaxed) > 0);
-        
+
         worker.shutdown();
     }
 }
