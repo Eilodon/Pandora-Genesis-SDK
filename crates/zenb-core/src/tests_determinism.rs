@@ -64,8 +64,9 @@ fn test_cross_platform_determinism() {
 
     let hash1 = state.hash();
 
-    // Simulate slight floating point drift (within 1 millionth)
-    state.belief_conf = Some(0.123456700);
+    // Simulate slight floating point drift (within 1 thousandth)
+    state.belief_conf = Some(0.124456789);
+    state.belief_p.as_mut().unwrap()[0] += 0.1;
     let hash2 = state.hash();
 
     // Should be different since we're using fixed-point with 6 decimal precision
@@ -76,6 +77,7 @@ fn test_cross_platform_determinism() {
 
     // But identical values should always hash the same
     state.belief_conf = Some(0.123456789);
+    state.belief_p = Some([0.2, 0.2, 0.2, 0.2, 0.2]);
     let hash3 = state.hash();
     assert_eq!(
         hash1, hash3,

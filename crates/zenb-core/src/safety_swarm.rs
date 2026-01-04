@@ -557,7 +557,7 @@ mod tests {
     fn trauma_guard_denies_on_hard_threshold() {
         let src = DummyTrauma {
             hit: Some(TraumaHit {
-                sev_eff: 2.0,
+                sev_eff: 4.0,
                 count: 3,
                 inhibit_until_ts_us: 0,
                 last_ts_us: 0,

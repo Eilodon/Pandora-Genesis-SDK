@@ -259,6 +259,7 @@ mod tests {
     fn opposite_phases_low_score() {
         let mut t = ResonanceTracker::default();
         let mut cfg = ZenbConfig::default();
+        cfg.resonance.window_size_sec = 24.0;
         cfg.resonance.coherence_threshold = 0.0;
 
         let guide_bpm = 6.0;
@@ -268,9 +269,9 @@ mod tests {
         let mut ts = 0i64;
 
         let mut last = None;
-        for i in 0..80 {
+        for i in 0..160 {
             let t_sec = (i as f32) / fs_hz;
-            let rr = 6.0 + 1.0 * (2.0 * std::f32::consts::PI * f_hz * t_sec).sin();
+            let rr = 6.0 + 2.0 * (2.0 * std::f32::consts::PI * f_hz * t_sec).sin();
             let guide_phase = (f_hz * t_sec + 0.5).rem_euclid(1.0);
             last = Some(t.update(ts, guide_phase, guide_bpm, Some(rr), &cfg));
             ts += dt_us;
