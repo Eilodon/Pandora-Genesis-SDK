@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut eng = zenb_core::Engine::new(6.0);
             let ts = 0i64;
             let est = eng.ingest_sensor(&[60.0, 40.0, 6.0, 0.9, 0.1], ts);
-            let (dec, changed, policy, deny) = eng.make_control(&est, ts, None);
+            let (dec, changed, policy, deny) = eng.make_control(&est, ts);
             println!("Decision: {:?}, changed: {}", dec, changed);
             if let Some(r) = deny {
                 println!("Decision denied: {}", r);
@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let mut sidarr = [0u8; 16];
             sidarr.copy_from_slice(&sid_bytes);
-            let sid = SessionId(sidarr);
+            let sid = SessionId::new();
             let evs = store.read_events(&sid)?;
             let state = zenb_core::replay::replay_envelopes(&evs)?;
             println!("replay hash: {}", hex::encode(state.hash()));
