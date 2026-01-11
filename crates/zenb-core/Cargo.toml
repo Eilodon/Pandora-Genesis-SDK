@@ -13,6 +13,8 @@ chrono = { version = "0.4", features = ["serde"] }
 config = "0.13"
 toml = "0.8"
 lru = "0.12"
+nalgebra = "0.32"  # Linear algebra for UKF
+log = "0.4"        # Logging
 
 [dev-dependencies]
 tempfile = "3.10"

@@ -6,6 +6,7 @@
 //! CausalBeliefState (3-factor) is exported for causal layer use only.
 
 pub mod agent_container;
+pub mod ai;          // NEW: AI Tools
 pub mod belief;
 pub mod breath_engine;
 pub mod causal;
@@ -14,11 +15,14 @@ pub mod controller;
 pub mod domain;
 pub mod engine;
 pub mod estimator;
+pub mod estimators;  // NEW: UKF and advanced estimators
 pub mod phase_machine;
 pub mod policy;
 pub mod replay;
 pub mod resonance;
+pub mod safety;      // NEW: LTL Safety Monitor
 pub mod safety_swarm;
+pub mod sensory;     // NEW: Binaural, Soundscape, Haptics
 pub mod trauma_cache;
 pub mod validation;
 

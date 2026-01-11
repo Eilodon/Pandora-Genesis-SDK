@@ -7,6 +7,7 @@ members = [
     "crates/zenb-uniffi",
     "crates/zenb-wasm-demo",
     "crates/zenb-cli",
+    "crates/zenb-signals",
 ]
 
 [workspace.package]
