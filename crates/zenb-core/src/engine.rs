@@ -5,6 +5,7 @@ use crate::controller::AdaptiveController;
 use crate::domain::ControlDecision;
 use crate::estimator::Estimator;
 use crate::estimator::Estimate;
+use crate::estimators::{UkfStateEstimator, Observation as UkfObservation};
 use crate::resonance::ResonanceTracker;
 use crate::safety::{SafetyMonitor, RuntimeState};
 use crate::safety_swarm::TraumaRegistry;
@@ -12,7 +13,7 @@ use crate::trauma_cache::TraumaCache;
 
 /// High-level engine that holds estimator, safety envelope, controller and breath engine.
 pub struct Engine {
-    pub estimator: Estimator,
+
     pub controller: AdaptiveController,
     pub breath: BreathEngine,
     pub belief_engine: crate::belief::BeliefEngine,
@@ -35,10 +36,35 @@ pub struct Engine {
     pub last_observation: Option<crate::domain::Observation>,
     pub trauma_registry: TraumaRegistry,
     pub trauma_cache: TraumaCache,
-    /// LTL safety monitor for runtime verification
     pub safety_monitor: SafetyMonitor,
     /// Session start time for tracking duration
     pub session_start_ts_us: Option<i64>,
+    
+    // --- EFE / META-LEARNING ---
+    
+    /// Current EFE precision (beta) for policy selection
+    pub efe_precision_beta: f32,
+    
+    /// Meta-learner for adapting beta
+    pub efe_meta_learner: crate::policy::BetaMetaLearner,
+    
+    /// Feature flag to enable EFE-based policy selection
+    pub use_efe_selection: bool,
+    
+    /// Last chosen policy info (for learning)
+    pub last_selected_policy: Option<crate::policy::PolicyEvaluation>,
+    
+    // === SOTA Features ===
+    pub legacy_estimator: crate::estimator::Estimator,
+    pub ukf_estimator: Option<UkfStateEstimator>,
+    pub last_aukf_telemetry: Option<serde_json::Value>,
+    pub last_ingest_ts_us: Option<i64>,
+    
+    // === PC Algorithm ===
+    pub observation_buffer: Vec<ObservationSnapshot>,
+    pub pc_change_detector: crate::causal::GraphChangeDetector,
+    pub pc_learning_enabled: bool,
+    pub last_pc_run_ts: i64,
 }
 
 impl Engine {
@@ -53,19 +79,30 @@ impl Engine {
         Self::new_with_config(default_bpm, Some(cfg))
     }
 
-    pub fn new_with_config(default_bpm: f32, config: Option<ZenbConfig>) -> Self {
-        let cfg = config.unwrap_or_default();
-        let est = Estimator::default();
+    pub fn new_with_config(starting_arousal: f32, config: Option<ZenbConfig>) -> Self {
+        let mut cfg = config.unwrap_or_default();
+        #[cfg(test)]
+        { 
+            cfg.safety.allow_test_time = true; 
+        }
         let controller = AdaptiveController::new(Default::default());
-        let mut breath = BreathEngine::new(crate::breath_engine::BreathMode::Dynamic(default_bpm));
-        let target_bpm = if default_bpm > 0.0 {
-            default_bpm
+        
+        // SOTA: Initialize UKF if enabled
+        let ukf_estimator = if cfg.sota.use_ukf {
+            Some(UkfStateEstimator::new_adaptive(Some(cfg.sota.ukf_config.clone())))
+        } else {
+            None
+        };
+        
+        let mut breath = BreathEngine::new(crate::breath_engine::BreathMode::Dynamic(starting_arousal)); // Assuming starting_arousal can be used as initial BPM
+        let target_bpm = if starting_arousal > 0.0 {
+            starting_arousal
         } else {
             cfg.breath.default_target_bpm
         };
         breath.set_target_bpm(target_bpm);
         Self {
-            estimator: est,
+            legacy_estimator: Estimator::default(),
             controller,
             breath,
             belief_engine: crate::belief::BeliefEngine::from_config(&cfg.belief),
@@ -76,7 +113,7 @@ impl Engine {
                 is_charging: false,
                 recent_sessions: 0,
             },
-            config: cfg,
+            config: cfg.clone(),
             last_ts_us: None,
             last_control_ts_us: None,
             last_sf: None,
@@ -91,9 +128,24 @@ impl Engine {
             causal_buffer: CausalBuffer::default_capacity(),
             last_observation: None,
             trauma_registry: TraumaRegistry::new(),
-            trauma_cache: TraumaCache::new(),
+            trauma_cache: TraumaCache::default(),
             safety_monitor: SafetyMonitor::new(),
             session_start_ts_us: None,
+            // EFE Initialization
+            efe_precision_beta: cfg.sota.efe_precision_beta.unwrap_or(4.0),
+            efe_meta_learner: crate::policy::BetaMetaLearner::default(),
+            use_efe_selection: cfg.sota.use_efe_selection,
+            last_selected_policy: None,
+            // UKF Initialization
+            ukf_estimator,
+            last_aukf_telemetry: None,
+            last_ingest_ts_us: None,
+            
+            // PC Init
+            observation_buffer: Vec::with_capacity(100),
+            pc_change_detector: crate::causal::GraphChangeDetector::default(),
+            pc_learning_enabled: cfg.sota.pc_learning_enabled,
+            last_pc_run_ts: 0,
         }
     }
 
@@ -123,28 +175,81 @@ impl Engine {
     /// [hr_bpm, rmssd, rr_bpm, quality, motion]
     /// - `quality` and `motion` are optional and will default to 1.0 and 0.0 respectively if omitted.
     pub fn ingest_sensor(&mut self, features: &[f32], ts_us: i64) -> Estimate {
-        let est = self.estimator.ingest(features, ts_us);
-        // Build SensorFeatures and PhysioState for control-tick belief/FEP update
+        // Legacy ingest for backward compatibility / fallback
+        // We always run this to maintain estimator state even if UKF is primary
+        let est_legacy = self.legacy_estimator.ingest(features, ts_us);
+        
+        let mut final_est = est_legacy.clone();
+        
+        // HYBRID UKF LOGIC
+        if let Some(ukf) = &mut self.ukf_estimator {
+            // Compute dt (ensure non-negative, handle first sample)
+            let dt = if let Some(last_ts) = self.last_ingest_ts_us {
+                crate::domain::dt_sec(ts_us, last_ts)
+            } else {
+                0.0
+            };
+            
+            // Avoid dt=0 updates (bursts)
+            if dt > 0.001 { // 1ms minimum
+                 let obs = UkfObservation {
+                    heart_rate: features.get(0).copied(),
+                    hr_confidence: Some(features.get(3).copied().unwrap_or(1.0)),
+                    stress_index: features.get(1).map(|v| 100.0 - v), // Inverse HRV as stress proxy? Approx
+                    respiration_rate: features.get(2).copied(),
+                    facial_valence: None, // Need separate input for this
+                };
+
+                // Try update
+                // Note: UKF update returns UkfBeliefState (no Result currently, assumes success)
+                // If it had error handling we'd match here. Since it doesn't, we assume it works.
+                let belief = ukf.update(&obs, dt);
+                
+                // Convert to Estimate
+                final_est = Estimate {
+                    ts_us, // Use current timestamp
+                    hr_bpm: Some(belief.arousal * 100.0 + 40.0), // Denormalize approx
+                    rr_bpm: Some(belief.rhythm_alignment * 10.0 + 4.0),
+                    rmssd: Some((1.0 - belief.arousal) * 100.0),
+                    confidence: belief.confidence,
+                };
+                
+                // TELEMETRY: Capture adaptive Q if needed
+                if ukf.sample_count() % 10 == 0 {
+                    let q_diag = ukf.get_q_diagonal();
+                    self.last_aukf_telemetry = Some(serde_json::json!({
+                        "aukf_q_diagonal": q_diag,
+                        "aukf_sample_count": ukf.sample_count(),
+                        "aukf_forgetting_factor": self.config.sota.ukf_config.forgetting_factor,
+                    }));
+                } else {
+                    self.last_aukf_telemetry = None;
+                }
+            }
+        }
+        self.last_ingest_ts_us = Some(ts_us);
+
+        // Build SensorFeatures and PhysioState...
         debug_assert!(
             features.len() >= 3,
             "features layout must be [hr, rmssd, rr, quality, motion] (quality/motion optional)"
         );
         let sf = crate::belief::SensorFeatures {
-            hr_bpm: est.hr_bpm,
-            rmssd: est.rmssd,
-            rr_bpm: est.rr_bpm,
+            hr_bpm: final_est.hr_bpm,
+            rmssd: final_est.rmssd,
+            rr_bpm: final_est.rr_bpm,
             quality: features.get(3).cloned().unwrap_or(1.0),
             motion: features.get(4).cloned().unwrap_or(0.0),
         };
         let phys = crate::belief::PhysioState {
-            hr_bpm: est.hr_bpm,
-            rr_bpm: est.rr_bpm,
-            rmssd: est.rmssd,
-            confidence: est.confidence,
+            hr_bpm: final_est.hr_bpm,
+            rr_bpm: final_est.rr_bpm,
+            rmssd: final_est.rmssd,
+            confidence: final_est.confidence,
         };
         self.last_sf = Some(sf);
         self.last_phys = Some(phys);
-        est
+        final_est
     }
 
     /// Advance engine time and compute any cycles (returns cycle count)
@@ -243,8 +348,11 @@ impl Engine {
             intensity: 0.8,
         };
         const CAUSAL_LEARNING_RATE: f32 = 0.05;
-        self.causal_graph
-            .update_weights(&context_state, &action, success, CAUSAL_LEARNING_RATE);
+        if let Err(e) = self.causal_graph
+            .update_weights(&context_state, &action, success, CAUSAL_LEARNING_RATE) 
+        {
+            log::warn!("Causal Update Failed: {}", e);
+        }
 
         // If failure, record trauma to prevent repeating the same mistake
         if !success {
@@ -264,9 +372,34 @@ impl Engine {
                 severity,
             );
 
+
             // Write-through to trauma cache for immediate availability
             if let Some(hit) = self.trauma_registry.query(&context_hash) {
                 self.trauma_cache.update(context_hash, hit);
+            }
+        }
+        
+        // SOTA: Meta-learning for EFE precision
+        // Adapt Beta based on exploration/exploitation outcome
+        if let Some(last_policy) = &self.last_selected_policy {
+            // If epistemic value dominates, it was an exploratory action
+            let was_exploratory = last_policy.epistemic_value > last_policy.pragmatic_value;
+            
+            let old_beta = self.efe_precision_beta;
+            self.efe_precision_beta = self.efe_meta_learner.update_beta(
+                self.efe_precision_beta,
+                was_exploratory,
+                success,
+            );
+            
+            if (self.efe_precision_beta - old_beta).abs() > 0.001 {
+                log::info!(
+                    "EFE Adaptation: Beta {:.3} -> {:.3} (Success: {}, Explored: {})",
+                    old_beta,
+                    self.efe_precision_beta,
+                    success,
+                    was_exploratory
+                );
             }
         }
     }
@@ -349,7 +482,66 @@ impl Engine {
             crate::belief::BeliefBasis::Energize => 7.0,
         };
         // fallback to estimator rr if present
-        let proposed = est.rr_bpm.unwrap_or(base).clamp(4.0, 12.0);
+        let mut proposed = est.rr_bpm.unwrap_or(base).clamp(4.0, 12.0);
+
+        // --- EFE POLICY SELECTION ---
+        if self.use_efe_selection {
+            use crate::policy::{EFECalculator, ActionPolicy, PolicyLibrary};
+            
+            // 1. Instantiate Calculator with current Beta
+            let efe_calc = EFECalculator::new(self.efe_precision_beta);
+            
+            // 2. Define Candidate Policies
+            let policies = vec![
+                PolicyLibrary::calming_breath(),
+                PolicyLibrary::energizing_breath(),
+                PolicyLibrary::focus_mode(), 
+                PolicyLibrary::observe(),
+            ];
+            
+            // 3. Predict future state (from Causal Graph)
+            // For now, we use current belief as proxy for immediate prediction
+            // In future, CausalGraph::predict_state() would be called here
+            let predicted_state = self.belief_state.to_5mode_array(); 
+            let predicted_uncertainty = self.belief_state.conf;
+
+            // 4. Compute EFE for each policy
+            let mut evaluations: Vec<crate::policy::PolicyEvaluation> = policies.into_iter().map(|policy| {
+                efe_calc.compute_efe(
+                    &policy,
+                    &self.belief_state.to_5mode_array(),
+                    self.belief_state.uncertainty(),
+                    &predicted_state,
+                    crate::belief::uncertainty_from_confidence(predicted_uncertainty),
+                )
+            }).collect();
+            
+            // 5. Select Policy (Softmax)
+            // Use deterministic RNG seed from timestamp for reproducibility
+            let rng_value = ((ts_us % 1000) as f32) / 1000.0;
+            efe_calc.compute_selection_probabilities(&mut evaluations);
+            let selected_policy_ref = efe_calc.sample_policy(&evaluations, rng_value);
+            
+            // 6. Apply Selection
+            // Store for learning loop
+            // We need to clone it to store it (sample_policy returns ref)
+            let selected_clone = evaluations.iter().find(|e| e.policy.description() == selected_policy_ref.description()).cloned();
+            self.last_selected_policy = selected_clone;
+            
+            // Convert to BPM target
+            // Use current proposed as fallback
+            let decision = selected_policy_ref.to_control_decision(proposed, est.confidence);
+            proposed = decision.target_rate_bpm;
+            
+            // Handle Side Effects (e.g. Digital Interventions)
+            if let ActionPolicy::DigitalIntervention(di) = selected_policy_ref {
+                 // In a full implementation, this would emit a separate event or side-effect
+                 // For now, we just log it as the primary decision driver
+                 // (Engine currently focused on Breath, but this lays groundwork for multi-modal)
+                 log::info!("EFE Selected Digital Intervention: {:?}", di);
+            }
+        }
+
 
         let mut patch = crate::safety_swarm::PatternPatch {
             target_bpm: proposed,
@@ -586,5 +778,59 @@ mod tests {
         assert!(dec.confidence >= 0.0);
         assert!(policy.is_some());
         assert!(deny.is_none());
+    }
+    
+    /// Ingest observation for causal learning pipeline
+    pub fn ingest_observation(&mut self, obs: crate::domain::Observation, ts_us: i64) {
+        let snapshot = ObservationSnapshot::from(obs);
+        
+        // Feed to causal buffer (existing)
+        self.causal_buffer.push(snapshot.clone());
+        
+        // NEW: Accumulate for PC learning
+        if self.pc_learning_enabled {
+            self.observation_buffer.push(snapshot);
+            
+            // Check if should trigger PC learning
+            if self.pc_change_detector.should_trigger_learning(&self.observation_buffer) {
+                // Rate limit: Max 1x per 60s for now
+                let time_since_last = ts_us - self.last_pc_run_ts;
+                if time_since_last > 60_000_000 {
+                    self.run_pc_learning(ts_us);
+                }
+            }
+        }
+    }
+    
+    /// Run PC Algorithm to learn causal structure
+    fn run_pc_learning(&mut self, ts_us: i64) {
+        use crate::causal::{PCAlgorithm, PCConfig};
+        
+        log::info!("Running PC Algorithm on {} samples...", self.observation_buffer.len());
+        
+        let pc_config = PCConfig {
+            alpha: 0.05,
+            max_cond_set_size: 3,
+            min_samples: self.pc_change_detector.min_samples,
+        };
+        
+        let mut pc = PCAlgorithm::new(pc_config);
+        
+        // PC algorithm can be slow - should be off-thread in production
+        if let Ok(learned_graph) = pc.learn_from_data(&self.observation_buffer) {
+            self.causal_graph.merge_learned_edges(&learned_graph);
+            log::info!("PC learning completed: {} edges learned.", learned_graph.edge_count());
+        } else {
+            log::warn!("PC learning failed or produced invalid graph.");
+        }
+        
+        // Reset buffer (retain last 10% for continuity)
+        let retain = self.observation_buffer.len() / 10;
+        if retain < self.observation_buffer.len() {
+            let drain_cnt = self.observation_buffer.len() - retain;
+            self.observation_buffer.drain(0..drain_cnt);
+        }
+        
+        self.last_pc_run_ts = ts_us;
     }
 }

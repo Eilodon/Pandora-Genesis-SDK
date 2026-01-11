@@ -36,6 +36,16 @@ impl Default for BeliefState {
     }
 }
 
+impl BeliefState {
+    pub fn to_5mode_array(&self) -> [f32; 5] {
+        self.p
+    }
+
+    pub fn uncertainty(&self) -> f32 {
+        uncertainty_from_confidence(self.conf)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct FepState {
     pub mu: [f32; 5],
@@ -139,6 +149,12 @@ pub fn ema_vec(prev: &[f32; 5], next: &[f32; 5], alpha: f32) -> [f32; 5] {
         out[i] = prev[i] * (1.0 - alpha) + next[i] * alpha;
     }
     out
+}
+
+pub fn uncertainty_from_confidence(conf: f32) -> f32 {
+    // Uncertainty is inverse of confidence (simple mapping)
+    // Or Shannon entropy? For now, 1.0 - conf
+    (1.0 - conf).clamp(0.0, 1.0)
 }
 
 pub fn hysteresis_collapse(

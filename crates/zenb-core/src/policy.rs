@@ -177,6 +177,30 @@ impl ActionPolicy {
             }
         }
     }
+    /// Convert the policy into a low-level ControlDecision for the engine.
+    ///
+    /// # Arguments
+    /// * `current_bpm`: Current target BPM (fallback for non-breath policies)
+    /// * `default_confidence`: Confidence to assign if not specified by policy
+    pub fn to_control_decision(&self, current_bpm: f32, default_confidence: f32) -> crate::domain::ControlDecision {
+        match self {
+            ActionPolicy::NoAction => crate::domain::ControlDecision {
+                target_rate_bpm: current_bpm,
+                confidence: default_confidence,
+                recommended_poll_interval_ms: 1000, // Standard poll
+            },
+            ActionPolicy::GuidanceBreath(params) => crate::domain::ControlDecision {
+                target_rate_bpm: params.target_bpm,
+                confidence: 0.9, // High confidence in explicit guidance
+                recommended_poll_interval_ms: 500, // Faster poll for breath guidance
+            },
+            ActionPolicy::DigitalIntervention(_) => crate::domain::ControlDecision {
+                target_rate_bpm: current_bpm, // Digital action doesn't change breath target
+                confidence: 0.8,
+                recommended_poll_interval_ms: 2000, // Slower poll for digital actions (longer duration)
+            },
+        }
+    }
 }
 
 // ============================================================================
@@ -274,6 +298,15 @@ impl Default for EFECalculator {
     }
 }
 
+
+impl EFECalculator {
+    pub fn new(precision: f32) -> Self {
+        let mut calc = Self::default();
+        calc.precision = precision;
+        calc
+    }
+}
+
 impl EFECalculator {
     /// Compute full expected free energy for a policy given current beliefs.
     /// 
@@ -313,6 +346,56 @@ impl EFECalculator {
         let mut eval = PolicyEvaluation::new(policy.clone(), pragmatic_value, epistemic_value);
         eval.expected_free_energy = efe;
         eval
+    }
+
+    /// Compute selection probabilities using Softmax over Negative Expected Free Energy
+    /// P(π) = σ(-γ * G(π))
+    pub fn compute_selection_probabilities(&self, evaluations: &mut [PolicyEvaluation]) {
+        // Compute negative EFE (Value)
+        let values: Vec<f32> = evaluations.iter()
+            .map(|e| -e.expected_free_energy * self.precision)
+            .collect();
+            
+        // Compute Softmax
+        let max_val = values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        let mut sum = 0.0;
+        let mut probs = values.clone();
+        
+        for p in probs.iter_mut() {
+            *p = (*p - max_val).exp();
+            sum += *p;
+        }
+        
+        // Normalize
+        if sum > 0.0 {
+            for (i, p) in probs.iter().enumerate() {
+                evaluations[i].selection_probability = *p / sum;
+            }
+        } else {
+             // Fallback to uniform
+             let n = evaluations.len() as f32;
+             for e in evaluations.iter_mut() {
+                 e.selection_probability = 1.0 / n;
+             }
+        }
+    }
+
+    /// Sample a policy based on computed probabilities
+    pub fn sample_policy<'a>(&self, evaluations: &'a [PolicyEvaluation], rand_seed: f32) -> &'a ActionPolicy {
+        let mut cumulative = 0.0;
+        // Use provided seed (0.0-1.0) to select
+        // Ensure rand_seed is within [0, 1]
+        let r = rand_seed.clamp(0.0, 0.9999);
+        
+        for eval in evaluations {
+            cumulative += eval.selection_probability;
+            if r < cumulative {
+                return &eval.policy;
+            }
+        }
+        
+        // Fallback to last (or first)
+        &evaluations.last().unwrap().policy
     }
     
     /// Compute pragmatic value: how well does policy achieve goals?
@@ -412,25 +495,100 @@ impl EFECalculator {
             .partial_cmp(&a.selection_probability)
             .unwrap_or(std::cmp::Ordering::Equal));
     }
-    
-    /// Sample a policy using the computed selection probabilities.
-    /// Uses simple weighted random selection.
-    pub fn sample_policy<'a>(&self, evaluations: &'a [PolicyEvaluation], rng_value: f32) -> &'a ActionPolicy {
-        let mut cumulative = 0.0;
-        for eval in evaluations {
-            cumulative += eval.selection_probability;
-            if rng_value < cumulative {
-                return &eval.policy;
-            }
-        }
-        // Fallback to last policy
-        &evaluations.last().map(|e| &e.policy).unwrap_or(&ActionPolicy::NoAction)
-    }
 }
+    
+
 
 /// Policy library: pre-defined policies for common scenarios.
 /// These serve as a "policy prior" in Active Inference - the system's
 /// innate repertoire of behaviors before learning.
+// ============================================================================
+// META-LEARNING: Adaptive Precision (Beta)
+// ============================================================================
+
+/// adaptive meta-learner for EFE precision (beta).
+/// Balances exploration vs exploitation based on recent success rates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BetaMetaLearner {
+    /// Score tracking recent exploration (high uncertainty policies)
+    pub exploration_score: f32,
+    
+    /// Score tracking recent exploitation (high pragmatic value policies)
+    pub exploitation_score: f32,
+    
+    /// Exponential moving average of policy success (0.0 - 1.0)
+    pub success_rate_ema: f32,
+    
+    /// Target ratio of exploration to total activity (default: 0.2)
+    pub target_exploration_ratio: f32,
+}
+
+impl Default for BetaMetaLearner {
+    fn default() -> Self {
+        Self {
+            exploration_score: 1.0,
+            exploitation_score: 4.0,
+            success_rate_ema: 0.5,
+            target_exploration_ratio: 0.2, // 20% exploration, 80% exploitation
+        }
+    }
+}
+
+impl BetaMetaLearner {
+    /// Update beta based on recent policy outcome.
+    /// 
+    /// # Logic
+    /// - If success rate is low and we are over-exploring -> Increase beta (Exploit more)
+    /// - If exploration ratio is too low -> Decrease beta (Explore more)
+    /// - If success rate is high -> Slightly increase beta (Stabilize)
+    pub fn update_beta(
+        &mut self,
+        current_beta: f32,
+        policy_was_exploratory: bool,
+        policy_succeeded: bool,
+    ) -> f32 {
+        // Update success rate (alpha = 0.1)
+        let alpha = 0.1;
+        self.success_rate_ema = self.success_rate_ema * (1.0 - alpha)
+            + (if policy_succeeded { 1.0 } else { 0.0 }) * alpha;
+        
+        // Update exploration tracking
+        if policy_was_exploratory {
+            self.exploration_score += 1.0;
+        } else {
+            self.exploitation_score += 1.0;
+        }
+        
+        let total = self.exploration_score + self.exploitation_score;
+        // Prevent division by zero (unlikely with default initialization)
+        let current_ratio = if total > 0.0 { 
+            self.exploration_score / total 
+        } else { 
+            0.0 
+        };
+        
+        // Adapt beta
+        let new_beta = if current_ratio > self.target_exploration_ratio && self.success_rate_ema < 0.6 {
+            // Over-exploring with poor results -> exploit more (increase precision)
+            (current_beta * 1.1).min(5.0)
+        } else if current_ratio < self.target_exploration_ratio {
+            // Under-exploring -> explore more (decrease precision)
+            (current_beta * 0.9).max(0.1)
+        } else if self.success_rate_ema > 0.8 {
+            // Doing well -> slowly consolidate/exploit
+            (current_beta * 1.02).min(5.0)
+        } else {
+            current_beta // No change
+        };
+        
+        // Decay scores (forgetting factor)
+        self.exploration_score *= 0.99;
+        self.exploitation_score *= 0.99;
+        
+        new_beta
+    }
+}
+
 pub struct PolicyLibrary;
 
 impl PolicyLibrary {
@@ -514,5 +672,24 @@ mod tests {
         assert_eq!(eval.pragmatic_value, 0.8);
         assert_eq!(eval.epistemic_value, 0.2);
         assert_eq!(eval.expected_free_energy, -1.0);
+    }
+
+    #[test]
+    fn test_beta_meta_learner() {
+        let mut learner = super::BetaMetaLearner::default();
+        let initial_beta = 1.0;
+
+        // 1. Simulate under-exploration -> Beta should decrease (encourage exploration)
+        learner.exploration_score = 0.0;
+        learner.exploitation_score = 10.0; // Ratio = 0.0 < 0.2 Target
+        let new_beta = learner.update_beta(initial_beta, false, true);
+        assert!(new_beta < initial_beta, "Beta should decrease to encourage exploration");
+
+        // 2. Simulate over-exploration with failure -> Beta should increase (force exploitation)
+        learner.exploration_score = 10.0;
+        learner.exploitation_score = 0.0; // Ratio = 1.0 > 0.2
+        learner.success_rate_ema = 0.4; // Low success
+        let new_beta_2 = learner.update_beta(1.0, true, false);
+        assert!(new_beta_2 > 1.0, "Beta should increase to stop failed exploration");
     }
 }

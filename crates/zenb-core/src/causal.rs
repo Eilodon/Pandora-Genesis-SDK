@@ -485,7 +485,7 @@ impl CausalGraph {
         _action: &ActionPolicy,
         success: bool,
         learning_rate: f32,
-    ) {
+    ) -> Result<(), String> {
         let target_idx = Variable::UserAction.index();
         let reward: f32 = if success { 1.0 } else { -1.0 };
 
@@ -560,10 +560,11 @@ impl CausalGraph {
         }
         
         // INVARIANT: Causal graph must remain acyclic after weight update
-        debug_assert!(
-            self.is_acyclic(),
-            "INVARIANT VIOLATION: Causal graph has cycle after weight update"
-        );
+        // INVARIANT: Causal graph must remain acyclic after weight update
+        if !self.is_acyclic() {
+            return Err("INVARIANT VIOLATION: Causal graph has cycle after weight update".to_string());
+        }
+        Ok(())
     }
 
     /// Check if the graph is acyclic (DAG property).
@@ -612,7 +613,7 @@ impl CausalGraph {
 // ============================================================================
 
 /// PC Algorithm configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PCConfig {
     /// Significance level for conditional independence tests (default 0.05)
     pub alpha: f32,
@@ -994,6 +995,9 @@ pub enum ActionType {
     /// No action
     NoAction,
 }
+
+mod graph_change_detector;
+pub use graph_change_detector::GraphChangeDetector;
 
 /// Predicted future state after applying an action.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -3,6 +3,10 @@ use std::fs;
 use std::path::Path;
 use thiserror::Error;
 
+use crate::estimators::ukf::AukfConfig;
+use crate::causal::PCConfig;
+use crate::sensory::binaural::PsychoacousticCalibration;
+
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("IO error: {0}")]
@@ -23,6 +27,62 @@ pub struct ZenbConfig {
     pub breath: BreathConfig,
     pub belief: BeliefConfig,
     pub performance: PerformanceConfig,
+    pub sota: SotaConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SotaConfig {
+    /// Enable Hybrid UKF State Estimator
+    pub use_ukf: bool,
+    /// Automatically fall back to legacy estimator if UKF diverges
+    pub ukf_fallback_enabled: bool,
+    /// Adaptive UKF configuration (Sage-Husa)
+    pub ukf_config: AukfConfig,
+    
+    /// Enable EFE-based policy selection
+    pub use_efe_selection: bool,
+    /// EFE precision (beta) - controls exploration vs exploitation
+    /// If None, uses adaptive meta-learning
+    pub efe_precision_beta: Option<f32>,
+    
+    /// Enable PC algorithm for causal structure learning
+    pub pc_learning_enabled: bool,
+    /// PC Algorithm configuration
+    pub pc_config: PCConfig,
+    
+    /// Psychoacoustic calibration profile
+    pub audio_profile: AudioProfile,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum AudioProfile {
+    Standard,
+    HearingImpaired,
+    Audiophile,
+}
+
+impl Default for AudioProfile {
+    fn default() -> Self {
+        Self::Standard
+    }
+}
+
+impl AudioProfile {
+    pub fn to_calibration(&self) -> PsychoacousticCalibration {
+        match self {
+            Self::Standard => PsychoacousticCalibration::default(),
+            Self::HearingImpaired => PsychoacousticCalibration {
+                sensitivity_offset: 5.0,
+                max_safe_level: 80.0,
+                ..Default::default()
+            },
+            Self::Audiophile => PsychoacousticCalibration {
+                sensitivity_offset: -3.0,
+                reference_db_spl: 65.0,
+                ..Default::default()
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +165,22 @@ impl Default for ZenbConfig {
             breath: BreathConfig::default(),
             belief: BeliefConfig::default(),
             performance: PerformanceConfig::default(),
+            sota: SotaConfig::default(),
+        }
+    }
+}
+
+impl Default for SotaConfig {
+    fn default() -> Self {
+        Self {
+            use_ukf: false, // Default to false for safe rollout
+            ukf_fallback_enabled: true,
+            ukf_config: AukfConfig::default(),
+            use_efe_selection: false,
+            efe_precision_beta: None, // Enable adaptive by default if EFE is on
+            pc_learning_enabled: false,
+            pc_config: PCConfig::default(),
+            audio_profile: AudioProfile::default(),
         }
     }
 }

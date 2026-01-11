@@ -19,7 +19,7 @@ type StateVector = SVector<f32, N>;
 type CovarianceMatrix = SMatrix<f32, N, N>;
 
 /// UKF Configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UkfConfig {
     /// Process noise scale
     pub q_scale: f32,
@@ -52,7 +52,7 @@ impl Default for UkfConfig {
 }
 
 /// Sage-Husa Adaptive UKF Configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AukfConfig {
     /// Base UKF configuration
     pub ukf: UkfConfig,
@@ -221,8 +221,9 @@ impl UkfStateEstimator {
             r_adaptive_hrv: cfg.r_hrv,
             r_adaptive_resp: cfg.r_resp,
             r_adaptive_valence: cfg.r_valence,
+
             residual_mean: StateVector::zeros(),
-            residual_cov: CovarianceMatrix::zeros(),
+            residual_cov: CovarianceMatrix::identity() * 0.2, // Initialize to match P to avoid cold-start drop
             aukf_config: aukf_cfg,
         }
     }
@@ -246,19 +247,39 @@ impl UkfStateEstimator {
         // 1. Prediction
         self.predict(dt);
         
+        // Store predicted state for residual calculation
+        let x_pred = self.x;
+        
         // 2. Correction
         self.correct(obs);
         
-        // 3. Convert to UkfBeliefState
+        // 3. Adaptive Q Update (Sage-Husa)
+        // Residual = x_post - x_pred (state correction magnitude)
+        let residual = self.x - x_pred;
+        let p_curr = self.p; // Copy p to avoid borrow conflict
+        self.update_adaptive_q(&residual, &p_curr);
+        
+        // 4. Convert to UkfBeliefState
         self.to_belief_state()
+    }
+
+    /// Get current sample count
+    pub fn sample_count(&self) -> usize {
+        self.sample_count
+    }
+
+    /// Get diagonal elements of adaptive Q matrix (for telemetry)
+    pub fn get_q_diagonal(&self) -> [f32; N] {
+        let mut diag = [0.0; N];
+        for i in 0..N {
+            diag[i] = self.q_adaptive[(i, i)];
+        }
+        diag
     }
     
     // --- PREDICTION ---
     
     fn predict(&mut self, dt: f32) {
-        // Store pre-prediction state for Sage-Husa
-        let x_prior = self.x;
-        
         // Generate sigma points
         let sigmas = self.generate_sigma_points();
         
@@ -290,13 +311,15 @@ impl UkfStateEstimator {
     
     /// Sage-Husa Q adaptation: estimate process noise from state prediction residuals
     fn update_adaptive_q(&mut self, state_residual: &StateVector, p_post: &CovarianceMatrix) {
-        if !self.aukf_config.adapt_q || self.sample_count < self.aukf_config.min_samples {
+        if !self.aukf_config.adapt_q {
             return;
         }
         
         let b = self.aukf_config.forgetting_factor;
         let d_k = 1.0 - b; // (1 - b) weight for new observation
         
+        // println!("UKF DEBUG: update_adaptive_q count={} min={}", self.sample_count, self.aukf_config.min_samples);
+
         // Update residual mean: x̄ₖ = b * x̄ₖ₋₁ + (1-b) * dₖ
         self.residual_mean = self.residual_mean * b + state_residual * d_k;
         
@@ -306,6 +329,11 @@ impl UkfStateEstimator {
         // Update residual covariance: Cₖ = b * Cₖ₋₁ + (1-b) * dₖdₖᵀ
         self.residual_cov = self.residual_cov * b + residual_outer * d_k;
         
+        // Only update Q after minimum samples
+        if self.sample_count < self.aukf_config.min_samples {
+             return;
+        }
+
         // Sage-Husa Q estimate: Q̂ = Cₖ - Pₖ₊₁|ₖ₊₁
         let q_estimate = self.residual_cov - *p_post;
         
