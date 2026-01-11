@@ -16,6 +16,10 @@ use crate::memory::HolographicMemory;
 use crate::perception::SheafPerception;
 use nalgebra::DVector;
 
+// PANDORA PORT: Resilience and adaptive features
+use crate::circuit_breaker::{CircuitBreakerManager, CircuitBreakerConfig};
+use crate::adaptive::{AdaptiveThreshold, AnomalyDetector, ConfidenceTracker};
+
 /// High-level engine that holds estimator, safety envelope, controller and breath engine.
 /// 
 /// # VAJRA-001 Upgrade
@@ -95,6 +99,27 @@ pub struct Engine {
     
     /// Last sheaf energy (for diagnostics)
     pub last_sheaf_energy: f32,
+    
+    // === PANDORA PORT: Resilience ===
+    
+    /// Circuit breaker for estimator failures (prevents cascade on repeated errors)
+    pub circuit_breaker: CircuitBreakerManager,
+    
+    // === PANDORA PORT: Adaptive Thresholds ===
+    
+    /// Adaptive threshold for belief state transitions
+    pub belief_enter_threshold: AdaptiveThreshold,
+    
+    /// Anomaly detector for sensor readings
+    pub sensor_anomaly_detector: AnomalyDetector,
+    
+    /// Confidence tracker for decision outcomes
+    pub decision_confidence: ConfidenceTracker,
+    
+    // === Enhanced Observation Buffer ===
+    
+    /// Minimum samples before triggering PC algorithm
+    pub observation_buffer_min_samples: usize,
 }
 
 impl Engine {
@@ -183,6 +208,28 @@ impl Engine {
             dharma_filter: DharmaFilter::default_for_zenb(),
             use_vajra_architecture: true, // ENABLED: All Vajra components verified and tested
             last_sheaf_energy: 0.0,
+            
+            // PANDORA PORT: Resilience
+            circuit_breaker: CircuitBreakerManager::new(CircuitBreakerConfig {
+                failure_threshold: 3,
+                open_cooldown_ms: 5_000,
+                half_open_trial: 1,
+                max_circuits: 100,
+                state_ttl_secs: 3600,
+            }),
+            
+            // PANDORA PORT: Adaptive Thresholds
+            belief_enter_threshold: AdaptiveThreshold::new(
+                cfg.belief.enter_threshold,
+                0.2,  // min
+                0.8,  // max
+                0.05, // learning rate
+            ),
+            sensor_anomaly_detector: AnomalyDetector::new(50, 2.5),
+            decision_confidence: ConfidenceTracker::new(100),
+            
+            // Enhanced Observation Buffer
+            observation_buffer_min_samples: 30, // Minimum samples before PC algorithm runs
         }
     }
 
@@ -508,6 +555,42 @@ impl Engine {
                 );
             }
         }
+        
+        // PANDORA PORT: Update confidence tracker based on outcome
+        self.decision_confidence.update(success);
+        
+        // PANDORA PORT: Adapt belief threshold based on performance
+        // Compute performance delta: positive if success, negative if failure
+        let performance_delta = if success { 0.1 } else { -0.1 };
+        self.belief_enter_threshold.adapt(performance_delta);
+    }
+    
+    /// Check if observation buffer has enough samples for PC algorithm.
+    ///
+    /// Returns true if buffer length >= observation_buffer_min_samples.
+    #[inline]
+    pub fn is_ready_for_discovery(&self) -> bool {
+        self.observation_buffer.len() >= self.observation_buffer_min_samples
+    }
+    
+    /// Get current observation buffer size.
+    #[inline]
+    pub fn observation_buffer_len(&self) -> usize {
+        self.observation_buffer.len()
+    }
+    
+    /// Get circuit breaker statistics for monitoring.
+    pub fn circuit_breaker_stats(&self) -> crate::circuit_breaker::CircuitStats {
+        self.circuit_breaker.stats()
+    }
+    
+    /// Get current adaptive threshold values for diagnostics.
+    pub fn adaptive_thresholds_info(&self) -> (f32, f32, f32) {
+        (
+            self.belief_enter_threshold.get(),
+            self.belief_enter_threshold.base(),
+            self.decision_confidence.success_rate(),
+        )
     }
 
     /// PR3: Make a control decision from estimate with INTRINSIC SAFETY.

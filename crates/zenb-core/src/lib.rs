@@ -6,14 +6,18 @@
 //! CausalBeliefState (3-factor) is exported for causal layer use only.
 
 pub mod agent_container;
-pub mod ai;          // NEW: AI Tools
+pub mod adaptive;     // PANDORA PORT: Adaptive thresholds and anomaly detection
+pub mod ai;           // NEW: AI Tools
 pub mod belief;
 pub mod breath_engine;
 pub mod causal;
+pub mod circuit_breaker; // PANDORA PORT: Resilient operation execution
 pub mod config;
 pub mod control_flow;  // NEW: Type-safe pipeline builder
 pub mod controller;
+pub mod decision_tree; // PANDORA PORT: Context-aware routing
 pub mod domain;
+pub mod edge;         // PANDORA PORT: Device-aware optimization
 pub mod engine;
 pub mod estimator;
 pub mod estimators;  // NEW: UKF and advanced estimators
@@ -25,7 +29,9 @@ pub mod replay;
 pub mod resonance;
 pub mod safety;      // NEW: LTL Safety Monitor + DharmaFilter
 pub mod safety_swarm;
+pub mod scientist;   // PANDORA PORT: Automatic causal discovery
 pub mod sensory;     // NEW: Binaural, Soundscape, Haptics
+pub mod skandha;     // PANDORA PORT: Five Skandhas cognitive pipeline
 pub mod trauma_cache;
 pub mod uncertain;   // NEW: Uncertainty quantification
 pub mod validation;
@@ -138,3 +144,20 @@ pub use perception::SheafPerception;
 
 // VAJRA-001: Dharma Filter (exported from safety module)
 pub use safety::{AlignmentCategory, ComplexDecision, DharmaFilter};
+
+// PANDORA PORT: Circuit Breaker for resilient operations
+pub use circuit_breaker::{
+    CircuitBreakerConfig, CircuitBreakerManager, CircuitState, CircuitStats,
+};
+
+// PANDORA PORT: Adaptive thresholds and anomaly detection
+pub use adaptive::{AdaptiveThreshold, AnomalyDetector, ConfidenceTracker};
+
+// PANDORA PORT: Edge device optimization
+pub use edge::{EdgeDeviceSpecs, EdgeDeviceType, EdgeOptimizer, OptimizationConfig as EdgeOptimizationConfig};
+
+// PANDORA PORT: Context-aware routing
+pub use decision_tree::{DecisionTree, DecisionContext, DecisionResult, RouteAction, Condition};
+
+
+

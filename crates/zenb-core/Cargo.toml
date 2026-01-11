@@ -15,6 +15,7 @@ toml = "0.8"
 lru = "0.12"
 nalgebra = "0.32"  # Linear algebra for UKF
 log = "0.4"        # Logging
+parking_lot = "0.12"  # High-performance mutex for circuit breaker
 
 # Vajra-001: Holographic Memory dependencies
 rustfft = "6.2"       # FFT processing for holographic memory
