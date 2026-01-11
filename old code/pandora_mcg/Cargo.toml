@@ -1,0 +1,27 @@
+[package]
+name = "pandora_mcg"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[features]
+ml = ["pandora_cwm/ml"]
+tda = []
+default = []
+metrics_instrumentation = []
+
+[dependencies]
+pandora_core = { path = "../pandora_core" }
+pandora_cwm = { path = "../pandora_cwm" }
+pandora_error = { path = "../pandora_error" }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+metrics = { workspace = true }
+pyo3 = { version = "0.21", features = ["auto-initialize"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+
+[dev-dependencies]
+criterion = { workspace = true }

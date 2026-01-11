@@ -1,0 +1,23 @@
+[package]
+name = "pandora_uniffi"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+name = "pandora_uniffi"
+
+[dependencies]
+pandora_core = { path = "../pandora_core" }
+pandora_orchestrator = { path = "../pandora_orchestrator" }
+pandora_tools = { path = "../pandora_tools" }
+uniffi = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+thiserror = { workspace = true }
+
+[build-dependencies]
+uniffi = { workspace = true }
