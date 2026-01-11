@@ -1,6 +1,13 @@
 use serde::{Deserialize, Serialize};
 use crate::domain::{CausalBeliefState, Observation};
 
+// Submodules
+pub mod notears;
+mod graph_change_detector;
+pub use graph_change_detector::GraphChangeDetector;
+pub use notears::{Notears, NotearsConfig};
+
+
 /// Causal variable nodes representing observable and latent factors in the system.
 /// These form the vertices of the Directed Acyclic Graph (DAG).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -996,8 +1003,7 @@ pub enum ActionType {
     NoAction,
 }
 
-mod graph_change_detector;
-pub use graph_change_detector::GraphChangeDetector;
+
 
 /// Predicted future state after applying an action.
 #[derive(Debug, Clone, Serialize, Deserialize)]

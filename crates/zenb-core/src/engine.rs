@@ -181,7 +181,7 @@ impl Engine {
             holographic_memory: HolographicMemory::default_for_zenb(),
             sheaf_perception: SheafPerception::default_for_zenb(),
             dharma_filter: DharmaFilter::default_for_zenb(),
-            use_vajra_architecture: false, // Default off for safe rollout
+            use_vajra_architecture: true, // ENABLED: All Vajra components verified and tested
             last_sheaf_energy: 0.0,
         }
     }
