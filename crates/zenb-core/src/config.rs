@@ -49,7 +49,11 @@ pub struct SotaConfig {
     pub pc_learning_enabled: bool,
     /// PC Algorithm configuration
     pub pc_config: PCConfig,
-    
+
+    /// Enable Automatic Scientist for hypothesis discovery
+    #[serde(default)]
+    pub scientist_enabled: Option<bool>,
+
     /// Psychoacoustic calibration profile
     pub audio_profile: AudioProfile,
 }
@@ -180,6 +184,7 @@ impl Default for SotaConfig {
             efe_precision_beta: None, // Enable adaptive by default if EFE is on
             pc_learning_enabled: false,
             pc_config: PCConfig::default(),
+            scientist_enabled: None, // Default: disabled
             audio_profile: AudioProfile::default(),
         }
     }

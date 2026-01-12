@@ -3,6 +3,7 @@ use crate::domain::{CausalBeliefState, Observation};
 
 // Submodules
 pub mod notears;
+pub mod dagma; // DAGMA: 5-20x faster than NOTEARS (NeurIPS 2022)
 mod graph_change_detector;
 pub mod intervenable;  // NEW: Pearl's do-calculus interventions
 pub mod propagating_effect; // NEW: Monadic causal effects
