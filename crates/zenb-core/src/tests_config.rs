@@ -101,6 +101,36 @@ mod tests {
             max_buffer_size = 150
             enable_burst_filter = true
             burst_filter_threshold_us = 5000
+
+            [sota]
+            use_ukf = false
+            ukf_fallback_enabled = true
+            use_efe_selection = false
+            pc_learning_enabled = false
+            audio_profile = "Standard"
+
+            [sota.ukf_config]
+            forgetting_factor = 0.95
+            min_samples = 10
+            adapt_q = true
+            adapt_r = true
+            max_q_scale = 10.0
+            min_r_scale = 0.01
+
+            [sota.ukf_config.ukf]
+            q_scale = 0.01
+            r_hr = 25.0
+            r_hrv = 100.0
+            r_resp = 1.0
+            r_valence = 0.25
+            alpha = 0.001
+            beta = 2.0
+            kappa = 0.0
+
+            [sota.pc_config]
+            alpha = 0.05
+            max_cond_set_size = 3
+            min_samples = 100
         "#;
 
         let config: ZenbConfig = toml::from_str(toml_str).unwrap();

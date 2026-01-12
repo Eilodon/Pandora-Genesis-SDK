@@ -109,10 +109,18 @@ pub struct Engine {
     
     /// Adaptive threshold for belief state transitions
     pub belief_enter_threshold: AdaptiveThreshold,
-    
+
+    /// Adaptive lower bound for respiration rate (bpm)
+    /// Auto-calibrates to individual physiology and sensor quality
+    pub rr_min_threshold: AdaptiveThreshold,
+
+    /// Adaptive upper bound for respiration rate (bpm)
+    /// Auto-calibrates to individual physiology and sensor quality
+    pub rr_max_threshold: AdaptiveThreshold,
+
     /// Anomaly detector for sensor readings
     pub sensor_anomaly_detector: AnomalyDetector,
-    
+
     /// Confidence tracker for decision outcomes
     pub decision_confidence: ConfidenceTracker,
     
@@ -225,6 +233,18 @@ impl Engine {
                 0.8,  // max
                 0.05, // learning rate
             ),
+            rr_min_threshold: AdaptiveThreshold::new(
+                4.0,  // base: 4.0 bpm (typical minimum)
+                3.0,  // min: allow down to 3.0 for deep meditation/athletes
+                6.0,  // max: don't go above 6.0 as minimum
+                0.1,  // learning rate: adapt faster for physiological bounds
+            ),
+            rr_max_threshold: AdaptiveThreshold::new(
+                12.0, // base: 12.0 bpm (typical maximum)
+                8.0,  // min: don't allow max to drop below 8.0
+                15.0, // max: allow up to 15.0 for anxiety/exercise recovery
+                0.1,  // learning rate: adapt faster for physiological bounds
+            ),
             sensor_anomaly_detector: AnomalyDetector::new(50, 2.5),
             decision_confidence: ConfidenceTracker::new(100),
             
@@ -273,22 +293,47 @@ impl Engine {
             // Default quality and motion if not provided
             if features.len() < 4 { padded[3] = 1.0; } // quality
             if features.len() < 5 { padded[4] = 0.0; } // motion
-            
-            let sensor_vec = DVector::from_vec(padded);
-            let (diffused, is_anomalous, energy) = self.sheaf_perception.process(&sensor_vec);
-            
-            // Store energy for diagnostics
-            self.last_sheaf_energy = energy;
-            
-            if is_anomalous {
-                log::warn!(
-                    "SheafPerception: Anomalous sensor data detected (energy={:.3})",
-                    energy
-                );
+
+            let sensor_vec = DVector::from_vec(padded.clone());
+
+            // RESILIENCE: Circuit breaker protection for sheaf perception
+            if !self.circuit_breaker.is_open("sheaf_perception") {
+                // Try sheaf processing with panic catch (Laplacian can fail on degenerate graphs)
+                let sheaf_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    self.sheaf_perception.process(&sensor_vec)
+                }));
+
+                match sheaf_result {
+                    Ok((diffused, is_anomalous, energy)) => {
+                        // Success: record and use sheaf result
+                        self.circuit_breaker.record_success("sheaf_perception");
+
+                        // Store energy for diagnostics
+                        self.last_sheaf_energy = energy;
+
+                        if is_anomalous {
+                            log::warn!(
+                                "SheafPerception: Anomalous sensor data detected (energy={:.3})",
+                                energy
+                            );
+                        }
+
+                        // Use diffused values
+                        diffused.iter().cloned().collect()
+                    }
+                    Err(e) => {
+                        // Sheaf panicked (Laplacian singularity, numerical issues, etc.)
+                        self.circuit_breaker.record_failure("sheaf_perception");
+                        log::error!("SheafPerception panicked: {:?}, using raw sensor fallback", e);
+                        // Fallback: use raw padded sensor values
+                        padded
+                    }
+                }
+            } else {
+                // Circuit is open: skip sheaf, use raw sensors
+                log::warn!("SheafPerception circuit open, using raw sensor fallback");
+                padded
             }
-            
-            // Use diffused values
-            diffused.iter().cloned().collect()
         } else {
             features.to_vec()
         };
@@ -320,19 +365,39 @@ impl Engine {
                     facial_valence: None, // Need separate input for this
                 };
 
-                // Try update
-                // Note: UKF update returns UkfBeliefState (no Result currently, assumes success)
-                // If it had error handling we'd match here. Since it doesn't, we assume it works.
-                let belief = ukf.update(&obs, dt);
-                
-                // Convert to Estimate
-                final_est = Estimate {
-                    ts_us, // Use current timestamp
-                    hr_bpm: Some(belief.arousal * 100.0 + 40.0), // Denormalize approx
-                    rr_bpm: Some(belief.rhythm_alignment * 10.0 + 4.0),
-                    rmssd: Some((1.0 - belief.arousal) * 100.0),
-                    confidence: belief.confidence,
-                };
+                // RESILIENCE: Circuit breaker protection for UKF numerical instability
+                if !self.circuit_breaker.is_open("ukf_update") {
+                    // Try update with panic catch (UKF can panic on matrix singularity)
+                    let ukf_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        ukf.update(&obs, dt)
+                    }));
+
+                    match ukf_result {
+                        Ok(belief) => {
+                            // Success: record and use UKF result
+                            self.circuit_breaker.record_success("ukf_update");
+
+                            // Convert to Estimate
+                            final_est = Estimate {
+                                ts_us, // Use current timestamp
+                                hr_bpm: Some(belief.arousal * 100.0 + 40.0), // Denormalize approx
+                                rr_bpm: Some(belief.rhythm_alignment * 10.0 + 4.0),
+                                rmssd: Some((1.0 - belief.arousal) * 100.0),
+                                confidence: belief.confidence,
+                            };
+                        }
+                        Err(e) => {
+                            // UKF panicked (matrix singularity, numerical instability, etc.)
+                            self.circuit_breaker.record_failure("ukf_update");
+                            log::error!("UKF update panicked: {:?}, falling back to legacy estimator", e);
+                            // final_est already set to est_legacy, no change needed
+                        }
+                    }
+                } else {
+                    // Circuit is open: skip UKF, use legacy fallback
+                    log::warn!("UKF circuit open, using legacy estimator fallback");
+                    // final_est already set to est_legacy
+                }
                 
                 // TELEMETRY: Capture adaptive Q if needed
                 if ukf.sample_count() % 10 == 0 {
@@ -670,8 +735,10 @@ impl Engine {
             crate::belief::BeliefBasis::Sleepy => 6.0,
             crate::belief::BeliefBasis::Energize => 7.0,
         };
-        // fallback to estimator rr if present
-        let mut proposed = est.rr_bpm.unwrap_or(base).clamp(4.0, 12.0);
+        // ADAPTIVE BOUNDS: Use platform-aware, auto-calibrating thresholds
+        let rr_min = self.rr_min_threshold.get();
+        let rr_max = self.rr_max_threshold.get();
+        let mut proposed = est.rr_bpm.unwrap_or(base).clamp(rr_min, rr_max);
 
         // --- EFE POLICY SELECTION ---
         if self.use_efe_selection {
@@ -752,7 +819,8 @@ impl Engine {
                             self.dharma_filter.check_alignment(action.vector)
                         );
                     }
-                    proposed = new_proposed.clamp(4.0, 12.0);
+                    // ADAPTIVE BOUNDS: Reuse calibrated thresholds after dharma scaling
+                    proposed = new_proposed.clamp(rr_min, rr_max);
                 }
                 None => {
                     // Dharma veto - fall back to baseline
