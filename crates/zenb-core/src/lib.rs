@@ -34,6 +34,7 @@ pub mod sensory;     // NEW: Binaural, Soundscape, Haptics
 pub mod skandha;     // PANDORA PORT: Five Skandhas cognitive pipeline
 pub mod trauma_cache;
 pub mod uncertain;   // NEW: Uncertainty quantification
+pub mod thermo_logic; // TIER 3: Thermodynamic Logic (GENERIC framework)
 pub mod validation;
 
 #[cfg(test)]
@@ -159,5 +160,6 @@ pub use edge::{EdgeDeviceSpecs, EdgeDeviceType, EdgeOptimizer, OptimizationConfi
 // PANDORA PORT: Context-aware routing
 pub use decision_tree::{DecisionTree, DecisionContext, DecisionResult, RouteAction, Condition};
 
-
+// TIER 3: Thermodynamic Logic (GENERIC framework)
+pub use thermo_logic::{ThermodynamicEngine, ThermoConfig};
 
