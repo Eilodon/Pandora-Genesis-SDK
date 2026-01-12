@@ -190,17 +190,34 @@ impl DharmaFilter {
 
     /// Update Dharma key (for adaptive ethics).
     ///
+    /// # EIDOLON FIX 1.3: DEPRECATED
+    /// This method is deprecated due to ethical drift risk. If the dharma key
+    /// is updated based on outcome feedback, adversarial users can manipulate
+    /// the system into approving harmful actions by repeatedly rewarding them.
+    ///
     /// # Warning
     /// Changing the Dharma key changes the ethical reference frame.
     /// This should only be done deliberately and with full understanding
-    /// of the implications.
+    /// of the implications. DO NOT wire this into automated learning loops.
     ///
     /// # Panics
     /// Panics if new_key has zero magnitude.
+    ///
+    /// # Compile-Time Protection
+    /// This method is only available in tests or with `allow_dharma_mutation` feature.
+    /// Production builds will fail to compile if this is used.
+    #[cfg(any(test, feature = "allow_dharma_mutation"))]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Ethical drift risk: Do not update dharma key based on user feedback. Use immutable constructor instead."
+    )]
     pub fn update_dharma(&mut self, new_key: Complex32) {
         assert!(
             new_key.norm() > 1e-10,
             "Dharma key must have non-zero magnitude"
+        );
+        log::warn!(
+            "DharmaFilter::update_dharma called - this is deprecated due to ethical drift risk!"
         );
         self.dharma_key = new_key / new_key.norm();
     }

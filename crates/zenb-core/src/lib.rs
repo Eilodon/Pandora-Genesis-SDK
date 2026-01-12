@@ -45,6 +45,8 @@ pub mod tests_config;
 pub mod tests_determinism;
 #[cfg(test)]
 pub mod tests_estimator;
+#[cfg(test)]
+pub mod tests_proptest;  // EIDOLON FIX 4.1: Property-based testing
 
 // ============================================================================
 // V2.0: DOMAIN-AGNOSTIC ABSTRACTION LAYER

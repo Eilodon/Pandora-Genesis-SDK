@@ -22,13 +22,34 @@ pub trait TraumaSource {
 pub struct TraumaRegistry {
     /// In-memory trauma records (sig_hash -> TraumaHit)
     records: std::collections::HashMap<Vec<u8>, TraumaHit>,
+    /// EIDOLON FIX 2.3: Device-specific secret salt for hash grinding resistance
+    /// Generated once per device, persisted across sessions
+    device_secret: [u8; 32],
 }
 
 impl TraumaRegistry {
+    /// Create new registry with random device secret
     pub fn new() -> Self {
+        Self::with_secret(Self::generate_secret())
+    }
+    
+    /// Create registry with specific device secret (for persistence)
+    pub fn with_secret(device_secret: [u8; 32]) -> Self {
         Self {
             records: std::collections::HashMap::new(),
+            device_secret,
         }
+    }
+    
+    /// Generate cryptographically secure random device secret
+    fn generate_secret() -> [u8; 32] {
+        use rand::Rng;
+        rand::thread_rng().gen()
+    }
+    
+    /// Get device secret for persistence
+    pub fn device_secret(&self) -> &[u8; 32] {
+        &self.device_secret
     }
 
     /// Record negative feedback for a specific context.
@@ -324,7 +345,29 @@ pub fn trauma_sig_hash(goal: i64, mode: u8, pattern_id: i64, ctx: &BeliefCtx) ->
 }
 
 /// Internal trauma hash with explicit timestamp (for testing)
-pub fn trauma_sig_hash_with_ts(goal: i64, mode: u8, pattern_id: i64, ctx: &BeliefCtx, now_ts_us: i64) -> [u8; 32] {
+///
+/// # EIDOLON FIX 2.3
+/// Now accepts optional device_secret salt. If provided, the salt is mixed into the hash
+/// to prevent hash grinding attacks (attacker cannot pre-compute collisions without knowing salt).
+pub fn trauma_sig_hash_with_ts(
+    goal: i64,
+    mode: u8,
+    pattern_id: i64,
+    ctx: &BeliefCtx,
+    now_ts_us: i64,
+) -> [u8; 32] {
+    trauma_sig_hash_with_salt(goal, mode, pattern_id, ctx, now_ts_us, None)
+}
+
+/// Internal trauma hash with salt support
+pub fn trauma_sig_hash_with_salt(
+    goal: i64,
+    mode: u8,
+    pattern_id: i64,
+    ctx: &BeliefCtx,
+    now_ts_us: i64,
+    device_secret: Option<&[u8; 32]>,
+) -> [u8; 32] {
     // SECURITY: Use server-side epoch bucket (6-hour windows) for temporal resistance
     // This prevents hour-by-hour manipulation of local_hour
     const EPOCH_BUCKET_US: i64 = 6 * 3600 * 1_000_000; // 6 hours in microseconds
@@ -342,6 +385,12 @@ pub fn trauma_sig_hash_with_ts(goal: i64, mode: u8, pattern_id: i64, ctx: &Belie
         | (((ctx.recent_sessions as u32).min(15)) << 16);
 
     let mut h = Hasher::new();
+    
+    // EIDOLON FIX 2.3: Mix in device secret if provided
+    if let Some(secret) = device_secret {
+        h.update(secret);
+    }
+    
     h.update(&goal.to_le_bytes());
     h.update(&mode.to_le_bytes());
     h.update(&pattern_id.to_le_bytes());

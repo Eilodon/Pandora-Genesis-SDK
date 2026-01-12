@@ -25,3 +25,14 @@ rand = "0.8"          # Random vector generation
 [dev-dependencies]
 tempfile = "3.10"
 criterion = "0.5"     # Benchmarking for performance tests
+proptest = "1.4"      # Property-based testing for invariant validation
+
+# EIDOLON FIX 3.1, 3.3: Optional features for experimental/debug subsystems
+[features]
+default = []
+# Skandha pipeline: Buddhist-inspired cognitive architecture (debug/visualization mode)
+skandha_pipeline = []
+# Thermodynamic logic: GENERIC framework for belief evolution (experimental)
+thermodynamic_logic = []
+# Allow dharma key mutation (test/research only - unsafe for production)
+allow_dharma_mutation = []

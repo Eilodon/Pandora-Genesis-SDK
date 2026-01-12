@@ -121,11 +121,31 @@ pub struct SafetyConfig {
     pub trauma_hard_th: f32,
     pub trauma_soft_th: f32,
     pub trauma_decay_default: f32,
+    
+    /// Device-specific secret for trauma hash grinding resistance
+    /// If None, generates random secret on first use
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_secret: Option<[u8; 32]>,
+    
+    /// Persisted circuit breaker states: component_name -> (failure_count, last_failure_ts)
+    /// Enables resume after restart without re-triggering failed components
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub circuit_breaker_states: Vec<CircuitBreakerSnapshot>,
+    
     /// DEPRECATED: This field is ignored at runtime.
     /// Test time bypass is now compile-time only. See `SafetyConfig::allow_test_time()`.
     #[serde(default)]
     #[deprecated(since = "0.2.0", note = "Use compile-time cfg(test) instead")]
     pub allow_test_time: bool,
+}
+
+/// Snapshot of a circuit breaker for persistence
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitBreakerSnapshot {
+    pub component_name: String,
+    pub failure_count: u32,
+    pub is_open: bool,
+    pub last_state_change_ts: i64,
 }
 
 impl SafetyConfig {
@@ -232,6 +252,8 @@ impl Default for SafetyConfig {
             trauma_hard_th: 3.0,
             trauma_soft_th: 1.5,
             trauma_decay_default: 0.001,
+            device_secret: None,  // Generate on first use
+            circuit_breaker_states: Vec::new(),
             allow_test_time: false,
         }
     }

@@ -207,7 +207,12 @@ impl Engine {
             causal_graph: CausalGraph::with_priors(),
             causal_buffer: CausalBuffer::default_capacity(),
             last_observation: None,
-            trauma_registry: TraumaRegistry::new(),
+            // Wire device_secret from config if persisted, otherwise generate new
+            trauma_registry: if let Some(secret) = cfg.safety.device_secret {
+                TraumaRegistry::with_secret(secret)
+            } else {
+                TraumaRegistry::new() // Generates random secret
+            },
             trauma_cache: TraumaCache::default(),
             safety_monitor: SafetyMonitor::new(),
             session_start_ts_us: None,

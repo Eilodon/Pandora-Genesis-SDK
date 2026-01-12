@@ -44,6 +44,8 @@ pub struct HolographicMemory {
     max_magnitude: f32,
     /// Krylov Subspace Projector for fast time evolution
     projector: KrylovProjector,
+    /// Timestamp of last entanglement (for temporal decay)
+    last_entangle_ts_us: Option<i64>,
 }
 
 impl std::fmt::Debug for HolographicMemory {
@@ -79,6 +81,7 @@ impl HolographicMemory {
             item_count: 0,
             max_magnitude: 100.0, // Configurable threshold
             projector: KrylovProjector::default(),
+            last_entangle_ts_us: None,
         }
     }
 
@@ -102,11 +105,32 @@ impl HolographicMemory {
     ///
     /// where ⊙ is element-wise (Hadamard) multiplication.
     ///
+    /// # Energy Cap
+    /// EIDOLON FIX 1.1: Hard energy cap prevents unbounded accumulation → NaN corruption.
+    /// If total energy exceeds critical threshold, decay is applied BEFORE entanglement.
+    ///
     /// # Panics
     /// Panics if key.len() != dim or value.len() != dim
     pub fn entangle(&mut self, key: &[Complex32], value: &[Complex32]) {
         debug_assert_eq!(key.len(), self.dim, "Key dimension mismatch");
         debug_assert_eq!(value.len(), self.dim, "Value dimension mismatch");
+
+        // EIDOLON FIX 1.1: PREVENTIVE energy cap (before entanglement)
+        // Critical threshold: 80% of max to ensure we never hit overflow
+        const CRITICAL_ENERGY_RATIO: f32 = 0.8;
+        let current_energy = self.energy();
+        let critical_threshold = self.max_magnitude * self.max_magnitude * (self.dim as f32) * CRITICAL_ENERGY_RATIO;
+        
+        if current_energy > critical_threshold {
+            // HARD CAP: Aggressive decay to ensure we stay bounded
+            let decay_factor = (critical_threshold / current_energy).sqrt().min(0.9);
+            log::warn!(
+                "HolographicMemory: Energy cap triggered ({}), applying decay factor {:.3}",
+                current_energy,
+                decay_factor
+            );
+            self.decay(decay_factor);
+        }
 
         // 1. Transform to frequency domain
         let mut k_fft = self.fft_process(key);
@@ -126,15 +150,50 @@ impl HolographicMemory {
 
         self.item_count += 1;
 
-        // 4. Check if decay is needed to prevent overflow
+        // 4. Safety check: detect NaN/inf corruption
         let max_mag = self
             .memory_trace
             .iter()
             .map(|c| c.norm())
             .fold(0.0f32, f32::max);
+        
+        if !max_mag.is_finite() {
+            log::error!("HolographicMemory: NaN/Inf detected! Resetting memory trace.");
+            self.clear();
+            return;
+        }
+        
+        // 5. Reactive decay if magnitude still exceeds limit (backup safety)
         if max_mag > self.max_magnitude {
             self.decay(0.9);
         }
+    }
+
+    /// Entangle with temporal decay support.
+    ///
+    /// Applies age-based decay before entanglement to forget ancient memories
+    /// while preserving recent ones.
+    ///
+    /// # Arguments
+    /// * `key` - The retrieval cue
+    /// * `value` - The information to store
+    /// * `now_us` - Current timestamp in microseconds
+    /// * `half_life_us` - Memory half-life (recommend: 3600_000_000 = 1 hour)
+    pub fn entangle_with_ts(
+        &mut self,
+        key: &[Complex32],
+        value: &[Complex32],
+        now_us: i64,
+        half_life_us: i64,
+    ) {
+        // Apply temporal decay before adding new memory
+        self.decay_temporal(now_us, half_life_us);
+        
+        // Standard entanglement
+        self.entangle(key, value);
+        
+        // Update timestamp for next decay calculation
+        self.last_entangle_ts_us = Some(now_us);
     }
 
     /// Entangle from raw f32 slices (convenience wrapper)
@@ -192,6 +251,41 @@ impl HolographicMemory {
     pub fn decay(&mut self, factor: f32) {
         for m in self.memory_trace.iter_mut() {
             *m = *m * factor;
+        }
+    }
+
+    /// Temporal decay: forget older memories based on time elapsed.
+    ///
+    /// Uses exponential decay with half-life: memories lose 50% intensity every `half_life_us`.
+    /// This ensures recent memories are preserved while ancient ones fade.
+    ///
+    /// # Arguments
+    /// * `now_us` - Current timestamp in microseconds
+    /// * `half_life_us` - Time for memory intensity to halve (recommend: 1 hour = 3.6e9)
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Decay with 1-hour half-life
+    /// memory.decay_temporal(now_us, 3_600_000_000);
+    /// ```
+    pub fn decay_temporal(&mut self, now_us: i64, half_life_us: i64) {
+        if let Some(last_ts) = self.last_entangle_ts_us {
+            let age_us = now_us.saturating_sub(last_ts);
+            if age_us > 0 && half_life_us > 0 {
+                // decay_factor = 0.5^(age/half_life) = exp(-ln(2) * age / half_life)
+                let exponent = -0.693147 * (age_us as f64 / half_life_us as f64);
+                let factor = exponent.exp().clamp(0.01, 1.0) as f32; // Min 1% to prevent total erasure
+                
+                if factor < 0.999 { // Only decay if meaningful
+                    log::debug!(
+                        "HolographicMemory: Temporal decay factor={:.4} (age={}ms, half_life={}ms)",
+                        factor,
+                        age_us / 1000,
+                        half_life_us / 1000
+                    );
+                    self.decay(factor);
+                }
+            }
         }
     }
 
