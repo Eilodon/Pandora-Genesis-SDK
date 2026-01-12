@@ -125,9 +125,16 @@ pub struct Engine {
     pub decision_confidence: ConfidenceTracker,
     
     // === Enhanced Observation Buffer ===
-    
+
     /// Minimum samples before triggering PC algorithm
     pub observation_buffer_min_samples: usize,
+
+    // === WEEK 2: Automatic Scientist Integration ===
+
+    /// Automatic Scientist for causal hypothesis discovery
+    pub scientist: crate::scientist::AutomaticScientist,
+    /// Feature flag to enable scientist
+    pub scientist_enabled: bool,
 }
 
 impl Engine {
@@ -250,6 +257,10 @@ impl Engine {
             
             // Enhanced Observation Buffer
             observation_buffer_min_samples: 30, // Minimum samples before PC algorithm runs
+
+            // WEEK 2: Automatic Scientist
+            scientist: crate::scientist::AutomaticScientist::new(),
+            scientist_enabled: cfg.sota.scientist_enabled.unwrap_or(false), // Default: disabled for safe rollout
         }
     }
 
@@ -504,6 +515,43 @@ impl Engine {
                 
                 // Apply decay (forgetting) - 0.999 = very slow decay
                 self.holographic_memory.decay(0.999);
+            }
+
+            // WEEK 2: Automatic Scientist - causal hypothesis discovery
+            if self.scientist_enabled {
+                // Feed current belief state as observation [hr, hrv, rr, conf, resonance]
+                let bio = obs.bio_metrics.as_ref();
+                let scientist_obs = [
+                    bio.and_then(|b| b.hr_bpm).unwrap_or(60.0) / 200.0, // Normalize to [0,1]
+                    bio.and_then(|b| b.hrv_rmssd).unwrap_or(50.0) / 100.0,
+                    bio.and_then(|b| b.respiratory_rate).unwrap_or(6.0) / 20.0,
+                    self.belief_state.conf,
+                    self.last_resonance_score,
+                ];
+                self.scientist.observe(scientist_obs);
+
+                // Tick scientist state machine
+                if self.scientist.tick() {
+                    log::debug!("Scientist state transition: {}", self.scientist.state_name());
+                }
+
+                // Check for crystallized discoveries
+                use crate::scientist::ScientistState;
+                if let ScientistState::Verifying { hypothesis, confirmation_rate, .. } = self.scientist.state() {
+                    if *confirmation_rate > 0.7 {
+                        log::info!(
+                            "Scientist discovered causal edge: {} -> {} (strength={:.2}, confidence={:.2})",
+                            hypothesis.from_variable,
+                            hypothesis.to_variable,
+                            hypothesis.strength,
+                            confirmation_rate
+                        );
+
+                        // TODO: Wire this into CausalGraph.set_link() to actually use the discovery
+                        // For now, just log it. Full integration requires mapping scientist variables
+                        // to CausalGraph Variable enum (Week 3 task).
+                    }
+                }
             }
         }
 

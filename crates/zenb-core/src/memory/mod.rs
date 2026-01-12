@@ -14,5 +14,7 @@
 //! - Retrieval complexity is O(dim log dim), independent of stored items
 
 pub mod hologram;
+pub mod modern_hopfield; // Modern Hopfield Networks (2020-2025) - exponential capacity
 
 pub use hologram::HolographicMemory;
+pub use modern_hopfield::ModernHopfieldNetwork;
