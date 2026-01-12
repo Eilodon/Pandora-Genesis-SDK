@@ -1,10 +1,10 @@
-# ZenB-Rust 🧘‍♂️
+# AGOLOS 🌌
 
 [![CI](https://github.com/Eilodon/ZenB-Rust/workflows/CI/badge.svg)](https://github.com/Eilodon/ZenB-Rust/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 
-**Production-ready biofeedback breath guidance system** with deterministic core, encrypted event sourcing, and advanced belief engine using Free Energy Principle.
+**Deeptech SDK for building autonomous adaptive systems** - featuring causal inference, belief propagation (Free Energy Principle), and deterministic state management for mission-critical control loops.
 
 ---
 
@@ -44,7 +44,7 @@ zenb-rust/
 │   │   ├── belief/         # FEP belief engine
 │   │   ├── safety_swarm/   # Multi-guard consensus
 │   │   ├── resonance/      # Phase detection
-│   │   └── breath_engine/  # Dynamic/Fixed patterns
+│   │   └── breath_engine/  # Oscillator/Rhythm core (Reference Implementation)
 │   ├── zenb-store/         # Encrypted event store
 │   │   └── migration/      # Schema evolution
 │   ├── zenb-projectors/    # Read models (Dashboard, Stats)
@@ -54,6 +54,36 @@ zenb-rust/
 ├── docs/                   # Documentation
 └── scripts/                # Build scripts
 ```
+
+---
+
+## 🔌 Domain Modules (v2.0)
+
+AGOLOS supports **pluggable application domains** through a trait-based abstraction:
+
+| Domain | Status | Use Case |
+|--------|--------|----------|
+| `biofeedback` | ✅ Reference | Breath guidance, HRV, physiological signals |
+| `industrial` | 📋 Planned | IoT/sensor control, process automation |
+| `trading` | 📋 Planned | Financial signal processing, risk management |
+
+### Create Your Own Domain
+
+Implement four traits to create a custom domain:
+
+```rust
+use zenb_core::core::{Domain, OscillatorConfig, SignalVariable, ActionKind};
+
+struct MyDomain;
+impl Domain for MyDomain {
+    type Config = MyConfig;      // OscillatorConfig
+    type Variable = MyVariable;  // SignalVariable  
+    type Action = MyAction;      // ActionKind
+    fn name() -> &'static str { "my_domain" }
+}
+```
+
+See [**DOMAIN_GUIDE.md**](docs/DOMAIN_GUIDE.md) for complete implementation details.
 
 ---
 
@@ -98,8 +128,8 @@ let store = EventStore::open("zenb.db", master_key)?;
 let session_id = SessionId::new();
 store.create_session_key(&session_id)?;
 
-// Initialize engine
-let mut engine = Engine::new(6.0); // 6 BPM default
+// Initialize engine (using oscillator reference implementation)
+let mut engine = Engine::new(6.0); // 6.0 Hz/BPM primary frequency
 engine.update_context(zenb_core::belief::Context {
     local_hour: 12,
     is_charging: true,
@@ -117,7 +147,7 @@ let (decision, changed, policy, deny_reason) =
 if let Some(reason) = deny_reason {
     println!("Decision denied: {}", reason);
 } else {
-    println!("Target BPM: {:.2}", decision.target_rate_bpm);
+    println!("Target Rate: {:.2}", decision.target_rate_bpm);
 }
 ```
 

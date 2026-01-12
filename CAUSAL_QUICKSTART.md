@@ -1,5 +1,13 @@
 # Causal Reasoning Layer - Quick Start Guide
 
+## **Core Concepts**
+
+> **Note on Terminology:** This guide uses **"Breath Guidance"** as the canonical reference implementation to demonstrate the engine's capabilities. In your application, this maps to **"Adaptive Oscillator Control"** or **"Rhythm Guidance"**.
+> 
+> - **RespiratoryRate** → `PrimaryFrequency` (The signal you are measuring)
+> - **BreathGuidance** → `OscillatorControl` (The intervention you are applying)
+> - **Biofeedback** → `ClosedLoopControl` (The system topology)
+
 ## What Was Built
 
 A complete **Causal Reasoning Layer** for ZenB that enables the system to understand causal relationships between variables (e.g., "Notifications cause stress").

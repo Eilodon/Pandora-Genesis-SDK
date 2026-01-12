@@ -6,6 +6,8 @@
 //! CausalBeliefState (3-factor) is exported for causal layer use only.
 
 pub mod agent_container;
+pub mod core;          // V2.0: Domain-agnostic traits
+pub mod domains;       // V2.0: Pluggable domain implementations
 pub mod adaptive;     // PANDORA PORT: Adaptive thresholds and anomaly detection
 pub mod ai;           // NEW: AI Tools
 pub mod belief;
@@ -43,6 +45,17 @@ pub mod tests_config;
 pub mod tests_determinism;
 #[cfg(test)]
 pub mod tests_estimator;
+
+// ============================================================================
+// V2.0: DOMAIN-AGNOSTIC ABSTRACTION LAYER
+// ============================================================================
+
+// Core traits for custom domain implementations
+pub use core::{ActionKind, Domain, OscillatorConfig, SignalVariable};
+
+// Built-in domains
+pub use domains::BiofeedbackDomain;
+pub use domains::biofeedback::{BioAction, BioVariable, BreathConfig as DomainBreathConfig};
 
 // ============================================================================
 // CURATED PUBLIC API EXPORTS (PR1: No more wildcard exports)

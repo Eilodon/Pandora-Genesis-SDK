@@ -4,6 +4,11 @@
 
 A complete **Learning Mechanism** that closes the feedback loop from Android action outcomes to AI model updates. The system learns from success/failure and becomes **more conservative on failure**.
 
+### **Terminology Note**
+> This system uses `breath_guidance` as the reference implementation for the **Oscillator Control** signal.
+> - **ActionType::BreathGuidance** → `ActionType::OscillatorControl`
+> - **Breath Pattern** → `Oscillation Pattern`
+
 ## Key Files Modified/Created
 
 ### Created

@@ -90,6 +90,10 @@ trauma_hard_th = 1.5        # Hard trauma threshold (> trauma_soft_th)
 trauma_soft_th = 0.7        # Soft trauma threshold (> 0)
 trauma_decay_default = 0.7  # Default trauma decay rate (0-1)
 
+### Oscillator Control (Reference: Breath)
+
+> **Note:** The "Breath" configuration section controls the core oscillator engine. While currently named `[breath]` for historical reasons (referencing the reference implementation), these parameters govern the primary frequency generation for any adaptive loop.
+
 [breath]
 # Breath guidance parameters
 default_target_bpm = 6.0    # Default target breathing rate (1-30)
