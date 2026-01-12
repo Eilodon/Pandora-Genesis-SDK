@@ -1,8 +1,0 @@
-[package]
-name = "pandora_monitoring"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-prometheus = { version = "0.13", features = ["process"] }
-lazy_static = "1.4.0"

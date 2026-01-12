@@ -24,6 +24,7 @@ use nalgebra::{DMatrix, DVector};
 /// # Properties
 /// - High energy = sensors disagree = possible attack/malfunction
 /// - Low energy = sensors agree = trustworthy input
+#[derive(Debug)]
 pub struct SheafPerception {
     /// Laplacian matrix L = D - A (Degree - Adjacency)
     laplacian: DMatrix<f32>,

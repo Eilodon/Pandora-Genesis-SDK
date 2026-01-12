@@ -84,15 +84,9 @@ pub struct Engine {
     
     // === VAJRA-001: Holographic Cognitive Architecture ===
     
-    /// Holographic Memory (Tưởng Uẩn) - FFT-based associative memory
-    /// Replaces causal_buffer for new code paths
-    pub holographic_memory: HolographicMemory,
-    
-    /// Sheaf Perception (Sắc Uẩn) - Laplacian sensor consensus
-    pub sheaf_perception: SheafPerception,
-    
-    /// Dharma Filter (Hành Uẩn) - Phase-based ethical action filtering
-    pub dharma_filter: DharmaFilter,
+    /// Unified Skandha Pipeline (Sắc-Thọ-Tưởng-Hành-Thức)
+    /// Replaces individual components with unified flow
+    pub skandha_pipeline: crate::skandha::zenb::ZenbPipeline,
     
     /// Feature flag to enable Vajra-001 architecture
     pub use_vajra_architecture: bool,
@@ -234,9 +228,7 @@ impl Engine {
             last_pc_run_ts: 0,
             
             // VAJRA-001: Holographic Cognitive Architecture
-            holographic_memory: HolographicMemory::default_for_zenb(),
-            sheaf_perception: SheafPerception::default_for_zenb(),
-            dharma_filter: DharmaFilter::default_for_zenb(),
+            skandha_pipeline: crate::skandha::zenb::zenb_pipeline(),
             use_vajra_architecture: true, // ENABLED: All Vajra components verified and tested
             last_sheaf_energy: 0.0,
             
@@ -342,7 +334,7 @@ impl Engine {
             if !self.circuit_breaker.is_open("sheaf_perception") {
                 // Try sheaf processing with panic catch (Laplacian can fail on degenerate graphs)
                 let sheaf_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    self.sheaf_perception.process(&sensor_vec)
+                    self.skandha_pipeline.rupa.sheaf.process(&sensor_vec)
                 }));
 
                 match sheaf_result {
@@ -524,7 +516,7 @@ impl Engine {
                 // Create context key from belief state
                 let key = crate::memory::hologram::encode_context_key(
                     &self.belief_state.p[..],
-                    self.holographic_memory.dim(),
+                    self.skandha_pipeline.sanna.memory.dim(),
                 );
                 
                 // Create value from observation features
@@ -538,14 +530,14 @@ impl Engine {
                 ];
                 let value = crate::memory::hologram::encode_state_value(
                     &obs_features,
-                    self.holographic_memory.dim(),
+                    self.skandha_pipeline.sanna.memory.dim(),
                 );
                 
                 // Entangle (store) the association
-                self.holographic_memory.entangle(&key, &value);
+                self.skandha_pipeline.sanna.memory.entangle(&key, &value);
                 
                 // Apply decay (forgetting) - 0.999 = very slow decay
-                self.holographic_memory.decay(0.999);
+                self.skandha_pipeline.sanna.memory.decay(0.999);
             }
 
             // WEEK 2: Automatic Scientist - causal hypothesis discovery
@@ -990,7 +982,7 @@ impl Engine {
             let action = ComplexDecision::from_bpm_target(proposed, baseline_bpm);
             
             // Apply Dharma filter
-            match action.filter_with(&self.dharma_filter) {
+            match action.filter_with(&self.skandha_pipeline.sankhara.dharma) {
                 Some(sanctioned) => {
                     let new_proposed = sanctioned.to_bpm(baseline_bpm);
                     if (new_proposed - proposed).abs() > 0.1 {
@@ -998,7 +990,7 @@ impl Engine {
                             "DharmaFilter: Scaled action from {:.2} to {:.2} BPM (alignment={:.3})",
                             proposed,
                             new_proposed,
-                            self.dharma_filter.check_alignment(action.vector)
+                            self.skandha_pipeline.sankhara.dharma.check_alignment(action.vector)
                         );
                     }
                     // ADAPTIVE BOUNDS: Reuse calibrated thresholds after dharma scaling
@@ -1230,6 +1222,53 @@ impl Engine {
                 )
             }
         }
+    }
+}
+
+// ============================================================================
+// TIER 4a: Skandha Pipeline Integration
+// ============================================================================
+impl Engine {
+    /// Execute the full Skandha pipeline (Tier 4a).
+    ///
+    /// This method acts as the "Vinnana" (Consciousness) orchestrator, processing
+    /// raw inputs through the five aggregates to produce a synthesized state.
+    ///
+    /// # Arguments
+    /// * `obs` - Snapshot of current observation (sensor data, context)
+    ///
+    /// # Returns
+    /// Synthesized state including belief, affect, pattern, and decision.
+    pub fn process_skandha_pipeline(
+        &mut self,
+        obs: &crate::domain::Observation
+    ) -> crate::skandha::SynthesizedState {
+        // Map Observation to SensorInput
+        let bio = obs.bio_metrics.as_ref();
+        let timestamp = obs.timestamp_us;
+        
+        // Rupa stage input
+        let input = crate::skandha::SensorInput {
+            hr_bpm: bio.and_then(|b| b.hr_bpm),
+            hrv_rmssd: bio.and_then(|b| b.hrv_rmssd),
+            rr_bpm: bio.and_then(|b| b.respiratory_rate),
+            quality: 1.0, // Default quality if not in bio metrics? assume good if present
+            motion: 0.0,  // Motion not currently in bio metrics
+            timestamp_us: timestamp,
+        };
+        
+        // Execute unified pipeline
+        let result = self.skandha_pipeline.process(&input);
+        
+        // Log synthesis result
+        log::debug!(
+            "Skandha Synthesis: Conf={:.2} Mode={} FE={:.2}",
+            result.confidence,
+            result.mode,
+            result.free_energy
+        );
+        
+        result
     }
 }
 

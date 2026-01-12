@@ -15,6 +15,8 @@
 
 pub mod hologram;
 pub mod modern_hopfield; // Modern Hopfield Networks (2020-2025) - exponential capacity
+pub mod krylov;     // TIER 4b: Krylov Subspace Acceleration
 
 pub use hologram::HolographicMemory;
 pub use modern_hopfield::ModernHopfieldNetwork;
+pub use krylov::KrylovProjector;

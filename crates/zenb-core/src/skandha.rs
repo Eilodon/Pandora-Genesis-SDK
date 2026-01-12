@@ -482,6 +482,196 @@ pub fn default_pipeline() -> SkandhaPipeline<
 }
 
 // ============================================================================
+// ZenB-Specific Implementations (Wire existing components)
+// ============================================================================
+
+/// ZenB-specific implementations that wire existing AGOLOS components
+/// to the Skandha pipeline traits.
+pub mod zenb {
+    use super::*;
+    use crate::perception::SheafPerception;
+    use crate::memory::HolographicMemory;
+    use crate::safety::DharmaFilter;
+    use nalgebra::DVector;
+    use num_complex::Complex32;
+
+    /// ZenbRupa: Wraps SheafPerception for sensor consensus
+    #[derive(Debug)]
+    pub struct ZenbRupa {
+        pub sheaf: SheafPerception,
+    }
+
+    impl Default for ZenbRupa {
+        fn default() -> Self {
+            Self {
+                sheaf: SheafPerception::default_for_zenb(),
+            }
+        }
+    }
+
+    impl RupaSkandha for ZenbRupa {
+        fn process_form(&self, input: &SensorInput) -> ProcessedForm {
+            // Convert to DVector for sheaf processing
+            let raw = DVector::from_vec(vec![
+                input.hr_bpm.unwrap_or(60.0) / 200.0,
+                input.hrv_rmssd.unwrap_or(50.0) / 100.0,
+                input.rr_bpm.unwrap_or(12.0) / 20.0,
+                input.quality,
+                input.motion,
+            ]);
+
+            // Run sheaf diffusion for sensor consensus
+            let (diffused, is_anomalous, energy) = self.sheaf.process(&raw);
+
+            // Convert back to array
+            let mut values = [0.0f32; 5];
+            for (i, v) in diffused.iter().enumerate().take(5) {
+                values[i] = *v;
+            }
+
+            ProcessedForm {
+                values,
+                anomaly_score: if is_anomalous { energy } else { 0.0 },
+                energy,
+                is_reliable: !is_anomalous,
+            }
+        }
+    }
+
+    /// ZenbSanna: Wraps HolographicMemory for pattern recall
+    #[derive(Debug)]
+    pub struct ZenbSanna {
+        pub memory: HolographicMemory,
+        pub recall_count: u64,
+    }
+
+    impl Default for ZenbSanna {
+        fn default() -> Self {
+            Self {
+                memory: HolographicMemory::default_for_zenb(),
+                recall_count: 0,
+            }
+        }
+    }
+
+    impl SannaSkandha for ZenbSanna {
+        fn perceive(&self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern {
+            // Encode current context as key
+            let key: Vec<Complex32> = form.values.iter()
+                .map(|&v| Complex32::new(v, 0.0))
+                .collect();
+            
+            // Pad to memory dimension
+            let dim = self.memory.dim();
+            let mut padded_key = vec![Complex32::new(0.0, 0.0); dim];
+            for (i, k) in key.iter().enumerate().take(dim.min(5)) {
+                padded_key[i] = *k;
+            }
+
+            // Recall associated pattern
+            let recalled = self.memory.recall(&padded_key);
+            
+            // Compute similarity (norm of recalled pattern)
+            let similarity: f32 = recalled.iter()
+                .take(5)
+                .map(|c| c.norm())
+                .sum::<f32>() / 5.0;
+
+            // Pattern classification based on affect
+            let pattern_id = if affect.arousal > 0.7 {
+                1 // High arousal
+            } else if affect.valence < -0.3 {
+                2 // Negative
+            } else {
+                0 // Baseline
+            };
+
+            PerceivedPattern {
+                pattern_id,
+                similarity: similarity.clamp(0.0, 1.0),
+                context: form.values,
+                is_trauma_associated: pattern_id == 2 && affect.arousal > 0.8,
+            }
+        }
+    }
+
+    /// ZenbSankhara: Wraps DharmaFilter for ethical intent filtering
+    #[derive(Debug)]
+    pub struct ZenbSankhara {
+        pub dharma: DharmaFilter,
+    }
+
+    impl Default for ZenbSankhara {
+        fn default() -> Self {
+            Self {
+                dharma: DharmaFilter::default(),
+            }
+        }
+    }
+
+    impl SankharaSkandha for ZenbSankhara {
+        fn form_intent(&self, pattern: &PerceivedPattern, affect: &AffectiveState) -> FormedIntent {
+            // Determine proposed action
+            let action = if pattern.is_trauma_associated {
+                IntentAction::SafeFallback
+            } else if affect.arousal > 0.8 {
+                IntentAction::GuideBreath { target_bpm: 6 }
+            } else if affect.arousal < 0.2 {
+                IntentAction::GuideBreath { target_bpm: 8 }
+            } else {
+                IntentAction::Observe
+            };
+
+            // Create complex action vector representing the intent
+            // Real part: valence (positive = beneficial/calming)
+            // Imag part: arousal deviation (positive = energizing, negative = calming)
+            let action_vector = Complex32::new(
+                affect.valence,
+                affect.arousal - 0.5,
+            );
+
+            // Check alignment directly
+            let alignment = self.dharma.check_alignment(action_vector);
+            let category = self.dharma.alignment_category(action_vector);
+            
+            // Apply sanction
+            let sanctioned_vector = self.dharma.sanction(action_vector);
+            let is_sanctioned = sanctioned_vector.is_some();
+
+            FormedIntent {
+                action: if is_sanctioned { action } else { IntentAction::Observe },
+                alignment,
+                is_sanctioned,
+                reasoning: format!(
+                    "Pattern {} arousal={:.2} dharma={:?}",
+                    pattern.pattern_id, affect.arousal, category
+                ),
+            }
+        }
+    }
+
+    pub type ZenbPipeline = SkandhaPipeline<
+        ZenbRupa,
+        defaults::DefaultVedana,
+        ZenbSanna,
+        ZenbSankhara,
+        defaults::DefaultVinnana,
+    >;
+
+    /// Create ZenB pipeline with AGOLOS components wired in
+    pub fn zenb_pipeline() -> ZenbPipeline {
+        SkandhaPipeline::new(
+            ZenbRupa::default(),
+            defaults::DefaultVedana,
+            ZenbSanna::default(),
+            ZenbSankhara::default(),
+            defaults::DefaultVinnana,
+        )
+    }
+}
+
+
+// ============================================================================
 // Tests
 // ============================================================================
 

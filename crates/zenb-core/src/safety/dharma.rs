@@ -34,6 +34,7 @@ use num_complex::Complex32;
 /// This creates a **physically intrinsic** safety mechanism:
 /// harmful actions literally cannot pass the filter because they
 /// destructively interfere with the Dharma reference.
+#[derive(Debug)]
 pub struct DharmaFilter {
     /// Reference vector defining "good" direction in action space.
     /// All actions are evaluated against this ethical north star.
@@ -44,6 +45,12 @@ pub struct DharmaFilter {
     
     /// Hard threshold: actions below this alignment get vetoed
     hard_threshold: f32,
+    
+    /// TIER 5: 11D Dharma key for multi-dimensional alignment
+    dharma_key_11d: crate::safety::ConsciousnessVector,
+    
+    /// Feature flag to enable 11D mode
+    use_11d_mode: bool,
 }
 
 impl DharmaFilter {
@@ -63,6 +70,8 @@ impl DharmaFilter {
             dharma_key,
             soft_threshold: 0.5,  // Actions below 50% alignment get scaled
             hard_threshold: 0.0,  // Actions opposite to dharma get vetoed
+            dharma_key_11d: crate::safety::ConsciousnessVector::default(),
+            use_11d_mode: false,
         }
     }
 
@@ -332,6 +341,47 @@ impl ComplexDecision {
     /// Apply a filter to this decision, returning filtered result.
     pub fn filter_with(&self, filter: &DharmaFilter) -> Option<ComplexDecision> {
         filter.sanction(self.vector).map(|v| ComplexDecision { vector: v })
+    }
+}
+
+// ============================================================================
+// TIER 5: 11D Consciousness Vector Extension
+// ============================================================================
+
+impl DharmaFilter {
+    /// Check alignment in 11-dimensional consciousness space.
+    pub fn check_alignment_11d(&self, vec: &crate::safety::ConsciousnessVector) -> f32 {
+        let alignment = vec.alignment(&self.dharma_key_11d);
+        // Map from [-1, 1] to [0, 1]
+        (alignment + 1.0) / 2.0
+    }
+    
+    /// Sanction action in 11D space.
+    pub fn sanction_11d(&self, vec: &crate::safety::ConsciousnessVector) 
+        -> Option<crate::safety::ConsciousnessVector> 
+    {
+        let alignment = vec.alignment(&self.dharma_key_11d);
+        
+        if alignment < -0.5 {
+            return None;
+        }
+        
+        if alignment < 0.5 {
+            let projected = vec.project_onto(&self.dharma_key_11d);
+            Some(projected)
+        } else {
+            Some(*vec)
+        }
+    }
+    
+    /// Enable or disable 11D mode
+    pub fn set_11d_mode(&mut self, enabled: bool) {
+        self.use_11d_mode = enabled;
+    }
+    
+    /// Set the 11D Dharma key
+    pub fn set_dharma_key_11d(&mut self, key: crate::safety::ConsciousnessVector) {
+        self.dharma_key_11d = key;
     }
 }
 
