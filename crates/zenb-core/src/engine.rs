@@ -135,6 +135,15 @@ pub struct Engine {
     pub scientist: crate::scientist::AutomaticScientist,
     /// Feature flag to enable scientist
     pub scientist_enabled: bool,
+
+    // === POLICY ADAPTER: Learning from Outcomes ===
+
+    /// Policy adapter for catastrophe detection and stagnation escape
+    pub policy_adapter: crate::policy::PolicyAdapter,
+    /// Feature flag to enable policy adapter learning
+    pub policy_adapter_enabled: bool,
+    /// Last executed policy (for outcome learning)
+    pub last_executed_policy: Option<crate::policy::ActionPolicy>,
 }
 
 impl Engine {
@@ -261,6 +270,11 @@ impl Engine {
             // WEEK 2: Automatic Scientist
             scientist: crate::scientist::AutomaticScientist::new(),
             scientist_enabled: cfg.sota.scientist_enabled.unwrap_or(false), // Default: disabled for safe rollout
+
+            // POLICY ADAPTER: Learning from Outcomes
+            policy_adapter: crate::policy::PolicyAdapter::new(1.0),
+            policy_adapter_enabled: cfg.sota.policy_adapter_enabled.unwrap_or(false),
+            last_executed_policy: None,
         }
     }
 
@@ -575,24 +589,24 @@ impl Engine {
     }
 
     /// Learn from action outcome feedback.
-    /// This method coordinates updates to both the TraumaRegistry and BeliefEngine
-    /// based on whether the action was successful.
+    /// This method coordinates updates to both the TraumaRegistry, BeliefEngine,
+    /// and PolicyAdapter based on whether the action was successful.
     ///
     /// # Arguments
     /// * `success` - Whether the action was successful
-    /// * `action_type` - Type of action that was executed (for trauma logging)
+    /// * `action_type` - String identifier for the action taken
     /// * `ts_us` - Timestamp of the outcome
-    /// * `severity` - Severity of failure (0.0-5.0), ignored if success=true
+    /// * `severity` - Severity of negative outcome (0.0 = mild, 1.0 = severe)
     ///
-    /// # Safety Behavior
-    /// On failure, the system becomes MORE CONSERVATIVE:
-    /// - Trauma registry records the failure with exponential backoff
-    /// - Belief engine increases process noise (acknowledges uncertainty)
-    /// - Learning rate is reduced (more cautious updates)
-    ///
-    /// On success, the system becomes MORE CONFIDENT:
-    /// - Process noise decreases (model is accurate)
-    /// - Learning rate slightly increases (model is on track)
+    /// # Behavior
+    /// - If unsuccessful:
+    ///   - TraumaRegistry is updated with a trauma hit for this context
+    ///   - PolicyAdapter detects catastrophe and masks harmful policy
+    ///   - Learning rate temporarily decreases (model was wrong)
+    ///   - Arousal target temporarily increases (heightened vigilance)
+    /// - If successful:
+    ///   - PolicyAdapter updates Q-values positively
+    ///   - Learning rate slightly increases (model is on track)
     pub fn learn_from_outcome(
         &mut self,
         success: bool,
@@ -676,6 +690,35 @@ impl Engine {
         // Compute performance delta: positive if success, negative if failure
         let performance_delta = if success { 0.1 } else { -0.1 };
         self.belief_enter_threshold.adapt(performance_delta);
+
+        // === POLICY ADAPTER: Learning from Outcomes ===
+        // Update PolicyAdapter if enabled and we have a last executed policy
+        if self.policy_adapter_enabled {
+            if let Some(ref policy) = self.last_executed_policy {
+                // Convert success to reward: success=1.0, failure=-severity
+                let reward = if success { 1.0 } else { -severity };
+                
+                // Generate state hash from belief mode
+                let state_hash = format!("{:?}", self.belief_state.mode);
+                
+                // Update adapter and get exploration boost
+                let exploration_boost = self.policy_adapter.update_with_outcome(
+                    &state_hash,
+                    policy,
+                    reward,
+                    success,
+                );
+                
+                // Apply exploration boost to EFE precision (inverse relationship)
+                // Higher exploration = lower precision (more uniform sampling)
+                self.efe_precision_beta = (self.efe_precision_beta / exploration_boost).max(0.1).min(10.0);
+                
+                log::debug!(
+                    "Policy outcome: success={}, reward={:.2}, exploration_boost={:.1}x, new_beta={:.2}",
+                    success, reward, exploration_boost, self.efe_precision_beta
+                );
+            }
+        }
     }
     
     /// Check if observation buffer has enough samples for PC algorithm.
@@ -832,10 +875,25 @@ impl Engine {
             let selected_clone = evaluations.iter().find(|e| e.policy.description() == selected_policy_ref.description()).cloned();
             self.last_selected_policy = selected_clone;
             
-            // Convert to BPM target
-            // Use current proposed as fallback
-            let decision = selected_policy_ref.to_control_decision(proposed, est.confidence);
-            proposed = decision.target_rate_bpm;
+            // Store the ActionPolicy for outcome learning
+            self.last_executed_policy = Some(selected_policy_ref.clone());
+            
+            // Check if policy is masked by PolicyAdapter
+            if self.policy_adapter_enabled && self.policy_adapter.is_policy_masked(selected_policy_ref) {
+                log::warn!(
+                    "PolicyAdapter MASKED policy: {}, falling back to NoAction",
+                    selected_policy_ref.description()
+                );
+                // Override with safe fallback
+                let fallback = crate::policy::PolicyLibrary::observe();
+                let decision = fallback.to_control_decision(proposed, est.confidence);
+                proposed = decision.target_rate_bpm;
+            } else {
+                // Convert to BPM target
+                // Use current proposed as fallback
+                let decision = selected_policy_ref.to_control_decision(proposed, est.confidence);
+                proposed = decision.target_rate_bpm;
+            }
             
             // Handle Side Effects (e.g. Digital Interventions)
             if let ActionPolicy::DigitalIntervention(di) = selected_policy_ref {

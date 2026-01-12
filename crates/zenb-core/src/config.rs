@@ -54,6 +54,10 @@ pub struct SotaConfig {
     #[serde(default)]
     pub scientist_enabled: Option<bool>,
 
+    /// Enable PolicyAdapter for catastrophe detection and learning
+    #[serde(default)]
+    pub policy_adapter_enabled: Option<bool>,
+
     /// Psychoacoustic calibration profile
     pub audio_profile: AudioProfile,
 }
@@ -185,6 +189,7 @@ impl Default for SotaConfig {
             pc_learning_enabled: false,
             pc_config: PCConfig::default(),
             scientist_enabled: None, // Default: disabled
+            policy_adapter_enabled: None, // Default: disabled for safe rollout
             audio_profile: AudioProfile::default(),
         }
     }
