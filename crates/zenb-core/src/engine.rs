@@ -144,6 +144,13 @@ pub struct Engine {
     pub policy_adapter_enabled: bool,
     /// Last executed policy (for outcome learning)
     pub last_executed_policy: Option<crate::policy::ActionPolicy>,
+
+    // === TIER 3: Thermodynamic Logic (GENERIC Framework) ===
+
+    /// Thermodynamic engine for GENERIC dynamics
+    pub thermo_engine: crate::thermo_logic::ThermodynamicEngine,
+    /// Feature flag to enable thermodynamic logic
+    pub thermo_enabled: bool,
 }
 
 impl Engine {
@@ -275,6 +282,16 @@ impl Engine {
             policy_adapter: crate::policy::PolicyAdapter::new(1.0),
             policy_adapter_enabled: cfg.sota.policy_adapter_enabled.unwrap_or(false),
             last_executed_policy: None,
+
+            // TIER 3: Thermodynamic Logic (GENERIC Framework)
+            thermo_engine: {
+                let mut engine = crate::thermo_logic::ThermodynamicEngine::default();
+                if let Some(temp) = cfg.sota.thermo_temperature {
+                    engine.set_temperature(temp);
+                }
+                engine
+            },
+            thermo_enabled: cfg.sota.thermo_enabled.unwrap_or(false),
         }
     }
 
@@ -748,6 +765,65 @@ impl Engine {
             self.decision_confidence.success_rate(),
         )
     }
+
+    /// Perform thermodynamic step using GENERIC framework.
+    ///
+    /// Integrates belief state using the GENERIC equation:
+    /// `dz/dt = L·∇H + M·∇S`
+    ///
+    /// Where L is the Poisson bracket (reversible) and M is friction (irreversible).
+    ///
+    /// # Arguments
+    /// * `target` - Target belief state (drives energy minimization)
+    /// * `steps` - Number of integration steps
+    ///
+    /// # Returns
+    /// Updated belief state probabilities
+    pub fn thermo_step(&mut self, target: &[f32; 5], steps: usize) -> [f32; 5] {
+        if !self.thermo_enabled {
+            return self.belief_state.p;
+        }
+        
+        // Convert belief state to DVector
+        let state = nalgebra::DVector::from_vec(self.belief_state.p.to_vec());
+        let target_vec = nalgebra::DVector::from_vec(target.to_vec());
+        
+        // Integrate using GENERIC dynamics
+        let new_state = self.thermo_engine.integrate(&state, &target_vec, steps);
+        
+        // Update belief state
+        let mut p = [0.0f32; 5];
+        for i in 0..5 {
+            p[i] = new_state[i];
+        }
+        self.belief_state.p = p;
+        
+        // Normalize (ensure sum = 1 for probability interpretation)
+        let sum: f32 = p.iter().sum();
+        if sum > 0.0 {
+            for i in 0..5 {
+                self.belief_state.p[i] /= sum;
+            }
+        }
+        
+        self.belief_state.p
+    }
+    
+    /// Get thermodynamic diagnostics.
+    ///
+    /// # Returns
+    /// (free_energy, entropy, temperature, enabled)
+    pub fn thermo_info(&self) -> (f32, f32, f32, bool) {
+        let state = nalgebra::DVector::from_vec(self.belief_state.p.to_vec());
+        let target = nalgebra::DVector::from_vec([0.5f32; 5].to_vec()); // Neutral target for diagnostics
+        
+        let free_energy = self.thermo_engine.free_energy(&state, &target);
+        let entropy = self.thermo_engine.entropy(&state);
+        let temperature = self.thermo_engine.config().temperature;
+        
+        (free_energy, entropy, temperature, self.thermo_enabled)
+    }
+
 
     /// PR3: Make a control decision from estimate with INTRINSIC SAFETY.
     /// Safety cannot be bypassed - Engine always uses internal trauma_cache.

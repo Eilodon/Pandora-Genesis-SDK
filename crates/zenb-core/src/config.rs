@@ -58,6 +58,14 @@ pub struct SotaConfig {
     #[serde(default)]
     pub policy_adapter_enabled: Option<bool>,
 
+    /// Enable Thermodynamic Logic Engine (GENERIC framework)
+    #[serde(default)]
+    pub thermo_enabled: Option<bool>,
+    
+    /// Temperature for thermodynamic exploration (higher = more exploration)
+    #[serde(default)]
+    pub thermo_temperature: Option<f32>,
+
     /// Psychoacoustic calibration profile
     pub audio_profile: AudioProfile,
 }
@@ -190,6 +198,8 @@ impl Default for SotaConfig {
             pc_config: PCConfig::default(),
             scientist_enabled: None, // Default: disabled
             policy_adapter_enabled: None, // Default: disabled for safe rollout
+            thermo_enabled: None, // Default: disabled for safe rollout
+            thermo_temperature: None, // Default: 1.0 if enabled
             audio_profile: AudioProfile::default(),
         }
     }
