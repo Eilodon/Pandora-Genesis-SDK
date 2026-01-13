@@ -32,7 +32,7 @@ impl TraumaRegistry {
     pub fn new() -> Self {
         Self::with_secret(Self::generate_secret())
     }
-    
+
     /// Create registry with specific device secret (for persistence)
     pub fn with_secret(device_secret: [u8; 32]) -> Self {
         Self {
@@ -40,13 +40,13 @@ impl TraumaRegistry {
             device_secret,
         }
     }
-    
+
     /// Generate cryptographically secure random device secret
     fn generate_secret() -> [u8; 32] {
         use rand::Rng;
         rand::thread_rng().gen()
     }
-    
+
     /// Get device secret for persistence
     pub fn device_secret(&self) -> &[u8; 32] {
         &self.device_secret
@@ -327,7 +327,6 @@ pub struct TraumaGuard<'a> {
     pub source: &'a dyn TraumaSource,
     pub hard_th: f32,
     pub soft_th: f32,
-
 }
 
 impl<'a> TraumaGuard<'a> {
@@ -338,7 +337,13 @@ impl<'a> TraumaGuard<'a> {
 
 pub fn trauma_sig_hash(goal: i64, mode: u8, pattern_id: i64, ctx: &BeliefCtx) -> [u8; 32] {
     // Use Utc::now() as authoritative timestamp for epoch bucket
-    trauma_sig_hash_with_ts(goal, mode, pattern_id, ctx, chrono::Utc::now().timestamp_micros())
+    trauma_sig_hash_with_ts(
+        goal,
+        mode,
+        pattern_id,
+        ctx,
+        chrono::Utc::now().timestamp_micros(),
+    )
 }
 
 /// Internal trauma hash with explicit timestamp (for testing)
@@ -369,25 +374,25 @@ pub fn trauma_sig_hash_with_salt(
     // This prevents hour-by-hour manipulation of local_hour
     const EPOCH_BUCKET_US: i64 = 6 * 3600 * 1_000_000; // 6 hours in microseconds
     let epoch_bucket = (now_ts_us / EPOCH_BUCKET_US) as u64;
-    
+
     // Use continuous trigonometric encoding for local hour (soft context only)
     // Map 0-23 hour to circle (0 to 2*PI)
     let hour_angle = (ctx.local_hour as f32 / 24.0) * 2.0 * std::f32::consts::PI;
     // Project to unit circle components (scaled by 100 for integer precision)
     let time_sin = (hour_angle.sin() * 100.0) as i32;
     let time_cos = (hour_angle.cos() * 100.0) as i32;
-    
+
     // Pack other context into bucket
-    let context_bucket: u32 = (((ctx.is_charging as u32) & 1) << 8)
-        | (((ctx.recent_sessions as u32).min(15)) << 16);
+    let context_bucket: u32 =
+        (((ctx.is_charging as u32) & 1) << 8) | (((ctx.recent_sessions as u32).min(15)) << 16);
 
     let mut h = Hasher::new();
-    
+
     // EIDOLON FIX 2.3: Mix in device secret if provided
     if let Some(secret) = device_secret {
         h.update(secret);
     }
-    
+
     h.update(&goal.to_le_bytes());
     h.update(&mode.to_le_bytes());
     h.update(&pattern_id.to_le_bytes());
@@ -628,7 +633,6 @@ mod tests {
             source: &src,
             hard_th: 3.0,
             soft_th: 1.5,
-
         })];
         let patch = PatternPatch {
             target_bpm: 6.0,
@@ -670,7 +674,6 @@ mod tests {
             source: &src,
             hard_th: 1.5,
             soft_th: 0.7,
-
         })];
         let patch = PatternPatch {
             target_bpm: 6.0,

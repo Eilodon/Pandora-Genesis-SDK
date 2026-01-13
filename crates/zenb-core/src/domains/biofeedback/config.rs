@@ -1,7 +1,7 @@
 //! Breath configuration for the biofeedback domain.
 
-use serde::{Deserialize, Serialize};
 use crate::core::OscillatorConfig;
+use serde::{Deserialize, Serialize};
 
 /// Configuration for breath guidance oscillator.
 ///
@@ -65,12 +65,12 @@ mod tests {
     #[test]
     fn test_oscillator_config_impl() {
         let mut config = BreathConfig::default();
-        
+
         assert_eq!(config.target_frequency(), 6.0);
-        
+
         config.set_target_frequency(4.5);
         assert_eq!(config.target_frequency(), 4.5);
-        
+
         assert!(config.validate_frequency(6.0));
         assert!(config.validate_frequency(3.0));
         assert!(config.validate_frequency(20.0));

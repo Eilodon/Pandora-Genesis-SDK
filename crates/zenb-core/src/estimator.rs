@@ -50,7 +50,7 @@ impl Estimator {
             }
             // If no cached estimate, continue to initialize
         }
-        
+
         // Staleness check: if estimate is too old, invalidate cache and force re-estimation
         // This prevents stale data from propagating when sensors only send bursts
         const MAX_STALENESS_US: i64 = 5_000_000; // 5 seconds

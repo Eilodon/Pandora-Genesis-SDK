@@ -21,8 +21,8 @@ impl Default for FilterConfig {
     fn default() -> Self {
         Self {
             sample_rate: 30.0,
-            min_freq: 0.67,  // 40 BPM
-            max_freq: 3.0,   // 180 BPM
+            min_freq: 0.67, // 40 BPM
+            max_freq: 3.0,  // 180 BPM
         }
     }
 }

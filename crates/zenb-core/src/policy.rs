@@ -182,7 +182,11 @@ impl ActionPolicy {
     /// # Arguments
     /// * `current_bpm`: Current target BPM (fallback for non-breath policies)
     /// * `default_confidence`: Confidence to assign if not specified by policy
-    pub fn to_control_decision(&self, current_bpm: f32, default_confidence: f32) -> crate::domain::ControlDecision {
+    pub fn to_control_decision(
+        &self,
+        current_bpm: f32,
+        default_confidence: f32,
+    ) -> crate::domain::ControlDecision {
         match self {
             ActionPolicy::NoAction => crate::domain::ControlDecision {
                 target_rate_bpm: current_bpm,
@@ -257,10 +261,10 @@ impl PolicyEvaluation {
 // ============================================================================
 
 /// Expected Free Energy Calculator for Active Inference policy selection.
-/// 
+///
 /// EFE = G(π) = E_q[D_KL[q(o|s,π) || p(o|C)] + H[q(s|o,π)]]
 ///            = Risk (pragmatic) + Ambiguity (epistemic)
-/// 
+///
 /// Where:
 /// - Risk: Expected divergence from preferred outcomes (C = preferences)
 /// - Ambiguity: Expected uncertainty about states given observations
@@ -268,19 +272,19 @@ impl PolicyEvaluation {
 pub struct EFECalculator {
     /// Precision (inverse temperature) for softmax policy selection
     pub precision: f32,
-    
+
     /// Weight for pragmatic value (goal achievement)
     pub pragmatic_weight: f32,
-    
+
     /// Weight for epistemic value (information gain)
     pub epistemic_weight: f32,
-    
+
     /// Prior probability of each policy (policy prior)
     pub policy_prior: f32,
-    
+
     /// Homeostatic setpoint for arousal (target state)
     pub arousal_setpoint: f32,
-    
+
     /// Homeostatic setpoint for HRV
     pub hrv_setpoint: f32,
 }
@@ -288,16 +292,15 @@ pub struct EFECalculator {
 impl Default for EFECalculator {
     fn default() -> Self {
         Self {
-            precision: 4.0,          // Moderate exploration/exploitation balance
-            pragmatic_weight: 0.7,   // Emphasize goal achievement
-            epistemic_weight: 0.3,   // But also value information
-            policy_prior: 0.25,      // Uniform over 4 policy types
-            arousal_setpoint: 0.4,   // Calm default
-            hrv_setpoint: 50.0,      // Target RMSSD in ms
+            precision: 4.0,        // Moderate exploration/exploitation balance
+            pragmatic_weight: 0.7, // Emphasize goal achievement
+            epistemic_weight: 0.3, // But also value information
+            policy_prior: 0.25,    // Uniform over 4 policy types
+            arousal_setpoint: 0.4, // Calm default
+            hrv_setpoint: 50.0,    // Target RMSSD in ms
         }
     }
 }
-
 
 impl EFECalculator {
     pub fn new(precision: f32) -> Self {
@@ -309,7 +312,7 @@ impl EFECalculator {
 
 impl EFECalculator {
     /// Compute full expected free energy for a policy given current beliefs.
-    /// 
+    ///
     /// # Arguments
     /// * `policy` - The policy to evaluate
     /// * `belief_state` - Current posterior beliefs (5-mode distribution)
@@ -327,22 +330,19 @@ impl EFECalculator {
         // 1. PRAGMATIC VALUE: How much does this policy reduce divergence from preferences?
         // R = -D_KL[q(s|π) || p(s|C)] ≈ negative distance to homeostatic setpoint
         let pragmatic_value = self.compute_pragmatic_value(policy, predicted_state);
-        
+
         // 2. EPISTEMIC VALUE: How much information does this policy provide?
         // I = H[q(s)] - E[H[q(s|o,π)]] = current entropy - expected posterior entropy
-        let epistemic_value = self.compute_epistemic_value(
-            policy,
-            belief_uncertainty,
-            predicted_uncertainty,
-        );
-        
+        let epistemic_value =
+            self.compute_epistemic_value(policy, belief_uncertainty, predicted_uncertainty);
+
         // 3. Combine with weights
-        let combined_value = self.pragmatic_weight * pragmatic_value 
-                           + self.epistemic_weight * epistemic_value;
-        
+        let combined_value =
+            self.pragmatic_weight * pragmatic_value + self.epistemic_weight * epistemic_value;
+
         // 4. EFE is negative value (minimize G = maximize value)
         let efe = -combined_value;
-        
+
         let mut eval = PolicyEvaluation::new(policy.clone(), pragmatic_value, epistemic_value);
         eval.expected_free_energy = efe;
         eval
@@ -352,68 +352,77 @@ impl EFECalculator {
     /// P(π) = σ(-γ * G(π))
     pub fn compute_selection_probabilities(&self, evaluations: &mut [PolicyEvaluation]) {
         // Compute negative EFE (Value)
-        let values: Vec<f32> = evaluations.iter()
+        let values: Vec<f32> = evaluations
+            .iter()
             .map(|e| -e.expected_free_energy * self.precision)
             .collect();
-            
+
         // Compute Softmax
         let max_val = values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         let mut sum = 0.0;
         let mut probs = values.clone();
-        
+
         for p in probs.iter_mut() {
             *p = (*p - max_val).exp();
             sum += *p;
         }
-        
+
         // Normalize
         if sum > 0.0 {
             for (i, p) in probs.iter().enumerate() {
                 evaluations[i].selection_probability = *p / sum;
             }
         } else {
-             // Fallback to uniform
-             let n = evaluations.len() as f32;
-             for e in evaluations.iter_mut() {
-                 e.selection_probability = 1.0 / n;
-             }
+            // Fallback to uniform
+            let n = evaluations.len() as f32;
+            for e in evaluations.iter_mut() {
+                e.selection_probability = 1.0 / n;
+            }
         }
     }
 
     /// Sample a policy based on computed probabilities
-    pub fn sample_policy<'a>(&self, evaluations: &'a [PolicyEvaluation], rand_seed: f32) -> &'a ActionPolicy {
+    pub fn sample_policy<'a>(
+        &self,
+        evaluations: &'a [PolicyEvaluation],
+        rand_seed: f32,
+    ) -> &'a ActionPolicy {
         let mut cumulative = 0.0;
         // Use provided seed (0.0-1.0) to select
         // Ensure rand_seed is within [0, 1]
         let r = rand_seed.clamp(0.0, 0.9999);
-        
+
         for eval in evaluations {
             cumulative += eval.selection_probability;
             if r < cumulative {
                 return &eval.policy;
             }
         }
-        
+
         // Fallback to last (or first)
         &evaluations.last().unwrap().policy
     }
-    
+
     /// Compute pragmatic value: how well does policy achieve goals?
     fn compute_pragmatic_value(&self, policy: &ActionPolicy, predicted_state: &[f32; 5]) -> f32 {
         // Predicted arousal (mode 1 = Stress)
         let predicted_arousal = predicted_state[1];
-        
+
         // Distance from homeostatic setpoint
         let arousal_error = (predicted_arousal - self.arousal_setpoint).abs();
-        
+
         // Base value from state improvement
         let state_value = 1.0 - arousal_error.min(1.0);
-        
+
         // Policy-specific adjustments
         let policy_bonus = match policy {
             ActionPolicy::NoAction => {
                 // NoAction gets bonus if state is already good
-                if arousal_error < 0.2 { 0.2 } else { -0.1 }
+                if arousal_error < 0.2 {
+                    0.2
+                } else {
+                    -0.1
+                }
             }
             ActionPolicy::GuidanceBreath(ref params) => {
                 // Breath guidance gets bonus proportional to expected regulation
@@ -430,10 +439,10 @@ impl EFECalculator {
                 }
             }
         };
-        
+
         (state_value + policy_bonus).clamp(0.0, 1.0)
     }
-    
+
     /// Compute epistemic value: information gain from policy execution.
     fn compute_epistemic_value(
         &self,
@@ -444,13 +453,17 @@ impl EFECalculator {
         // Information gain = reduction in entropy
         // I(π) = H[q(s)] - E[H[q(s|o,π)]]
         let entropy_reduction = (current_uncertainty - predicted_uncertainty).max(0.0);
-        
+
         // Policy-specific epistemic bonus
         let exploration_bonus = match policy {
             ActionPolicy::NoAction => {
                 // NoAction has high epistemic value when uncertain
                 // (pure observation to gather information)
-                if current_uncertainty > 0.5 { 0.4 } else { 0.1 }
+                if current_uncertainty > 0.5 {
+                    0.4
+                } else {
+                    0.1
+                }
             }
             ActionPolicy::GuidanceBreath(_) => {
                 // Breath guidance provides direct feedback (high epistemic value)
@@ -460,44 +473,43 @@ impl EFECalculator {
                 // Digital interventions provide indirect feedback
                 match intervention.action {
                     DigitalActionType::PlaySoundscape => 0.15, // Some feedback possible
-                    _ => 0.05, // Low direct feedback
+                    _ => 0.05,                                 // Low direct feedback
                 }
             }
         };
-        
+
         (entropy_reduction + exploration_bonus).clamp(0.0, 1.0)
     }
-    
+
     /// Select policy using softmax over negative EFE values.
     /// Returns policies sorted by selection probability (highest first).
     pub fn select_policy(&self, evaluations: &mut [PolicyEvaluation]) {
         if evaluations.is_empty() {
             return;
         }
-        
+
         // Compute softmax over -EFE (minimizing EFE = maximizing -EFE)
-        let neg_efes: Vec<f32> = evaluations.iter()
+        let neg_efes: Vec<f32> = evaluations
+            .iter()
             .map(|e| -e.expected_free_energy * self.precision)
             .collect();
-        
+
         // Stable softmax
         let max_neg_efe = neg_efes.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let exp_sum: f32 = neg_efes.iter()
-            .map(|&x| (x - max_neg_efe).exp())
-            .sum();
-        
+        let exp_sum: f32 = neg_efes.iter().map(|&x| (x - max_neg_efe).exp()).sum();
+
         for (i, eval) in evaluations.iter_mut().enumerate() {
             eval.selection_probability = ((neg_efes[i] - max_neg_efe).exp()) / exp_sum;
         }
-        
+
         // Sort by probability (descending)
-        evaluations.sort_by(|a, b| b.selection_probability
-            .partial_cmp(&a.selection_probability)
-            .unwrap_or(std::cmp::Ordering::Equal));
+        evaluations.sort_by(|a, b| {
+            b.selection_probability
+                .partial_cmp(&a.selection_probability)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
 }
-    
-
 
 /// Policy library: pre-defined policies for common scenarios.
 /// These serve as a "policy prior" in Active Inference - the system's
@@ -512,13 +524,13 @@ impl EFECalculator {
 pub struct BetaMetaLearner {
     /// Score tracking recent exploration (high uncertainty policies)
     pub exploration_score: f32,
-    
+
     /// Score tracking recent exploitation (high pragmatic value policies)
     pub exploitation_score: f32,
-    
+
     /// Exponential moving average of policy success (0.0 - 1.0)
     pub success_rate_ema: f32,
-    
+
     /// Target ratio of exploration to total activity (default: 0.2)
     pub target_exploration_ratio: f32,
 }
@@ -536,7 +548,7 @@ impl Default for BetaMetaLearner {
 
 impl BetaMetaLearner {
     /// Update beta based on recent policy outcome.
-    /// 
+    ///
     /// # Logic
     /// - If success rate is low and we are over-exploring -> Increase beta (Exploit more)
     /// - If exploration ratio is too low -> Decrease beta (Explore more)
@@ -551,40 +563,41 @@ impl BetaMetaLearner {
         let alpha = 0.1;
         self.success_rate_ema = self.success_rate_ema * (1.0 - alpha)
             + (if policy_succeeded { 1.0 } else { 0.0 }) * alpha;
-        
+
         // Update exploration tracking
         if policy_was_exploratory {
             self.exploration_score += 1.0;
         } else {
             self.exploitation_score += 1.0;
         }
-        
+
         let total = self.exploration_score + self.exploitation_score;
         // Prevent division by zero (unlikely with default initialization)
-        let current_ratio = if total > 0.0 { 
-            self.exploration_score / total 
-        } else { 
-            0.0 
-        };
-        
-        // Adapt beta
-        let new_beta = if current_ratio > self.target_exploration_ratio && self.success_rate_ema < 0.6 {
-            // Over-exploring with poor results -> exploit more (increase precision)
-            (current_beta * 1.1).min(5.0)
-        } else if current_ratio < self.target_exploration_ratio {
-            // Under-exploring -> explore more (decrease precision)
-            (current_beta * 0.9).max(0.1)
-        } else if self.success_rate_ema > 0.8 {
-            // Doing well -> slowly consolidate/exploit
-            (current_beta * 1.02).min(5.0)
+        let current_ratio = if total > 0.0 {
+            self.exploration_score / total
         } else {
-            current_beta // No change
+            0.0
         };
-        
+
+        // Adapt beta
+        let new_beta =
+            if current_ratio > self.target_exploration_ratio && self.success_rate_ema < 0.6 {
+                // Over-exploring with poor results -> exploit more (increase precision)
+                (current_beta * 1.1).min(5.0)
+            } else if current_ratio < self.target_exploration_ratio {
+                // Under-exploring -> explore more (decrease precision)
+                (current_beta * 0.9).max(0.1)
+            } else if self.success_rate_ema > 0.8 {
+                // Doing well -> slowly consolidate/exploit
+                (current_beta * 1.02).min(5.0)
+            } else {
+                current_beta // No change
+            };
+
         // Decay scores (forgetting factor)
         self.exploration_score *= 0.99;
         self.exploitation_score *= 0.99;
-        
+
         new_beta
     }
 }
@@ -594,7 +607,7 @@ impl BetaMetaLearner {
 // ============================================================================
 
 /// Policy adapter that learns from action outcomes and adapts exploration.
-/// 
+///
 /// Key features:
 /// - Catastrophe detection: Immediate response to negative rewards
 /// - Action masking: Prevents repeating harmful policies
@@ -604,55 +617,55 @@ impl BetaMetaLearner {
 pub struct PolicyAdapter {
     /// Q-value estimates for state-policy pairs
     q_values: std::collections::HashMap<String, f32>,
-    
+
     /// Visit counts for each state-policy pair
     visit_counts: std::collections::HashMap<String, u32>,
-    
+
     /// Total visits across all state-policy pairs
     total_visits: u32,
-    
+
     /// Recent rewards for rolling average (max 20)
     recent_rewards: std::collections::VecDeque<f32>,
-    
+
     /// Maximum size of recent rewards buffer
     max_recent: usize,
-    
+
     // Catastrophe Detection
     /// Consecutive negative reward streak
     neg_reward_streak: u32,
-    
+
     /// Last policy that achieved positive reward (>0.6)
     last_positive_policy: Option<String>,
-    
+
     /// Currently masked policy identifier (prevented from selection)
     masked_policy: Option<String>,
-    
+
     /// Remaining steps for current mask
     mask_steps_remaining: u32,
-    
+
     // Stagnation Detection
     /// Best recent average reward seen so far
     best_recent_avg: f32,
-    
+
     /// Counter for how long performance has been stagnant
     stagnation_counter: u32,
-    
+
     /// Temporary exploration boost steps remaining
     temp_explore_boost_steps: u32,
-    
+
     // Reward Normalization (EMA)
     /// Running mean for reward normalization
     running_mean: f32,
-    
+
     /// Running variance for reward normalization
     running_var: f32,
-    
+
     /// EMA alpha for normalization updates
     ema_alpha: f32,
-    
+
     /// Base exploration constant (β)
     base_exploration_constant: f32,
-    
+
     /// Current exploration constant (dynamically adjusted)
     exploration_constant: f32,
 }
@@ -686,11 +699,11 @@ impl PolicyAdapter {
             exploration_constant: base_exploration_constant,
         }
     }
-    
+
     /// Update adapter with outcome of executed policy.
-    /// 
+    ///
     /// Returns current exploration boost multiplier.
-    /// 
+    ///
     /// # Arguments
     /// * `state_hash` - Hash of current belief state
     /// * `policy` - Policy that was executed
@@ -706,60 +719,62 @@ impl PolicyAdapter {
         // 1. Generate policy identifier
         let policy_id = self.policy_identifier(policy);
         let key = format!("{}_{}", state_hash, policy_id);
-        
+
         // 2. Reward normalization (EMA-based z-score)
         let delta = reward - self.running_mean;
         self.running_mean += self.ema_alpha * delta;
-        self.running_var = (1.0 - self.ema_alpha) * (self.running_var + self.ema_alpha * delta * delta);
-        
+        self.running_var =
+            (1.0 - self.ema_alpha) * (self.running_var + self.ema_alpha * delta * delta);
+
         let norm_reward = if self.running_var > 1e-8 {
             (reward - self.running_mean) / self.running_var.sqrt()
         } else {
             reward
         };
-        
+
         // 3. Update Q-value (simple Q-learning)
         let current_q = *self.q_values.get(&key).unwrap_or(&0.0);
         let learning_rate = 0.1;
         let new_q = current_q + learning_rate * (norm_reward - current_q);
         self.q_values.insert(key.clone(), new_q);
-        
+
         // 4. Update visit counts
         *self.visit_counts.entry(key).or_insert(0) += 1;
         self.total_visits += 1;
-        
+
         // 5. Maintain recent rewards buffer
         self.recent_rewards.push_back(reward);
         if self.recent_rewards.len() > self.max_recent {
             self.recent_rewards.pop_front();
         }
-        
+
         let avg_recent = if self.recent_rewards.is_empty() {
             0.0
         } else {
             self.recent_rewards.iter().sum::<f32>() / self.recent_rewards.len() as f32
         };
-        
+
         // 6. Track positive/negative streaks
         if reward < 0.0 {
             self.neg_reward_streak = self.neg_reward_streak.saturating_add(1);
         } else {
             self.neg_reward_streak = 0;
         }
-        
+
         if reward > 0.6 {
             self.last_positive_policy = Some(policy_id.clone());
         }
-        
+
         // 7. CATASTROPHE DETECTION: Immediate response to negative rewards
         if reward < 0.0 {
             // Apply 5x penalty to break harmful habit
             let penalty_q = current_q + learning_rate * (norm_reward * 5.0 - current_q);
-            self.q_values.insert(format!("{}_{}", state_hash, policy_id), penalty_q);
-            
+            self.q_values
+                .insert(format!("{}_{}", state_hash, policy_id), penalty_q);
+
             // Mask harmful policy
             self.masked_policy = Some(policy_id.clone());
-            
+
             // Scale response by streak severity
             if self.neg_reward_streak >= 3 {
                 // Catastrophic: extremely strong exploration
@@ -777,13 +792,15 @@ impl PolicyAdapter {
                 self.exploration_constant = (self.base_exploration_constant * 4.0).min(10.0);
                 self.temp_explore_boost_steps = 20;
             }
-            
+
             log::warn!(
                 "Catastrophe detected: reward={:.2}, streak={}, masking policy for {} steps",
-                reward, self.neg_reward_streak, self.mask_steps_remaining
+                reward,
+                self.neg_reward_streak,
+                self.mask_steps_remaining
             );
         }
-        
+
         // 8. STAGNATION DETECTION: Escape local optima
         if self.recent_rewards.len() >= self.max_recent {
             if avg_recent > self.best_recent_avg + 0.05 {
@@ -797,20 +814,21 @@ impl PolicyAdapter {
                 // Performance stagnant
                 self.stagnation_counter += 1;
             }
-            
+
             // Trigger stagnation escape if stuck at suboptimal level
             if self.stagnation_counter >= 10 && avg_recent < 0.75 {
                 self.temp_explore_boost_steps = 50;
                 self.exploration_constant = (self.base_exploration_constant * 5.0).min(10.0);
                 self.stagnation_counter = 0;
-                
+
                 log::info!(
                     "Stagnation escape triggered: avg_recent={:.2}, boosting exploration to {:.1}x",
-                    avg_recent, self.exploration_constant / self.base_exploration_constant
+                    avg_recent,
+                    self.exploration_constant / self.base_exploration_constant
                 );
             }
         }
-        
+
         // 9. ADAPTIVE EXPLORATION: Adjust based on performance
         if avg_recent > 0.70 && !success {
             // Good performance: favor exploitation
@@ -825,7 +843,7 @@ impl PolicyAdapter {
                 self.exploration_constant = self.base_exploration_constant;
             }
         }
-        
+
         // 10. Decay mask counter
         if self.mask_steps_remaining > 0 {
             self.mask_steps_remaining = self.mask_steps_remaining.saturating_sub(1);
@@ -833,10 +851,10 @@ impl PolicyAdapter {
                 self.masked_policy = None;
             }
         }
-        
+
         self.exploration_constant / self.base_exploration_constant
     }
-    
+
     /// Check if a policy is currently masked (prevented from selection).
     pub fn is_policy_masked(&self, policy: &ActionPolicy) -> bool {
         if let Some(ref masked) = self.masked_policy {
@@ -846,26 +864,26 @@ impl PolicyAdapter {
         }
         false
     }
-    
+
     /// Get Q-value for a state-policy pair.
     pub fn get_q_value(&self, state_hash: &str, policy: &ActionPolicy) -> f32 {
         let policy_id = self.policy_identifier(policy);
         let key = format!("{}_{}", state_hash, policy_id);
         *self.q_values.get(&key).unwrap_or(&0.0)
     }
-    
+
     /// Get visit count for a state-policy pair.
     pub fn get_visit_count(&self, state_hash: &str, policy: &ActionPolicy) -> u32 {
         let policy_id = self.policy_identifier(policy);
         let key = format!("{}_{}", state_hash, policy_id);
         *self.visit_counts.get(&key).unwrap_or(&0)
     }
-    
+
     /// Get current exploration constant.
     pub fn exploration_constant(&self) -> f32 {
         self.exploration_constant
     }
-    
+
     /// Get recent average reward.
     pub fn recent_average_reward(&self) -> f32 {
         if self.recent_rewards.is_empty() {
@@ -874,7 +892,7 @@ impl PolicyAdapter {
             self.recent_rewards.iter().sum::<f32>() / self.recent_rewards.len() as f32
         }
     }
-    
+
     /// Generate string identifier for policy (for hashing).
     fn policy_identifier(&self, policy: &ActionPolicy) -> String {
         match policy {
@@ -983,16 +1001,22 @@ mod tests {
         learner.exploration_score = 0.0;
         learner.exploitation_score = 10.0; // Ratio = 0.0 < 0.2 Target
         let new_beta = learner.update_beta(initial_beta, false, true);
-        assert!(new_beta < initial_beta, "Beta should decrease to encourage exploration");
+        assert!(
+            new_beta < initial_beta,
+            "Beta should decrease to encourage exploration"
+        );
 
         // 2. Simulate over-exploration with failure -> Beta should increase (force exploitation)
         learner.exploration_score = 10.0;
         learner.exploitation_score = 0.0; // Ratio = 1.0 > 0.2
         learner.success_rate_ema = 0.4; // Low success
         let new_beta_2 = learner.update_beta(1.0, true, false);
-        assert!(new_beta_2 > 1.0, "Beta should increase to stop failed exploration");
+        assert!(
+            new_beta_2 > 1.0,
+            "Beta should increase to stop failed exploration"
+        );
     }
-    
+
     #[test]
     fn test_policy_adapter_creation() {
         let adapter = PolicyAdapter::new(1.5);
@@ -1000,69 +1024,86 @@ mod tests {
         assert_eq!(adapter.total_visits, 0);
         assert_eq!(adapter.recent_average_reward(), 0.0);
     }
-    
+
     #[test]
     fn test_policy_adapter_catastrophe_detection() {
         let mut adapter = PolicyAdapter::new(1.0);
         let policy = PolicyLibrary::calming_breath();
-        
+
         // Simulate negative reward
         let boost = adapter.update_with_outcome("state1", &policy, -0.5, false);
-        
+
         // Should apply catastrophe response
-        assert!(boost > 3.0, "Exploration should be boosted after catastrophe");
-        assert!(adapter.is_policy_masked(&policy), "Harmful policy should be masked");
+        assert!(
+            boost > 3.0,
+            "Exploration should be boosted after catastrophe"
+        );
+        assert!(
+            adapter.is_policy_masked(&policy),
+            "Harmful policy should be masked"
+        );
         assert!(adapter.mask_steps_remaining >= 20);
     }
-    
+
     #[test]
     fn test_policy_adapter_catastrophe_streak() {
         let mut adapter = PolicyAdapter::new(1.0);
         let policy = PolicyLibrary::calming_breath();
-        
+
         // Three consecutive negative rewards
         adapter.update_with_outcome("state1", &policy, -0.3, false);
         adapter.update_with_outcome("state2", &policy, -0.4, false);
         let boost = adapter.update_with_outcome("state3", &policy, -0.5, false);
-        
+
         // Should trigger catastrophic response (8x boost)
-        assert!(boost >= 7.0, "Severe streak should trigger 8x boost, got {:.1}x", boost);
-        assert!(adapter.mask_steps_remaining >= 40, "Should mask for at least 40 steps after streak");
+        assert!(
+            boost >= 7.0,
+            "Severe streak should trigger 8x boost, got {:.1}x",
+            boost
+        );
+        assert!(
+            adapter.mask_steps_remaining >= 40,
+            "Should mask for at least 40 steps after streak"
+        );
     }
-    
+
     #[test]
     fn test_policy_adapter_stagnation_escape() {
         let mut adapter = PolicyAdapter::new(1.0);
         let policy = PolicyLibrary::calming_breath();
-        
+
         // Fill buffer with suboptimal rewards (0.6)
         for i in 0..20 {
             adapter.update_with_outcome(&format!("state{}", i), &policy, 0.6, true);
         }
-        
+
         // Continue with same suboptimal performance for 10+ steps
         for i in 20..35 {
             adapter.update_with_outcome(&format!("state{}", i), &policy, 0.6, true);
         }
-        
+
         // Should trigger stagnation escape
         let avg = adapter.recent_average_reward();
-        assert!((avg - 0.6).abs() < 0.1, "Average should be ~0.6, got {:.2}", avg);
+        assert!(
+            (avg - 0.6).abs() < 0.1,
+            "Average should be ~0.6, got {:.2}",
+            avg
+        );
         // Note: stagnation counter may or may not trigger depending on exact sequence
     }
-    
+
     #[test]
     fn test_policy_adapter_action_masking() {
         let mut adapter = PolicyAdapter::new(1.0);
         let harmful_policy = PolicyLibrary::calming_breath();
         let safe_policy = PolicyLibrary::observe();
-        
+
         // Trigger masking
         adapter.update_with_outcome("state1", &harmful_policy, -0.8, false);
-        
+
         assert!(adapter.is_policy_masked(&harmful_policy));
         assert!(!adapter.is_policy_masked(&safe_policy));
-        
+
         // Mask should decay after steps
         for _ in 0..30 {
             adapter.mask_steps_remaining = adapter.mask_steps_remaining.saturating_sub(1);
@@ -1070,34 +1111,37 @@ mod tests {
                 adapter.masked_policy = None;
             }
         }
-        
-        assert!(!adapter.is_policy_masked(&harmful_policy), "Mask should decay");
+
+        assert!(
+            !adapter.is_policy_masked(&harmful_policy),
+            "Mask should decay"
+        );
     }
-    
+
     #[test]
     fn test_policy_adapter_q_value_updates() {
         let mut adapter = PolicyAdapter::new(1.0);
         let policy = PolicyLibrary::calming_breath();
-        
+
         // Initial Q-value should be 0
         assert_eq!(adapter.get_q_value("state1", &policy), 0.0);
-        
+
         // Update with positive reward
         adapter.update_with_outcome("state1", &policy, 0.8, true);
-        
+
         // Q-value should increase
         let q = adapter.get_q_value("state1", &policy);
         assert!(q > 0.0, "Q-value should increase after positive reward");
-        
+
         // Visit count should increment
         assert_eq!(adapter.get_visit_count("state1", &policy), 1);
     }
-    
+
     #[test]
     fn test_policy_adapter_reward_normalization() {
         let mut adapter = PolicyAdapter::new(1.0);
         let policy = PolicyLibrary::observe();
-        
+
         // Feed MORE samples for EMA convergence (alpha=0.05 is slow)
         let base_reward = 0.55f32;
         for i in 0..50 {
@@ -1105,27 +1149,33 @@ mod tests {
             let r = base_reward + (i % 5) as f32 * 0.02 - 0.04;
             adapter.update_with_outcome(&format!("state{}", i), &policy, r, true);
         }
-        
+
         // Running mean should converge towards ~0.55 with sufficient samples
-        assert!((adapter.running_mean - base_reward).abs() < 0.1,
-                "Running mean {:.3} should converge near {:.3} after 50 samples", 
-                adapter.running_mean, base_reward);
+        assert!(
+            (adapter.running_mean - base_reward).abs() < 0.1,
+            "Running mean {:.3} should converge near {:.3} after 50 samples",
+            adapter.running_mean,
+            base_reward
+        );
     }
-    
+
     #[test]
     fn test_policy_adapter_exploration_decay() {
         let mut adapter = PolicyAdapter::new(2.0);
         let policy = PolicyLibrary::calming_breath();
-        
+
         // Good performance with success should maintain/reduce exploration
         for i in 0..25 {
             adapter.update_with_outcome(&format!("state{}", i), &policy, 0.85, false);
         }
-        
+
         // With high reward but no success, exploration should reduce OR stay same (adaptive behavior)
         // The exact behavior depends on temp_explore_boost_steps state
         let final_constant = adapter.exploration_constant();
-        assert!(final_constant <= 2.0, 
-                "Exploration should not increase with good performance, got {:.2}", final_constant);
+        assert!(
+            final_constant <= 2.0,
+            "Exploration should not increase with good performance, got {:.2}",
+            final_constant
+        );
     }
 }

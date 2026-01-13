@@ -211,10 +211,7 @@ impl AsyncWorker {
     }
 
     /// Evict oldest non-critical entry from retry queue, or emergency dump oldest if all critical
-    fn evict_from_retry_queue(
-        retry_queue: &mut Vec<RetryEntry>,
-        metrics: &Arc<WorkerMetrics>,
-    ) {
+    fn evict_from_retry_queue(retry_queue: &mut Vec<RetryEntry>, metrics: &Arc<WorkerMetrics>) {
         // Find oldest non-critical entry
         if let Some(pos) = retry_queue
             .iter()
@@ -222,7 +219,9 @@ impl AsyncWorker {
         {
             // Evict non-critical entry
             let evicted = retry_queue.remove(pos);
-            metrics.retry_queue_evictions.fetch_add(1, Ordering::Relaxed);
+            metrics
+                .retry_queue_evictions
+                .fetch_add(1, Ordering::Relaxed);
             eprintln!(
                 "WARN: Evicted non-critical batch from retry queue (size limit reached). {} envelopes dropped.",
                 evicted.envelopes.len()
@@ -230,9 +229,11 @@ impl AsyncWorker {
         } else {
             // All entries are critical - emergency dump the oldest
             let oldest = retry_queue.remove(0);
-            metrics.retry_queue_evictions.fetch_add(1, Ordering::Relaxed);
+            metrics
+                .retry_queue_evictions
+                .fetch_add(1, Ordering::Relaxed);
             metrics.emergency_dumps.fetch_add(1, Ordering::Relaxed);
-            
+
             if let Err(e) = Self::emergency_dump(
                 &oldest.session_id,
                 &oldest.envelopes,
@@ -324,7 +325,7 @@ impl AsyncWorker {
                                 // Queue full - evict oldest non-critical or emergency dump
                                 Self::evict_from_retry_queue(&mut retry_queue, &metrics);
                             }
-                            
+
                             retry_queue.push(RetryEntry {
                                 session_id,
                                 envelopes,

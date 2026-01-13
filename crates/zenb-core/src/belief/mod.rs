@@ -113,7 +113,7 @@ pub fn softmax(mut logits: [f32; 5]) -> [f32; 5] {
         log::warn!("softmax: non-finite input detected, returning uniform");
         return [0.2; 5];
     }
-    
+
     // stable softmax
     let max = logits
         .iter()
@@ -292,6 +292,8 @@ pub struct BeliefDebug {
     pub per_pathway: Vec<(String, AgentVote)>,
 }
 
+#[derive(Debug, Clone)]
+
 pub struct BeliefEngine {
     pub agents: Vec<AgentStrategy>,
     pub w: Vec<f32>,
@@ -299,6 +301,12 @@ pub struct BeliefEngine {
     pub smooth_tau_sec: f32,
     pub enter_th: f32,
     pub exit_th: f32,
+}
+
+impl Default for BeliefEngine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BeliefEngine {

@@ -56,7 +56,7 @@ impl SoundscapeEngine {
             scene: scene.to_string(),
         }
     }
-    
+
     pub fn compute_mix(
         &self,
         phase: &str,
@@ -68,7 +68,7 @@ impl SoundscapeEngine {
             "ocean" => OCEAN_LAYERS,
             _ => &[],
         };
-        
+
         layers
             .iter()
             .map(|layer| {
@@ -77,7 +77,7 @@ impl SoundscapeEngine {
                     "exhale" => layer.exhale_gain,
                     _ => layer.base_gain,
                 };
-                
+
                 // Mood modulation
                 if valence > 0.5 && layer.name.contains("bird") {
                     gain *= 1.2;
@@ -85,12 +85,12 @@ impl SoundscapeEngine {
                 if arousal < 0.3 && layer.name.contains("wave") {
                     gain *= 1.1;
                 }
-                
+
                 (layer.name, gain.clamp(0.0, 1.0))
             })
             .collect()
     }
-    
+
     pub fn set_scene(&mut self, scene: &str) {
         self.scene = scene.to_string();
     }
@@ -99,28 +99,28 @@ impl SoundscapeEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_forest_mix() {
         let engine = SoundscapeEngine::new("forest");
         let mix = engine.compute_mix("inhale", 0.5, 0.5);
-        
+
         assert!(mix.contains_key("birds"));
         assert!(mix.contains_key("wind"));
         assert!(mix.contains_key("creek"));
-        
+
         // Inhale should boost wind
         assert_eq!(mix["wind"], 0.6);
     }
-    
+
     #[test]
     fn test_ocean_mix() {
         let engine = SoundscapeEngine::new("ocean");
         let mix = engine.compute_mix("exhale", 0.5, 0.5);
-        
+
         assert!(mix.contains_key("waves"));
         assert!(mix.contains_key("seagulls"));
-        
+
         // Exhale should boost waves
         assert_eq!(mix["waves"], 0.7);
     }

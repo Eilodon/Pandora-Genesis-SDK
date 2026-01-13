@@ -1,7 +1,7 @@
 //! Action types for the biofeedback domain.
 
-use serde::{Deserialize, Serialize};
 use crate::core::ActionKind;
+use serde::{Deserialize, Serialize};
 
 /// Actions the system can perform in the biofeedback domain.
 ///
@@ -20,10 +20,7 @@ pub enum BioAction {
     /// Parameters:
     /// - `target_bpm`: Target breathing rate in breaths per minute
     /// - `duration_sec`: Duration of the exercise in seconds
-    BreathGuidance {
-        target_bpm: f32,
-        duration_sec: u32,
-    },
+    BreathGuidance { target_bpm: f32, duration_sec: u32 },
 
     /// Block or filter notifications.
     ///
@@ -50,10 +47,7 @@ pub enum BioAction {
     /// Parameters:
     /// - `app_id`: Package name or app identifier
     /// - `action`: Specific action within the app
-    LaunchApp {
-        app_id: String,
-        action: String,
-    },
+    LaunchApp { app_id: String, action: String },
 
     /// Play audio intervention (binaural beats, nature sounds).
     ///
@@ -93,23 +87,41 @@ pub enum NoiseColor {
 impl ActionKind for BioAction {
     fn description(&self) -> String {
         match self {
-            BioAction::BreathGuidance { target_bpm, duration_sec } => {
-                format!("Breath guidance at {} BPM for {}s", target_bpm, duration_sec)
+            BioAction::BreathGuidance {
+                target_bpm,
+                duration_sec,
+            } => {
+                format!(
+                    "Breath guidance at {} BPM for {}s",
+                    target_bpm, duration_sec
+                )
             }
-            BioAction::NotificationBlock { duration_sec, allow_priority } => {
+            BioAction::NotificationBlock {
+                duration_sec,
+                allow_priority,
+            } => {
                 if *allow_priority {
-                    format!("Block notifications for {}s (priority allowed)", duration_sec)
+                    format!(
+                        "Block notifications for {}s (priority allowed)",
+                        duration_sec
+                    )
                 } else {
                     format!("Block all notifications for {}s", duration_sec)
                 }
             }
-            BioAction::SuggestBreak { suggested_duration_min, reason } => {
+            BioAction::SuggestBreak {
+                suggested_duration_min,
+                reason,
+            } => {
                 format!("Suggest {}min break: {}", suggested_duration_min, reason)
             }
             BioAction::LaunchApp { app_id, action } => {
                 format!("Launch {} ({})", app_id, action)
             }
-            BioAction::PlayAudio { audio_type, duration_sec } => {
+            BioAction::PlayAudio {
+                audio_type,
+                duration_sec,
+            } => {
                 let type_desc = match audio_type {
                     AudioInterventionType::BinauralBeats { target_frequency } => {
                         format!("binaural beats at {} Hz", target_frequency)
@@ -177,7 +189,7 @@ mod tests {
             target_bpm: 6.0,
             duration_sec: 60,
         };
-        
+
         assert!(nothing.intrusiveness() < breath.intrusiveness());
     }
 
@@ -188,7 +200,7 @@ mod tests {
             duration_sec: 60,
         };
         let nothing = BioAction::DoNothing;
-        
+
         assert!(breath.requires_permission());
         assert!(!nothing.requires_permission());
     }

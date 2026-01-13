@@ -1,7 +1,7 @@
 //! Encrypted SQLite event store with session keys and batch append.
 
-use chacha20poly1305::aead::{Aead, Payload};
 use blake3::Hasher;
+use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce};
 use hkdf::Hkdf;
 use rand::rngs::OsRng;
@@ -584,7 +584,10 @@ impl EventStore {
                     env.ts_us as i64,
                     env.event_type_code() as i64,
                     env.meta_as_bytes()
-                        .map_err(|e| StoreError::CryptoError(format!("meta serialization failed: {}", e)))?,
+                        .map_err(|e| StoreError::CryptoError(format!(
+                            "meta serialization failed: {}",
+                            e
+                        )))?,
                     ct,
                     nonce,
                 ])?;

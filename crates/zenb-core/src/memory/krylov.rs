@@ -59,59 +59,59 @@ impl KrylovProjector {
     {
         let dim = start_vec.len();
         self.v.clear();
-        
+
         // 1. Initialize first Lanczos vector v1 = v / |v|
         let v0 = DVector::from_vec(start_vec.to_vec());
         let norm = v0.norm();
         if norm < 1e-10 {
             return start_vec.to_vec();
         }
-        
+
         self.v.push(v0 / Complex32::new(norm, 0.0));
-        
+
         // 2. Lanczos Iteration
         // Build basis V_m and tridiagonal matrix T_m
         // T_m is [alpha, beta]
         //        [beta, alpha]
-        
+
         let mut alphas = Vec::with_capacity(self.k);
         let mut betas = Vec::with_capacity(self.k);
-        
+
         for j in 0..self.k {
             // w = A * v_j
             let w_vec = h_op(self.v[j].as_slice());
             let mut w = DVector::from_vec(w_vec);
-            
+
             // alpha_j = v_j^H * w
-            let alpha = self.v[j].dot(&w); // dot implies conjugate of first arg in nalgebra for complex? 
-            // nalgebra dot: a.dot(&b) = sum(a_i * b_i). Inner product usually requires conjugation.
-            // For Complex, nalgebra's dot is standard dot product (bilinear), NOT inner product (sesquilinear)?
-            // We need Hermitian inner product: v^H * w = conj(v) dot w.
-            // Correction: nalgebra DVector::dot(&self, rhs) is unconjugated.
-            // DVector::dotc(&self, rhs) is conjugated (self^H * rhs).
+            let alpha = self.v[j].dot(&w); // dot implies conjugate of first arg in nalgebra for complex?
+                                           // nalgebra dot: a.dot(&b) = sum(a_i * b_i). Inner product usually requires conjugation.
+                                           // For Complex, nalgebra's dot is standard dot product (bilinear), NOT inner product (sesquilinear)?
+                                           // We need Hermitian inner product: v^H * w = conj(v) dot w.
+                                           // Correction: nalgebra DVector::dot(&self, rhs) is unconjugated.
+                                           // DVector::dotc(&self, rhs) is conjugated (self^H * rhs).
             let alpha_val = self.v[j].dotc(&w);
             alphas.push(alpha_val);
-            
+
             // w = w - alpha_j * v_j - beta_{j-1} * v_{j-1}
             w = w - self.v[j].clone() * alpha_val;
             if j > 0 {
-                w = w - self.v[j-1].clone() * betas[j-1];
+                w = w - self.v[j - 1].clone() * betas[j - 1];
             }
-            
+
             // beta_j = |w|
             let beta = w.norm();
-            
+
             if beta < 1e-10 {
                 // Invariant subspace found, stop early
                 break;
             }
-            
+
             if j < self.k - 1 {
                 betas.push(Complex32::new(beta, 0.0)); // Beta is real-valued in theory, but we store as complex
                 self.v.push(w / Complex32::new(beta, 0.0));
             }
         }
-        
+
         // 3. Construct T matrix (Tridiagonal)
         // This small matrix exponentiation is cheap.
         let m = alphas.len();
@@ -123,7 +123,7 @@ impl KrylovProjector {
                 t_m[(i, i + 1)] = betas[i].conj(); // Hermitian symmetry
             }
         }
-        
+
         // 4. Compute e^{i * T_m * dt}
         // Actually, we want e^{iH t}, and H is mapped to T_m?
         // Yes, if A = iH, then we compute e^{T_m}.
@@ -131,25 +131,25 @@ impl KrylovProjector {
         // Let's assume input H is the Hamiltonian itself, and we want unitary evolution e^{-i H dt}.
         // The argument `dt` helps scale.
         // We compute exp( -i * t_m * dt ).
-        
+
         let evolution_op = t_m * Complex32::new(0.0, -dt);
         let exp_t = evolution_op.exp(); // Matrix exponential
-        
+
         // 5. Project result back: res ≈ |v0| * V_m * exp_t * e1
         // e1 = [1, 0, ... 0]^T
         let mut e1 = DVector::zeros(m);
         e1[0] = Complex32::new(1.0, 0.0);
-        
-        let projected_coeffs = exp_t * e1; 
-        
+
+        let projected_coeffs = exp_t * e1;
+
         // Reconstruct vector: sum_i (coeff_i * v_i)
         let mut final_vec = DVector::zeros(dim);
         for (i, coeff) in projected_coeffs.iter().enumerate() {
-             final_vec += &self.v[i] * *coeff;
+            final_vec += &self.v[i] * *coeff;
         }
-        
+
         final_vec = final_vec * Complex32::new(norm, 0.0);
-        
+
         // Convert to Vec<Complex32>
         final_vec.as_slice().to_vec()
     }

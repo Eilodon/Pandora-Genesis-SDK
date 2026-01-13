@@ -17,7 +17,7 @@ pub enum ZenBProtocol {
         features: Vec<f32>,
         timestamp_us: i64,
     },
-    
+
     /// Processed estimate from state estimator
     StateEstimate {
         hr_bpm: Option<f32>,
@@ -26,14 +26,14 @@ pub enum ZenBProtocol {
         confidence: f32,
         timestamp_us: i64,
     },
-    
+
     /// Belief state after FEP update
     BeliefUpdate {
         belief: crate::belief::BeliefState,
         fep: crate::belief::FepState,
         timestamp_us: i64,
     },
-    
+
     /// Final control decision
     ControlOutput {
         decision: crate::domain::ControlDecision,
@@ -68,7 +68,7 @@ pub enum ZenBProtocol {
 pub struct ControlFlowBuilder<State> {
     /// Execution nodes (functions)
     nodes: Vec<Box<dyn Fn(ZenBProtocol) -> ZenBProtocol>>,
-    
+
     /// Phantom data for type state pattern
     _marker: PhantomData<State>,
 }
@@ -113,9 +113,7 @@ impl<State> ControlFlowBuilder<State> {
 impl ControlFlowBuilder<WithNodes> {
     /// Build the final control flow graph
     pub fn build(self) -> ControlFlowGraph {
-        ControlFlowGraph {
-            nodes: self.nodes,
-        }
+        ControlFlowGraph { nodes: self.nodes }
     }
 }
 
@@ -138,7 +136,7 @@ impl ControlFlowGraph {
         }
         input
     }
-    
+
     /// Execute pipeline and extract specific output type
     ///
     /// This is a convenience method that executes the pipeline
@@ -165,7 +163,10 @@ pub fn create_zenb_pipeline() -> ControlFlowGraph {
         .add_node(|msg| {
             // Node 1: Sensor processing (placeholder - actual implementation in Engine)
             match msg {
-                ZenBProtocol::SensorInput { features, timestamp_us } => {
+                ZenBProtocol::SensorInput {
+                    features,
+                    timestamp_us,
+                } => {
                     // In real implementation, this would call Engine::ingest_sensor
                     ZenBProtocol::StateEstimate {
                         hr_bpm: features.get(0).copied(),
@@ -229,9 +230,8 @@ mod tests {
 
     #[test]
     fn test_add_node() {
-        let builder = ControlFlowBuilder::new()
-            .add_node(|msg| msg); // Identity node
-        
+        let builder = ControlFlowBuilder::new().add_node(|msg| msg); // Identity node
+
         let _graph = builder.build();
     }
 
@@ -241,15 +241,16 @@ mod tests {
             .add_node(|msg| {
                 // Transform sensor input to estimate
                 match msg {
-                    ZenBProtocol::SensorInput { features, timestamp_us } => {
-                        ZenBProtocol::StateEstimate {
-                            hr_bpm: features.get(0).copied(),
-                            rr_bpm: Some(6.0),
-                            rmssd: Some(40.0),
-                            confidence: 0.9,
-                            timestamp_us,
-                        }
-                    }
+                    ZenBProtocol::SensorInput {
+                        features,
+                        timestamp_us,
+                    } => ZenBProtocol::StateEstimate {
+                        hr_bpm: features.get(0).copied(),
+                        rr_bpm: Some(6.0),
+                        rmssd: Some(40.0),
+                        confidence: 0.9,
+                        timestamp_us,
+                    },
                     other => other,
                 }
             })
@@ -263,7 +264,9 @@ mod tests {
         let output = pipeline.execute(input);
 
         match output {
-            ZenBProtocol::StateEstimate { hr_bpm, confidence, .. } => {
+            ZenBProtocol::StateEstimate {
+                hr_bpm, confidence, ..
+            } => {
                 assert_eq!(hr_bpm, Some(60.0));
                 assert_eq!(confidence, 0.9);
             }
@@ -277,15 +280,13 @@ mod tests {
             .add_node(|msg| {
                 // Node 1: Sensor -> Estimate
                 match msg {
-                    ZenBProtocol::SensorInput { timestamp_us, .. } => {
-                        ZenBProtocol::StateEstimate {
-                            hr_bpm: Some(60.0),
-                            rr_bpm: Some(6.0),
-                            rmssd: Some(40.0),
-                            confidence: 0.8,
-                            timestamp_us,
-                        }
-                    }
+                    ZenBProtocol::SensorInput { timestamp_us, .. } => ZenBProtocol::StateEstimate {
+                        hr_bpm: Some(60.0),
+                        rr_bpm: Some(6.0),
+                        rmssd: Some(40.0),
+                        confidence: 0.8,
+                        timestamp_us,
+                    },
                     other => other,
                 }
             })
@@ -322,19 +323,15 @@ mod tests {
     #[test]
     fn test_extract_helper() {
         let pipeline = ControlFlowBuilder::new()
-            .add_node(|msg| {
-                match msg {
-                    ZenBProtocol::SensorInput { timestamp_us, .. } => {
-                        ZenBProtocol::StateEstimate {
-                            hr_bpm: Some(70.0),
-                            rr_bpm: Some(7.0),
-                            rmssd: Some(35.0),
-                            confidence: 0.95,
-                            timestamp_us,
-                        }
-                    }
-                    other => other,
-                }
+            .add_node(|msg| match msg {
+                ZenBProtocol::SensorInput { timestamp_us, .. } => ZenBProtocol::StateEstimate {
+                    hr_bpm: Some(70.0),
+                    rr_bpm: Some(7.0),
+                    rmssd: Some(35.0),
+                    confidence: 0.95,
+                    timestamp_us,
+                },
+                other => other,
             })
             .build();
 
@@ -343,11 +340,9 @@ mod tests {
             timestamp_us: 2000,
         };
 
-        let hr = pipeline.execute_and_extract(input, |output| {
-            match output {
-                ZenBProtocol::StateEstimate { hr_bpm, .. } => hr_bpm,
-                _ => None,
-            }
+        let hr = pipeline.execute_and_extract(input, |output| match output {
+            ZenBProtocol::StateEstimate { hr_bpm, .. } => hr_bpm,
+            _ => None,
         });
 
         assert_eq!(hr, Some(70.0));

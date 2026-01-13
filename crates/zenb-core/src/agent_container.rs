@@ -1,6 +1,6 @@
+use crate::belief::{AgentStrategy, Context, PhysioState, SensorFeatures};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use crate::belief::{AgentStrategy, SensorFeatures, PhysioState, Context};
 
 /// Versioned, resource-guarded container for cognitive agents.
 #[derive(Debug, Clone)]

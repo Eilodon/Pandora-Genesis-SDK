@@ -24,7 +24,7 @@ impl HapticPattern {
             Self::UiError => &[15, 30, 15, 30, 50],
         }
     }
-    
+
     /// Get total duration in milliseconds
     pub fn duration(&self) -> u32 {
         self.timings().iter().sum()
@@ -41,12 +41,12 @@ impl HapticEngine {
             current_pattern: None,
         }
     }
-    
+
     pub fn trigger(&mut self, pattern: HapticPattern) -> &'static [u32] {
         self.current_pattern = Some(pattern);
         pattern.timings()
     }
-    
+
     pub fn current_pattern(&self) -> Option<HapticPattern> {
         self.current_pattern
     }
@@ -61,23 +61,23 @@ impl Default for HapticEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_pattern_timings() {
         assert_eq!(HapticPattern::HeartbeatCalm.timings(), &[30, 200, 15]);
         assert_eq!(HapticPattern::UiSuccess.timings(), &[15]);
     }
-    
+
     #[test]
     fn test_pattern_duration() {
         assert_eq!(HapticPattern::HeartbeatCalm.duration(), 245);
         assert_eq!(HapticPattern::UiSuccess.duration(), 15);
     }
-    
+
     #[test]
     fn test_haptic_engine() {
         let mut engine = HapticEngine::new();
-        
+
         let timings = engine.trigger(HapticPattern::UiSuccess);
         assert_eq!(timings, &[15]);
         assert_eq!(engine.current_pattern(), Some(HapticPattern::UiSuccess));

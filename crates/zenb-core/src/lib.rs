@@ -5,43 +5,43 @@
 //! The canonical BeliefState is crate::belief::BeliefState (5-mode collapsed).
 //! CausalBeliefState (3-factor) is exported for causal layer use only.
 
+pub mod adaptive; // PANDORA PORT: Adaptive thresholds and anomaly detection
 pub mod agent_container;
-pub mod core;          // V2.0: Domain-agnostic traits
-pub mod domains;       // V2.0: Pluggable domain implementations
-pub mod adaptive;     // PANDORA PORT: Adaptive thresholds and anomaly detection
-pub mod ai;           // NEW: AI Tools
+pub mod ai; // NEW: AI Tools
 pub mod belief;
+pub mod belief_subsystem; // Phase 2: Extracted from Engine god-object
 pub mod breath_engine;
 pub mod causal;
 pub mod circuit_breaker; // PANDORA PORT: Resilient operation execution
 pub mod config;
-pub mod control_flow;  // NEW: Type-safe pipeline builder
+pub mod control_flow; // NEW: Type-safe pipeline builder
 pub mod controller;
+pub mod core; // V2.0: Domain-agnostic traits
 pub mod decision_tree; // PANDORA PORT: Context-aware routing
 pub mod domain;
-pub mod edge;         // PANDORA PORT: Device-aware optimization
+pub mod domains; // V2.0: Pluggable domain implementations
+pub mod edge; // PANDORA PORT: Device-aware optimization
 pub mod engine;
 pub mod estimator;
-pub mod estimators;  // NEW: UKF and advanced estimators
-pub mod memory;      // VAJRA-001: Holographic Memory
-pub mod perception;  // VAJRA-001: Sheaf Perception
+pub mod estimators; // NEW: UKF and advanced estimators
+pub mod memory; // VAJRA-001: Holographic Memory
+pub mod perception; // VAJRA-001: Sheaf Perception
+pub mod perception_subsystem; // Phase 2: Extracted from Engine god-object
 pub mod phase_machine;
 pub mod policy;
 pub mod replay;
 pub mod resonance;
-pub mod safety;      // NEW: LTL Safety Monitor + DharmaFilter
+pub mod safety; // NEW: LTL Safety Monitor + DharmaFilter
+pub mod safety_subsystem; // Phase 2: Extracted from Engine god-object
 pub mod safety_swarm;
-pub mod scientist;   // PANDORA PORT: Automatic causal discovery
-pub mod sensory;     // NEW: Binaural, Soundscape, Haptics
-pub mod skandha;     // PANDORA PORT: Five Skandhas cognitive pipeline
-pub mod trauma_cache;
-pub mod uncertain;   // NEW: Uncertainty quantification
+pub mod scientist; // PANDORA PORT: Automatic causal discovery
+pub mod sensory; // NEW: Binaural, Soundscape, Haptics
+pub mod skandha; // PANDORA PORT: Five Skandhas cognitive pipeline
 pub mod thermo_logic; // TIER 3: Thermodynamic Logic (GENERIC framework)
-pub mod validation;
-pub mod perception_subsystem; // Phase 2: Extracted from Engine god-object
-pub mod belief_subsystem;      // Phase 2: Extracted from Engine god-object
-pub mod safety_subsystem;      // Phase 2: Extracted from Engine god-object
-pub mod timestamp;             // Phase 2.4: Consolidated timestamp tracking
+pub mod timestamp;
+pub mod trauma_cache;
+pub mod uncertain; // NEW: Uncertainty quantification
+pub mod validation; // Phase 2.4: Consolidated timestamp tracking
 
 #[cfg(test)]
 pub mod tests_config;
@@ -50,7 +50,7 @@ pub mod tests_determinism;
 #[cfg(test)]
 pub mod tests_estimator;
 #[cfg(test)]
-pub mod tests_proptest;  // EIDOLON FIX 4.1: Property-based testing
+pub mod tests_proptest; // EIDOLON FIX 4.1: Property-based testing
 
 // ============================================================================
 // V2.0: DOMAIN-AGNOSTIC ABSTRACTION LAYER
@@ -60,8 +60,8 @@ pub mod tests_proptest;  // EIDOLON FIX 4.1: Property-based testing
 pub use core::{ActionKind, Domain, OscillatorConfig, SignalVariable};
 
 // Built-in domains
-pub use domains::BiofeedbackDomain;
 pub use domains::biofeedback::{BioAction, BioVariable, BreathConfig as DomainBreathConfig};
+pub use domains::BiofeedbackDomain;
 
 // ============================================================================
 // CURATED PUBLIC API EXPORTS (PR1: No more wildcard exports)
@@ -119,6 +119,8 @@ pub use breath_engine::{BreathEngine, BreathMode};
 
 // Belief engine (CANONICAL BeliefState is here)
 pub use belief::{
+    AgentStrategy,  // Data-oriented agent enum
+    AgentVote,      // Agent vote output
     BeliefBasis,    // Enum: Calm, Stress, Focus, Sleepy, Energize
     BeliefDebug,    // Debug info
     BeliefEngine,   // Belief update engine
@@ -126,8 +128,6 @@ pub use belief::{
     Context,        // Contextual info (hour, charging, sessions)
     FepState,       // Free Energy Principle state
     FepUpdateOut,   // FEP update output
-    AgentStrategy,  // Data-oriented agent enum
-    AgentVote,      // Agent vote output
     PhysioState,    // Physiological state
     SensorFeatures, // Sensor input
 };
@@ -159,7 +159,7 @@ pub use control_flow::{ControlFlowBuilder, ControlFlowGraph, ZenBProtocol};
 // VAJRA-001: Holographic Memory
 pub use memory::HolographicMemory;
 
-// VAJRA-001: Sheaf Perception  
+// VAJRA-001: Sheaf Perception
 pub use perception::SheafPerception;
 
 // VAJRA-001: Dharma Filter (exported from safety module)
@@ -174,11 +174,12 @@ pub use circuit_breaker::{
 pub use adaptive::{AdaptiveThreshold, AnomalyDetector, ConfidenceTracker};
 
 // PANDORA PORT: Edge device optimization
-pub use edge::{EdgeDeviceSpecs, EdgeDeviceType, EdgeOptimizer, OptimizationConfig as EdgeOptimizationConfig};
+pub use edge::{
+    EdgeDeviceSpecs, EdgeDeviceType, EdgeOptimizer, OptimizationConfig as EdgeOptimizationConfig,
+};
 
 // PANDORA PORT: Context-aware routing
-pub use decision_tree::{DecisionTree, DecisionContext, DecisionResult, RouteAction, Condition};
+pub use decision_tree::{Condition, DecisionContext, DecisionResult, DecisionTree, RouteAction};
 
 // TIER 3: Thermodynamic Logic (GENERIC framework)
-pub use thermo_logic::{ThermodynamicEngine, ThermoConfig};
-
+pub use thermo_logic::{ThermoConfig, ThermodynamicEngine};

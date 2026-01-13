@@ -3,11 +3,11 @@ use crate::causal::{CausalBuffer, CausalGraph, ObservationSnapshot};
 use crate::config::ZenbConfig;
 use crate::controller::AdaptiveController;
 use crate::domain::ControlDecision;
-use crate::estimator::Estimator;
 use crate::estimator::Estimate;
-use crate::estimators::{UkfStateEstimator, Observation as UkfObservation};
+use crate::estimator::Estimator;
+use crate::estimators::{Observation as UkfObservation, UkfStateEstimator};
 use crate::resonance::ResonanceTracker;
-use crate::safety::{SafetyMonitor, RuntimeState};
+use crate::safety::{RuntimeState, SafetyMonitor};
 use crate::safety_swarm::TraumaRegistry;
 use crate::trauma_cache::TraumaCache;
 
@@ -15,23 +15,22 @@ use crate::trauma_cache::TraumaCache;
 use crate::skandha::RupaSkandha;
 
 // Phase 2 Decomposition: Extracted subsystems
-use crate::perception_subsystem::PerceptionSubsystem;
 use crate::belief_subsystem::BeliefSubsystem;
+use crate::perception_subsystem::PerceptionSubsystem;
 use crate::safety_subsystem::SafetySubsystem;
 
 // PANDORA PORT: Resilience and adaptive features
-use crate::circuit_breaker::{CircuitBreakerManager, CircuitBreakerConfig};
 use crate::adaptive::{AdaptiveThreshold, AnomalyDetector, ConfidenceTracker};
+use crate::circuit_breaker::{CircuitBreakerConfig, CircuitBreakerManager};
 
 /// High-level engine that holds estimator, safety envelope, controller and breath engine.
-/// 
+///
 /// # VAJRA-001 Upgrade
 /// This engine now includes three new cognitive capabilities:
 /// - `HolographicMemory`: FFT-based associative memory (Tưởng Uẩn)
 /// - `SheafPerception`: Laplacian-based sensor consensus (Sắc Uẩn)
 /// - `DharmaFilter`: Phase-based ethical action filtering (Hành Uẩn)
 pub struct Engine {
-
     pub controller: AdaptiveController,
     pub breath: BreathEngine,
     pub belief_engine: crate::belief::BeliefEngine,
@@ -51,70 +50,46 @@ pub struct Engine {
     pub observation_buffer: CausalBuffer,
     pub last_observation: Option<crate::domain::Observation>,
 
-    
     // --- EFE / META-LEARNING ---
-    
     /// Current EFE precision (beta) for policy selection
     pub efe_precision_beta: f32,
-    
+
     /// Meta-learner for adapting beta
     pub efe_meta_learner: crate::policy::BetaMetaLearner,
-    
 
-
-    
     /// Last chosen policy info (for learning)
     pub last_selected_policy: Option<crate::policy::PolicyEvaluation>,
-    
+
     // === SOTA Features ===
-    pub legacy_estimator: crate::estimator::Estimator,
-    pub ukf_estimator: Option<UkfStateEstimator>,
-    pub last_aukf_telemetry: Option<serde_json::Value>,
-    
-    // === Timestamp Tracking (Phase 2.4) ===
-    pub timestamp: crate::timestamp::TimestampLog,
-    
-    // === PC Algorithm ===
-
-    pub pc_change_detector: crate::causal::GraphChangeDetector,
-
-    pub last_pc_run_ts: i64,
-    
-    // === VAJRA-001: Holographic Cognitive Architecture ===
-    
+    // === SKANDHA CORE (The Brain) ===
     /// Unified Skandha Pipeline (Sắc-Thọ-Tưởng-Hành-Thức)
-    /// Replaces individual components with unified flow
     pub skandha_pipeline: crate::skandha::zenb::ZenbPipeline,
-    
-    /// Last synthesized state from Skandha pipeline (Vajra-001 output)
+
+    /// Last synthesized state from Skandha pipeline
     pub skandha_state: Option<crate::skandha::SynthesizedState>,
-    
 
+    // === Timestamp Tracking ===
+    pub timestamp: crate::timestamp::TimestampLog,
 
-    
     /// Last sheaf energy (for diagnostics) - now delegated to PerceptionSubsystem
     pub last_sheaf_energy: f32,
-    
+
     // === Phase 2: Extracted Subsystems ===
-    
     /// Perception subsystem - encapsulates sensor processing, sheaf consensus, anomaly detection
     /// Replaces inline sheaf processing logic in ingest_sensor()
     pub perception: PerceptionSubsystem,
-    
+
     /// Belief subsystem - encapsulates belief engine, state, FEP, and hysteresis
     /// Replaces belief_engine, belief_state, fep_state, belief_enter_threshold fields
-    pub belief: BeliefSubsystem,
 
     /// Safety subsystem - encapsulates safety monitor, trauma registry, and dharma filter
     pub safety: SafetySubsystem,
-    
+
     // === PANDORA PORT: Resilience ===
-    
     /// Circuit breaker for estimator failures (prevents cascade on repeated errors)
     pub circuit_breaker: CircuitBreakerManager,
-    
+
     // === PANDORA PORT: Adaptive Thresholds ===
-    
     /// Adaptive threshold for belief state transitions
     pub belief_enter_threshold: AdaptiveThreshold,
 
@@ -131,34 +106,25 @@ pub struct Engine {
 
     /// Confidence tracker for decision outcomes
     pub decision_confidence: ConfidenceTracker,
-    
-    // === Enhanced Observation Buffer ===
 
+    // === Enhanced Observation Buffer ===
     /// Minimum samples before triggering PC algorithm
     pub observation_buffer_min_samples: usize,
 
     // === WEEK 2: Automatic Scientist Integration ===
-
     /// Automatic Scientist for causal hypothesis discovery
     pub scientist: crate::scientist::AutomaticScientist,
 
-
-
     // === POLICY ADAPTER: Learning from Outcomes ===
-
     /// Policy adapter for catastrophe detection and stagnation escape
     pub policy_adapter: crate::policy::PolicyAdapter,
-
 
     /// Last executed policy (for outcome learning)
     pub last_executed_policy: Option<crate::policy::ActionPolicy>,
 
     // === TIER 3: Thermodynamic Logic (GENERIC Framework) ===
-
     /// Thermodynamic engine for GENERIC dynamics
     pub thermo_engine: crate::thermo_logic::ThermodynamicEngine,
-
-
 }
 
 impl Engine {
@@ -177,15 +143,9 @@ impl Engine {
         let mut cfg = config.unwrap_or_default();
 
         let controller = AdaptiveController::new(Default::default());
-        
-        // SOTA: Initialize UKF if enabled
-        let ukf_estimator = if cfg.features.use_ukf {
-            Some(UkfStateEstimator::new_adaptive(Some(cfg.features.ukf_config.clone())))
-        } else {
-            None
-        };
-        
-        let mut breath = BreathEngine::new(crate::breath_engine::BreathMode::Dynamic(starting_arousal)); // Assuming starting_arousal can be used as initial BPM
+
+        let mut breath =
+            BreathEngine::new(crate::breath_engine::BreathMode::Dynamic(starting_arousal));
         let target_bpm = if starting_arousal > 0.0 {
             starting_arousal
         } else {
@@ -193,7 +153,6 @@ impl Engine {
         };
         breath.set_target_bpm(target_bpm);
         Self {
-            legacy_estimator: Estimator::default(),
             controller,
             breath,
             belief_engine: crate::belief::BeliefEngine::from_config(&cfg.belief),
@@ -221,28 +180,18 @@ impl Engine {
             efe_meta_learner: crate::policy::BetaMetaLearner::default(),
 
             last_selected_policy: None,
-            // UKF Initialization
-            ukf_estimator,
-            last_aukf_telemetry: None,
-            timestamp: crate::timestamp::TimestampLog::new(),
-            
-            // === PC Algorithm ===
 
-            pc_change_detector: crate::causal::GraphChangeDetector::default(),
-
-            last_pc_run_ts: 0,
-            
-            // VAJRA-001: Holographic Cognitive Architecture
-            skandha_pipeline: crate::skandha::zenb::zenb_pipeline(),
+            // SKANDHA CORE
+            skandha_pipeline: crate::skandha::zenb::zenb_pipeline(&cfg),
             skandha_state: None,
+            timestamp: crate::timestamp::TimestampLog::new(),
 
             last_sheaf_energy: 0.0,
-            
+
             // Phase 2: Extracted Subsystems
             perception: PerceptionSubsystem::with_config(&cfg),
-            belief: BeliefSubsystem::with_config(&cfg),
             safety: SafetySubsystem::with_config(&cfg),
-            
+
             // PANDORA PORT: Resilience
             circuit_breaker: CircuitBreakerManager::new(CircuitBreakerConfig {
                 failure_threshold: 3,
@@ -251,7 +200,7 @@ impl Engine {
                 max_circuits: 100,
                 state_ttl_secs: 3600,
             }),
-            
+
             // PANDORA PORT: Adaptive Thresholds
             belief_enter_threshold: AdaptiveThreshold::new(
                 cfg.belief.enter_threshold,
@@ -260,10 +209,10 @@ impl Engine {
                 0.05, // learning rate
             ),
             rr_min_threshold: AdaptiveThreshold::new(
-                4.0,  // base: 4.0 bpm (typical minimum)
-                3.0,  // min: allow down to 3.0 for deep meditation/athletes
-                6.0,  // max: don't go above 6.0 as minimum
-                0.1,  // learning rate: adapt faster for physiological bounds
+                4.0, // base: 4.0 bpm (typical minimum)
+                3.0, // min: allow down to 3.0 for deep meditation/athletes
+                6.0, // max: don't go above 6.0 as minimum
+                0.1, // learning rate: adapt faster for physiological bounds
             ),
             rr_max_threshold: AdaptiveThreshold::new(
                 12.0, // base: 12.0 bpm (typical maximum)
@@ -273,13 +222,12 @@ impl Engine {
             ),
             sensor_anomaly_detector: AnomalyDetector::new(50, 2.5),
             decision_confidence: ConfidenceTracker::new(100),
-            
+
             // Enhanced Observation Buffer
             observation_buffer_min_samples: 30, // Minimum samples before PC algorithm runs
 
             // WEEK 2: Automatic Scientist
             scientist: crate::scientist::AutomaticScientist::new(),
-
 
             // POLICY ADAPTER: Learning from Outcomes
             policy_adapter: crate::policy::PolicyAdapter::new(1.0),
@@ -294,7 +242,6 @@ impl Engine {
                 }
                 engine
             },
-
         }
     }
 
@@ -328,178 +275,61 @@ impl Engine {
     /// When `use_vajra_architecture` is enabled, sensor data passes through
     /// PerceptionSubsystem for consensus filtering before further processing.
     pub fn ingest_sensor(&mut self, features: &[f32], ts_us: i64) -> Estimate {
-        // Phase 2: Use extracted PerceptionSubsystem for sensor processing
-        let processed_features: Vec<f32> = if self.config.features.vajra_enabled && features.len() >= 3 {
-            let hr = features.get(0).copied();
-            let hrv = features.get(1).copied();
-            let rr = features.get(2).copied();
-            let quality = features.get(3).copied().unwrap_or(1.0);
-            let motion = features.get(4).copied().unwrap_or(0.0);
-            
-            match self.perception.process(hr, hrv, rr, quality, motion, ts_us) {
-                Ok(result) => {
-                    // Store energy for diagnostics
-                    self.last_sheaf_energy = result.energy;
-                    
-                    if !result.is_reliable {
-                        log::warn!(
-                            "PerceptionSubsystem: Unreliable data (energy={:.3}, anomalous={})",
-                            result.energy, result.is_anomalous
-                        );
-                    }
-                    
-                    // Denormalize back to original scale
-                    vec![
-                        result.values[0] * 200.0,  // HR: [0,1] → [0,200]
-                        result.values[1] * 100.0,  // HRV: [0,1] → [0,100]
-                        result.values[2] * 20.0,   // RR: [0,1] → [0,20]
-                        result.values[3],          // Quality: already [0,1]
-                        result.values[4],          // Motion: already [0,1]
-                    ]
-                }
-                Err(e) => {
-                    log::warn!("PerceptionSubsystem error: {}, using raw sensors", e);
-                    vec![
-                        hr.unwrap_or(60.0),
-                        hrv.unwrap_or(50.0),
-                        rr.unwrap_or(12.0),
-                        quality,
-                        motion,
-                    ]
-                }
-            }
-        } else {
-            features.to_vec()
+        // Construct input for Skandha pipeline
+        let input = crate::skandha::SensorInput {
+            hr_bpm: features.get(0).copied(),
+            hrv_rmssd: features.get(1).copied(),
+            rr_bpm: features.get(2).copied(),
+            quality: features.get(3).copied().unwrap_or(1.0),
+            motion: features.get(4).copied().unwrap_or(0.0),
+            timestamp_us: ts_us,
         };
-        
-        let features = &processed_features;
-        
-        // Legacy ingest for backward compatibility / fallback
-        // We always run this to maintain estimator state even if UKF is primary
-        let est_legacy = self.legacy_estimator.ingest(features, ts_us);
-        
-        let mut final_est = est_legacy.clone();
-        
-        // HYBRID UKF LOGIC
-        if let Some(ukf) = &mut self.ukf_estimator {
-            // Compute dt (ensure non-negative, handle first sample)
-            let dt = if let Ok(dt_val) = self.timestamp.update_ingest(ts_us) {
-                dt_val
-            } else {
-                log::warn!("Timestamp regression in ingest_sensor: {}", ts_us);
-                // If regression, use 0.0 or a small default to prevent negative dt
-                // and allow the UKF to process without large jumps.
-                0.0
-            };
-            
-            // Avoid dt=0 updates (bursts)
-            if dt > 0.001 { // 1ms minimum
-                 let obs = UkfObservation {
-                    heart_rate: features.get(0).copied(),
-                    hr_confidence: Some(features.get(3).copied().unwrap_or(1.0)),
-                    stress_index: features.get(1).map(|v| 100.0 - v), // Inverse HRV as stress proxy? Approx
-                    respiration_rate: features.get(2).copied(),
-                    facial_valence: None, // Need separate input for this
-                };
 
-                // RESILIENCE: Circuit breaker protection for UKF numerical instability
-                if !self.circuit_breaker.is_open("ukf_update") {
-                    // Try update with panic catch (UKF can panic on matrix singularity)
-                    let ukf_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        ukf.update(&obs, dt)
-                    }));
+        // CORE PIPELINE EXECUTION (The Skandha Loop)
+        // 1. Rupa (Form): Sensor consensus
+        // 2. Vedana (Feeling): Affect extraction
+        // 3. Sanna (Perception): Memory recall
+        // 4. Sankhara (Formation): Ethical filtering
+        // 5. Vinnana (Consciousness): Synthesis
+        let synthesized = self.skandha_pipeline.process(&input);
 
-                    match ukf_result {
-                        Ok(belief) => {
-                            // Success: record and use UKF result
-                            self.circuit_breaker.record_success("ukf_update");
+        // Store state for decision loop
+        self.skandha_state = Some(synthesized.clone());
 
-                            // Convert to Estimate
-                            final_est = Estimate {
-                                ts_us, // Use current timestamp
-                                hr_bpm: Some(belief.arousal * 100.0 + 40.0), // Denormalize approx
-                                rr_bpm: Some(belief.rhythm_alignment * 10.0 + 4.0),
-                                rmssd: Some((1.0 - belief.arousal) * 100.0),
-                                confidence: belief.confidence,
-                            };
-                        }
-                        Err(e) => {
-                            // UKF panicked (matrix singularity, numerical instability, etc.)
-                            self.circuit_breaker.record_failure("ukf_update");
-                            log::error!("UKF update panicked: {:?}, falling back to legacy estimator", e);
-                            // final_est already set to est_legacy, no change needed
-                        }
-                    }
-                } else {
-                    // Circuit is open: skip UKF, use legacy fallback
-                    log::warn!("UKF circuit open, using legacy estimator fallback");
-                    // final_est already set to est_legacy
-                }
-                
-                // TELEMETRY: Capture adaptive Q if needed
-                if ukf.sample_count() % 10 == 0 {
-                    let q_diag = ukf.get_q_diagonal();
-                    self.last_aukf_telemetry = Some(serde_json::json!({
-                        "aukf_q_diagonal": q_diag,
-                        "aukf_sample_count": ukf.sample_count(),
-                        "aukf_forgetting_factor": self.config.features.ukf_config.forgetting_factor,
-                    }));
-                } else {
-                    self.last_aukf_telemetry = None;
-                }
-            }
-        }
-
-
-        // VAJRA-001: Run Unified Skandha Pipeline
-        if self.config.features.vajra_enabled {
-            // Construct observation for pipeline
-            let obs = crate::domain::Observation {
-                timestamp_us: ts_us,
-                bio_metrics: Some(crate::domain::BioMetrics {
-                    hr_bpm: final_est.hr_bpm,
-                    hrv_rmssd: final_est.rmssd,
-                    respiratory_rate: final_est.rr_bpm,
-                }),
-                // Default other fields
-                environmental_context: None,
-                digital_context: None,
-                cognitive_context: None,
-            };
-            
-            // Execute pipeline
-            let synthesized = self.process_skandha_pipeline(&obs);
-            
-            // Store for decision loop
-            self.skandha_state = Some(synthesized.clone());
-            
-            // Optional: Override belief state if fully trusted
-            // For now, we just sync the belief distribution for consistency
-            // self.belief_state.p = synthesized.belief;
-            // self.belief_state.conf = synthesized.confidence;
-        }
-
-        // Build SensorFeatures and PhysioState...
-        debug_assert!(
-            features.len() >= 3,
-            "features layout must be [hr, rmssd, rr, quality, motion] (quality/motion optional)"
-        );
-        let sf = crate::belief::SensorFeatures {
-            hr_bpm: final_est.hr_bpm,
-            rmssd: final_est.rmssd,
-            rr_bpm: final_est.rr_bpm,
-            quality: features.get(3).cloned().unwrap_or(1.0),
-            motion: features.get(4).cloned().unwrap_or(0.0),
+        // Extract values from trusted Rupa form
+        // Rupa has already performed consensus and filtering
+        let form_values = &synthesized.form.values;
+        let estimate = Estimate {
+            ts_us,
+            hr_bpm: Some(form_values[0] * 200.0), // Denormalize
+            rmssd: Some(form_values[1] * 100.0),
+            rr_bpm: Some(form_values[2] * 20.0),
+            confidence: synthesized.confidence,
         };
-        let phys = crate::belief::PhysioState {
-            hr_bpm: final_est.hr_bpm,
-            rr_bpm: final_est.rr_bpm,
-            rmssd: final_est.rmssd,
-            confidence: final_est.confidence,
-        };
-        self.last_sf = Some(sf);
-        self.last_phys = Some(phys);
-        final_est
+
+        // Sync legacy fields for compatibility
+        self.last_sf = Some(crate::belief::SensorFeatures {
+            hr_bpm: estimate.hr_bpm,
+            rmssd: estimate.rmssd,
+            rr_bpm: estimate.rr_bpm,
+            quality: input.quality,
+            motion: input.motion,
+        });
+
+        self.last_phys = Some(crate::belief::PhysioState {
+            hr_bpm: estimate.hr_bpm,
+            rr_bpm: estimate.rr_bpm,
+            rmssd: estimate.rmssd,
+            confidence: estimate.confidence,
+        });
+
+        // Store energy for diagnostics
+        self.last_sheaf_energy = synthesized.form.energy;
+
+        // Update timestamp log for dt calculation
+        let _ = self.timestamp.update_ingest(ts_us);
+
+        estimate
     }
 
     /// Advance engine time and compute any cycles (returns cycle count)
@@ -514,10 +344,10 @@ impl Engine {
         // Map canonical belief::BeliefState (5-mode) to CausalBeliefState (3-factor)
         // Process Causal Memory & Holographic Encoding
         self.process_causal_memory();
-        
+
         // Process Automatic Scientist
         self.process_scientist();
-        
+
         // Process Thermodynamic Evolution
         self.integrate_thermodynamics();
 
@@ -580,8 +410,9 @@ impl Engine {
             intensity: 0.8,
         };
         const CAUSAL_LEARNING_RATE: f32 = 0.05;
-        if let Err(e) = self.causal_graph
-            .update_weights(&context_state, &action, success, CAUSAL_LEARNING_RATE) 
+        if let Err(e) =
+            self.causal_graph
+                .update_weights(&context_state, &action, success, CAUSAL_LEARNING_RATE)
         {
             log::warn!("Causal Update Failed: {}", e);
         }
@@ -604,26 +435,25 @@ impl Engine {
                 severity,
             );
 
-
             // Write-through to trauma cache for immediate availability
             if let Some(hit) = self.safety.trauma_registry().query(&context_hash) {
                 self.safety.trauma_cache_mut().update(context_hash, hit);
             }
         }
-        
+
         // SOTA: Meta-learning for EFE precision
         // Adapt Beta based on exploration/exploitation outcome
         if let Some(last_policy) = &self.last_selected_policy {
             // If epistemic value dominates, it was an exploratory action
             let was_exploratory = last_policy.epistemic_value > last_policy.pragmatic_value;
-            
+
             let old_beta = self.efe_precision_beta;
             self.efe_precision_beta = self.efe_meta_learner.update_beta(
                 self.efe_precision_beta,
                 was_exploratory,
                 success,
             );
-            
+
             if (self.efe_precision_beta - old_beta).abs() > 0.001 {
                 log::info!(
                     "EFE Adaptation: Beta {:.3} -> {:.3} (Success: {}, Explored: {})",
@@ -634,10 +464,10 @@ impl Engine {
                 );
             }
         }
-        
+
         // PANDORA PORT: Update confidence tracker based on outcome
         self.decision_confidence.update(success);
-        
+
         // PANDORA PORT: Adapt belief threshold based on performance
         // Compute performance delta: positive if success, negative if failure
         let performance_delta = if success { 0.1 } else { -0.1 };
@@ -649,22 +479,21 @@ impl Engine {
             if let Some(ref policy) = self.last_executed_policy {
                 // Convert success to reward: success=1.0, failure=-severity
                 let reward = if success { 1.0 } else { -severity };
-                
+
                 // Generate state hash from belief mode
                 let state_hash = format!("{:?}", self.belief_state.mode);
-                
+
                 // Update adapter and get exploration boost
-                let exploration_boost = self.policy_adapter.update_with_outcome(
-                    &state_hash,
-                    policy,
-                    reward,
-                    success,
-                );
-                
+                let exploration_boost =
+                    self.policy_adapter
+                        .update_with_outcome(&state_hash, policy, reward, success);
+
                 // Apply exploration boost to EFE precision (inverse relationship)
                 // Higher exploration = lower precision (more uniform sampling)
-                self.efe_precision_beta = (self.efe_precision_beta / exploration_boost).max(0.1).min(10.0);
-                
+                self.efe_precision_beta = (self.efe_precision_beta / exploration_boost)
+                    .max(0.1)
+                    .min(10.0);
+
                 log::debug!(
                     "Policy outcome: success={}, reward={:.2}, exploration_boost={:.1}x, new_beta={:.2}",
                     success, reward, exploration_boost, self.efe_precision_beta
@@ -672,7 +501,7 @@ impl Engine {
             }
         }
     }
-    
+
     /// Check if observation buffer has enough samples for PC algorithm.
     ///
     /// Returns true if buffer length >= observation_buffer_min_samples.
@@ -680,18 +509,18 @@ impl Engine {
     pub fn is_ready_for_discovery(&self) -> bool {
         self.observation_buffer.len() >= self.observation_buffer_min_samples
     }
-    
+
     /// Get current observation buffer size.
     #[inline]
     pub fn observation_buffer_len(&self) -> usize {
         self.observation_buffer.len()
     }
-    
+
     /// Get circuit breaker statistics for monitoring.
     pub fn circuit_breaker_stats(&self) -> crate::circuit_breaker::CircuitStats {
         self.circuit_breaker.stats()
     }
-    
+
     /// Get current adaptive threshold values for diagnostics.
     pub fn adaptive_thresholds_info(&self) -> (f32, f32, f32) {
         (
@@ -702,19 +531,19 @@ impl Engine {
     }
 
     /// Get current physiological context from Sheaf perception.
-    /// 
+    ///
     /// Returns the auto-detected or manually set context that determines
     /// the sheaf's anomaly threshold and diffusion rate.
     pub fn sheaf_context(&self) -> crate::perception::PhysiologicalContext {
         self.skandha_pipeline.rupa.context()
     }
-    
+
     /// Manually override physiological context.
-    /// 
+    ///
     /// Use this to set a specific context instead of auto-detection.
     /// Note: Context will be overwritten on next `ingest_sensor` call
     /// unless auto-detection is disabled.
-    /// 
+    ///
     /// # Example
     /// ```ignore
     /// engine.set_sheaf_context(PhysiologicalContext::ModerateExercise);
@@ -722,7 +551,7 @@ impl Engine {
     pub fn set_sheaf_context(&mut self, context: crate::perception::PhysiologicalContext) {
         self.skandha_pipeline.rupa.set_context(context);
     }
-    
+
     /// Get sheaf diagnostics: (energy, context, is_adaptive_alpha_enabled)
     pub fn sheaf_diagnostics(&self) -> (f32, crate::perception::PhysiologicalContext, bool) {
         (
@@ -749,21 +578,21 @@ impl Engine {
         if !self.config.features.thermo_enabled.unwrap_or(false) {
             return self.belief_state.p;
         }
-        
+
         // Convert belief state to DVector
         let state = nalgebra::DVector::from_vec(self.belief_state.p.to_vec());
         let target_vec = nalgebra::DVector::from_vec(target.to_vec());
-        
+
         // Integrate using GENERIC dynamics
         let new_state = self.thermo_engine.integrate(&state, &target_vec, steps);
-        
+
         // Update belief state
         let mut p = [0.0f32; 5];
         for i in 0..5 {
             p[i] = new_state[i];
         }
         self.belief_state.p = p;
-        
+
         // Normalize (ensure sum = 1 for probability interpretation)
         let sum: f32 = p.iter().sum();
         if sum > 0.0 {
@@ -771,10 +600,10 @@ impl Engine {
                 self.belief_state.p[i] /= sum;
             }
         }
-        
+
         self.belief_state.p
     }
-    
+
     /// Get thermodynamic diagnostics.
     ///
     /// # Returns
@@ -782,14 +611,18 @@ impl Engine {
     pub fn thermo_info(&self) -> (f32, f32, f32, bool) {
         let state = nalgebra::DVector::from_vec(self.belief_state.p.to_vec());
         let target = nalgebra::DVector::from_vec([0.5f32; 5].to_vec()); // Neutral target for diagnostics
-        
+
         let free_energy = self.thermo_engine.free_energy(&state, &target);
         let entropy = self.thermo_engine.entropy(&state);
         let temperature = self.thermo_engine.config().temperature;
-        
-        (free_energy, entropy, temperature, self.config.features.thermo_enabled.unwrap_or(false))
-    }
 
+        (
+            free_energy,
+            entropy,
+            temperature,
+            self.config.features.thermo_enabled.unwrap_or(false),
+        )
+    }
 
     /// PR3: Make a control decision from estimate with INTRINSIC SAFETY.
     /// Safety cannot be bypassed - Engine always uses internal trauma_cache.
@@ -809,15 +642,15 @@ impl Engine {
         // Run control-tick belief update (1-2Hz) using cached latest sensor features
         if let (Some(sf), Some(phys)) = (self.last_sf, self.last_phys) {
             // PR4: Use dt_sec helper to prevent wraparound if clocks go backwards
-        // Update control timestamp and get dt
-        let dt_sec = match self.timestamp.update_control(ts_us) {
-            Ok(dt) => dt,
-            Err(e) => {
-                log::error!("Control loop timestamp error: {}", e);
-                // Fallback to minimal +ve step to avoid division by zero
-                0.001 
-            }
-        };
+            // Update control timestamp and get dt
+            let dt_sec = match self.timestamp.update_control(ts_us) {
+                Ok(dt) => dt,
+                Err(e) => {
+                    log::error!("Control loop timestamp error: {}", e);
+                    // Fallback to minimal +ve step to avoid division by zero
+                    0.001
+                }
+            };
 
             let guide_phase = self.breath.guide_phase_norm();
             let guide_bpm = {
@@ -879,53 +712,61 @@ impl Engine {
 
         // --- EFE POLICY SELECTION ---
         if self.config.features.use_efe_selection {
-            use crate::policy::{EFECalculator, ActionPolicy, PolicyLibrary};
-            
+            use crate::policy::{ActionPolicy, EFECalculator, PolicyLibrary};
+
             // 1. Instantiate Calculator with current Beta
             let efe_calc = EFECalculator::new(self.efe_precision_beta);
-            
+
             // 2. Define Candidate Policies
             let policies = vec![
                 PolicyLibrary::calming_breath(),
                 PolicyLibrary::energizing_breath(),
-                PolicyLibrary::focus_mode(), 
+                PolicyLibrary::focus_mode(),
                 PolicyLibrary::observe(),
             ];
-            
+
             // 3. Predict future state (from Causal Graph)
             // For now, we use current belief as proxy for immediate prediction
             // In future, CausalGraph::predict_state() would be called here
-            let predicted_state = self.belief_state.to_5mode_array(); 
+            let predicted_state = self.belief_state.to_5mode_array();
             let predicted_uncertainty = self.belief_state.conf;
 
             // 4. Compute EFE for each policy
-            let mut evaluations: Vec<crate::policy::PolicyEvaluation> = policies.into_iter().map(|policy| {
-                efe_calc.compute_efe(
-                    &policy,
-                    &self.belief_state.to_5mode_array(),
-                    self.belief_state.uncertainty(),
-                    &predicted_state,
-                    crate::belief::uncertainty_from_confidence(predicted_uncertainty),
-                )
-            }).collect();
-            
+            let mut evaluations: Vec<crate::policy::PolicyEvaluation> = policies
+                .into_iter()
+                .map(|policy| {
+                    efe_calc.compute_efe(
+                        &policy,
+                        &self.belief_state.to_5mode_array(),
+                        self.belief_state.uncertainty(),
+                        &predicted_state,
+                        crate::belief::uncertainty_from_confidence(predicted_uncertainty),
+                    )
+                })
+                .collect();
+
             // 5. Select Policy (Softmax)
             // Use deterministic RNG seed from timestamp for reproducibility
             let rng_value = ((ts_us % 1000) as f32) / 1000.0;
             efe_calc.compute_selection_probabilities(&mut evaluations);
             let selected_policy_ref = efe_calc.sample_policy(&evaluations, rng_value);
-            
+
             // 6. Apply Selection
             // Store for learning loop
             // We need to clone it to store it (sample_policy returns ref)
-            let selected_clone = evaluations.iter().find(|e| e.policy.description() == selected_policy_ref.description()).cloned();
+            let selected_clone = evaluations
+                .iter()
+                .find(|e| e.policy.description() == selected_policy_ref.description())
+                .cloned();
             self.last_selected_policy = selected_clone;
-            
+
             // Store the ActionPolicy for outcome learning
             self.last_executed_policy = Some(selected_policy_ref.clone());
-            
+
             // Check if policy is masked by PolicyAdapter
-            if self.config.features.policy_adapter_enabled.unwrap_or(false) && self.policy_adapter.is_policy_masked(selected_policy_ref) {
+            if self.config.features.policy_adapter_enabled.unwrap_or(false)
+                && self.policy_adapter.is_policy_masked(selected_policy_ref)
+            {
                 log::warn!(
                     "PolicyAdapter MASKED policy: {}, falling back to NoAction",
                     selected_policy_ref.description()
@@ -940,16 +781,16 @@ impl Engine {
                 let decision = selected_policy_ref.to_control_decision(proposed, est.confidence);
                 proposed = decision.target_rate_bpm;
             }
-            
+
             // Handle Side Effects (e.g. Digital Interventions)
             if let ActionPolicy::DigitalIntervention(di) = selected_policy_ref {
-                 // In a full implementation, this would emit a separate event or side-effect
-                 // For now, we just log it as the primary decision driver
-                 // (Engine currently focused on Breath, but this lays groundwork for multi-modal)
-                 log::info!("EFE Selected Digital Intervention: {:?}", di);
+                // In a full implementation, this would emit a separate event or side-effect
+                // For now, we just log it as the primary decision driver
+                // (Engine currently focused on Breath, but this lays groundwork for multi-modal)
+                log::info!("EFE Selected Digital Intervention: {:?}", di);
             }
         }
-        
+
         // VAJRA-001: Use Skandha decision if available
         // This overrides EFE logic with the unified pipeline's decision (which may include its own EFE)
         if self.config.features.vajra_enabled {
@@ -957,20 +798,23 @@ impl Engine {
                 if let Some(ref d) = s.decision {
                     proposed = d.target_bpm;
                     // Also use confidence from Skandha
-                     log::debug!("Vajra-001: Using Skandha decision {:.2} (conf={:.2})", proposed, d.confidence);
+                    log::debug!(
+                        "Vajra-001: Using Skandha decision {:.2} (conf={:.2})",
+                        proposed,
+                        d.confidence
+                    );
                 }
             }
         }
 
-
         // VAJRA-001: Dharma Filter - phase-based ethical action filtering
         if self.config.features.vajra_enabled {
             use crate::safety::ComplexDecision;
-            
+
             // Convert proposed BPM to complex decision
             let baseline_bpm = 6.0;
             let action = ComplexDecision::from_bpm_target(proposed, baseline_bpm);
-            
+
             // Apply Dharma filter
             match action.filter_with(&self.skandha_pipeline.sankhara.dharma) {
                 Some(sanctioned) => {
@@ -980,7 +824,10 @@ impl Engine {
                             "DharmaFilter: Scaled action from {:.2} to {:.2} BPM (alignment={:.3})",
                             proposed,
                             new_proposed,
-                            self.skandha_pipeline.sankhara.dharma.check_alignment(action.vector)
+                            self.skandha_pipeline
+                                .sankhara
+                                .dharma
+                                .check_alignment(action.vector)
                         );
                     }
                     // ADAPTIVE BOUNDS: Reuse calibrated thresholds after dharma scaling
@@ -1012,7 +859,6 @@ impl Engine {
                 source: self.safety.trauma_cache(),
                 hard_th: self.config.safety.trauma_hard_th,
                 soft_th: self.config.safety.trauma_soft_th,
-
             }));
             // Fix: Use controller state for rate limiting (stateless guard needs history)
             let last_patch_sec = self
@@ -1020,7 +866,9 @@ impl Engine {
                 .last_decision_ts_us
                 .map(|last| crate::domain::dt_sec(ts_us, last));
 
-            guards.push(Box::new(crate::safety_swarm::ConfidenceGuard { min_conf: 0.2 }));
+            guards.push(Box::new(crate::safety_swarm::ConfidenceGuard {
+                min_conf: 0.2,
+            }));
             guards.push(Box::new(crate::safety_swarm::BreathBoundsGuard {
                 clamp: crate::safety_swarm::Clamp {
                     rr_min: 4.0,
@@ -1059,7 +907,7 @@ impl Engine {
         // LTL Safety Monitor Check
         // Verify tempo bounds, panic halt, and safety lock invariants
         let session_duration = self.timestamp.session_duration(ts_us);
-        
+
         let runtime_state = RuntimeState {
             tempo_scale: proposed / 6.0, // Normalize to baseline 6 BPM
             status: "RUNNING".to_string(),
@@ -1067,11 +915,11 @@ impl Engine {
             prediction_error: self.fep_state.free_energy_ema,
             last_update_timestamp: ts_us as u64,
         };
-        
+
         if let Err(violations) = self.safety.monitor_mut().check(&runtime_state) {
             let reason = format!("ltl_violation:{}", violations[0].property_name);
             eprintln!("ENGINE_DENY: LTL safety violation: {:?}", violations);
-            
+
             let poll_interval = crate::controller::compute_poll_interval(
                 &mut self.controller.poller,
                 self.fep_state.free_energy_ema,
@@ -1079,10 +927,10 @@ impl Engine {
                 false,
                 &self.context,
             );
-            
+
             // Shield tempo to safe bounds
             let safe_tempo = self.safety.monitor().shield_tempo(proposed / 6.0) * 6.0;
-            
+
             return (
                 ControlDecision {
                     target_rate_bpm: safe_tempo,
@@ -1226,12 +1074,12 @@ impl Engine {
     /// Synthesized state including belief, affect, pattern, and decision.
     pub fn process_skandha_pipeline(
         &mut self,
-        obs: &crate::domain::Observation
+        obs: &crate::domain::Observation,
     ) -> crate::skandha::SynthesizedState {
         // Map Observation to SensorInput
         let bio = obs.bio_metrics.as_ref();
         let timestamp = obs.timestamp_us;
-        
+
         // Rupa stage input
         let input = crate::skandha::SensorInput {
             hr_bpm: bio.and_then(|b| b.hr_bpm),
@@ -1241,10 +1089,10 @@ impl Engine {
             motion: 0.0,  // Motion not currently in bio metrics
             timestamp_us: timestamp,
         };
-        
+
         // Execute unified pipeline
         let result = self.skandha_pipeline.process(&input);
-        
+
         // Log synthesis result
         log::debug!(
             "Skandha Synthesis: Conf={:.2} Mode={} FE={:.2}",
@@ -1252,7 +1100,7 @@ impl Engine {
             result.mode,
             result.free_energy
         );
-        
+
         result
     }
     // Helper: Process Causal Memory & Holographic Encoding
@@ -1285,7 +1133,7 @@ impl Engine {
                 }),
             };
             self.observation_buffer.push(snapshot);
-            
+
             // VAJRA-001: Encode into Holographic Memory
             if self.config.features.vajra_enabled {
                 // Create context key from belief state
@@ -1293,7 +1141,7 @@ impl Engine {
                     &self.belief_state.p[..],
                     self.skandha_pipeline.sanna.memory.dim(),
                 );
-                
+
                 // Create value from observation features
                 let bio = obs.bio_metrics.as_ref();
                 let obs_features = vec![
@@ -1307,10 +1155,10 @@ impl Engine {
                     &obs_features,
                     self.skandha_pipeline.sanna.memory.dim(),
                 );
-                
+
                 // Entangle (store) the association
                 self.skandha_pipeline.sanna.memory.entangle(&key, &value);
-                
+
                 // Apply decay (forgetting) - 0.999 = very slow decay
                 self.skandha_pipeline.sanna.memory.decay(0.999);
             }
@@ -1334,12 +1182,20 @@ impl Engine {
 
                 // Tick scientist state machine
                 if self.scientist.tick() {
-                    log::debug!("Scientist state transition: {}", self.scientist.state_name());
+                    log::debug!(
+                        "Scientist state transition: {}",
+                        self.scientist.state_name()
+                    );
                 }
 
                 // Check for crystallized discoveries
                 use crate::scientist::ScientistState;
-                if let ScientistState::Verifying { hypothesis, confirmation_rate, .. } = self.scientist.state() {
+                if let ScientistState::Verifying {
+                    hypothesis,
+                    confirmation_rate,
+                    ..
+                } = self.scientist.state()
+                {
                     if *confirmation_rate > 0.7 {
                         log::info!(
                             "Scientist discovered causal edge: {} -> {} (strength={:.2}, confidence={:.2})",
@@ -1362,7 +1218,7 @@ impl Engine {
 
                         if let (Some(cause), Some(effect)) = (
                             map_var(hypothesis.from_variable),
-                            map_var(hypothesis.to_variable)
+                            map_var(hypothesis.to_variable),
                         ) {
                             let edge = crate::causal::CausalEdge {
                                 successes: (confirmation_rate * 100.0) as u32,
@@ -1375,8 +1231,11 @@ impl Engine {
                             self.causal_graph.set_link(cause, effect, edge);
                             log::info!("Scientist Wired Link: {:?} -> {:?}", cause, effect);
                         } else {
-                            log::debug!("Skipping wiring for internal variables {}->{}", 
-                                hypothesis.from_variable, hypothesis.to_variable);
+                            log::debug!(
+                                "Skipping wiring for internal variables {}->{}",
+                                hypothesis.from_variable,
+                                hypothesis.to_variable
+                            );
                         }
                     }
                 }
@@ -1389,9 +1248,11 @@ impl Engine {
         // VAJRA-001: Thermodynamic Evolution (GENERIC)
         // Apply thermodynamic laws: System naturally drifts towards maximum entropy (uniform)
         // unless constrained by free energy minimization (decisions).
-        if self.config.features.vajra_enabled && self.config.features.thermo_enabled.unwrap_or(false) {
-             let target = [0.2, 0.2, 0.2, 0.2, 0.2]; // Max entropy target
-             self.thermo_step(&target, 1);
+        if self.config.features.vajra_enabled
+            && self.config.features.thermo_enabled.unwrap_or(false)
+        {
+            let target = [0.2, 0.2, 0.2, 0.2, 0.2]; // Max entropy target
+            self.thermo_step(&target, 1);
         }
     }
 }
@@ -1416,4 +1277,3 @@ mod tests {
         assert!(deny.is_none());
     }
 }
-

@@ -132,8 +132,8 @@ impl RppgProcessor {
         // 4. Band-pass filter
         let config = FilterConfig {
             sample_rate: self.sample_rate,
-            min_freq: 0.67,  // 40 BPM
-            max_freq: 3.0,   // 180 BPM
+            min_freq: 0.67, // 40 BPM
+            max_freq: 3.0,  // 180 BPM
         };
         let filtered = DspProcessor::bandpass_filter(&pulse_signal, &config);
 
@@ -277,18 +277,10 @@ mod tests {
         let (bpm, confidence) = result.unwrap();
 
         // Should detect ~60 BPM
-        assert!(
-            (bpm - 60.0).abs() < 10.0,
-            "Expected ~60 BPM, got {}",
-            bpm
-        );
+        assert!((bpm - 60.0).abs() < 10.0, "Expected ~60 BPM, got {}", bpm);
 
         // Confidence should be reasonable
-        assert!(
-            confidence > 0.2,
-            "Confidence too low: {}",
-            confidence
-        );
+        assert!(confidence > 0.2, "Confidence too low: {}", confidence);
     }
 
     #[test]

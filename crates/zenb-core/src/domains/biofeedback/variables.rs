@@ -1,7 +1,7 @@
 //! Signal variables for the biofeedback domain.
 
-use serde::{Deserialize, Serialize};
 use crate::core::SignalVariable;
+use serde::{Deserialize, Serialize};
 
 /// Biological signal variables for causal modeling in the biofeedback domain.
 ///

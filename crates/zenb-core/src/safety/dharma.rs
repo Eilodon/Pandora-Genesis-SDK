@@ -39,16 +39,16 @@ pub struct DharmaFilter {
     /// Reference vector defining "good" direction in action space.
     /// All actions are evaluated against this ethical north star.
     dharma_key: Complex32,
-    
+
     /// Soft threshold: actions below this alignment get scaled down
     soft_threshold: f32,
-    
+
     /// Hard threshold: actions below this alignment get vetoed
     hard_threshold: f32,
-    
+
     /// TIER 5: 11D Dharma key for multi-dimensional alignment
     dharma_key_11d: crate::safety::ConsciousnessVector,
-    
+
     /// Feature flag to enable 11D mode
     use_11d_mode: bool,
 }
@@ -68,8 +68,8 @@ impl DharmaFilter {
         );
         Self {
             dharma_key,
-            soft_threshold: 0.5,  // Actions below 50% alignment get scaled
-            hard_threshold: 0.0,  // Actions opposite to dharma get vetoed
+            soft_threshold: 0.5, // Actions below 50% alignment get scaled
+            hard_threshold: 0.0, // Actions opposite to dharma get vetoed
             dharma_key_11d: crate::safety::ConsciousnessVector::default(),
             use_11d_mode: false,
         }
@@ -93,7 +93,7 @@ impl DharmaFilter {
         // This encodes: "prefer homeostasis, allow gentle activation, reject harm"
         let raw_key = Complex32::new(1.0, 0.3);
         let normalized = raw_key / raw_key.norm();
-        
+
         Self::new(normalized)
     }
 
@@ -184,7 +184,7 @@ impl DharmaFilter {
     pub fn project_onto_dharma(&self, action: Complex32) -> Complex32 {
         let dot = action * self.dharma_key.conj();
         let dharma_mag_sq = self.dharma_key.norm_sqr();
-        
+
         self.dharma_key * (dot.re / dharma_mag_sq)
     }
 
@@ -240,7 +240,7 @@ impl DharmaFilter {
     /// Get alignment statistics for diagnostics.
     pub fn alignment_category(&self, action: Complex32) -> AlignmentCategory {
         let alignment = self.check_alignment(action);
-        
+
         if alignment >= 0.8 {
             AlignmentCategory::Excellent
         } else if alignment >= 0.5 {
@@ -320,16 +320,16 @@ impl ComplexDecision {
     /// - Positive deviation (speeding) → positive imaginary (energizing)
     pub fn from_bpm_target(target_bpm: f32, baseline_bpm: f32) -> Self {
         let deviation = target_bpm - baseline_bpm;
-        
+
         // Map deviation to complex plane
         // Slowing: more calming (positive real)
         // Speeding: more energizing (positive imaginary)
         let (real, imag) = if deviation < 0.0 {
-            (-deviation, 0.0)  // Slowing is calming
+            (-deviation, 0.0) // Slowing is calming
         } else {
-            (0.0, deviation)  // Speeding is energizing
+            (0.0, deviation) // Speeding is energizing
         };
-        
+
         Self::new(real, imag)
     }
 
@@ -357,7 +357,9 @@ impl ComplexDecision {
 
     /// Apply a filter to this decision, returning filtered result.
     pub fn filter_with(&self, filter: &DharmaFilter) -> Option<ComplexDecision> {
-        filter.sanction(self.vector).map(|v| ComplexDecision { vector: v })
+        filter
+            .sanction(self.vector)
+            .map(|v| ComplexDecision { vector: v })
     }
 }
 
@@ -372,17 +374,18 @@ impl DharmaFilter {
         // Map from [-1, 1] to [0, 1]
         (alignment + 1.0) / 2.0
     }
-    
+
     /// Sanction action in 11D space.
-    pub fn sanction_11d(&self, vec: &crate::safety::ConsciousnessVector) 
-        -> Option<crate::safety::ConsciousnessVector> 
-    {
+    pub fn sanction_11d(
+        &self,
+        vec: &crate::safety::ConsciousnessVector,
+    ) -> Option<crate::safety::ConsciousnessVector> {
         let alignment = vec.alignment(&self.dharma_key_11d);
-        
+
         if alignment < -0.5 {
             return None;
         }
-        
+
         if alignment < 0.5 {
             let projected = vec.project_onto(&self.dharma_key_11d);
             Some(projected)
@@ -390,12 +393,12 @@ impl DharmaFilter {
             Some(*vec)
         }
     }
-    
+
     /// Enable or disable 11D mode
     pub fn set_11d_mode(&mut self, enabled: bool) {
         self.use_11d_mode = enabled;
     }
-    
+
     /// Set the 11D Dharma key
     pub fn set_dharma_key_11d(&mut self, key: crate::safety::ConsciousnessVector) {
         self.dharma_key_11d = key;
@@ -424,10 +427,10 @@ mod tests {
     #[test]
     fn test_default_zenb() {
         let filter = DharmaFilter::default_for_zenb();
-        
+
         // Default key should be normalized
         assert!(approx_eq(filter.dharma_key().norm(), 1.0, 1e-6));
-        
+
         // Should have positive real (calming) and positive imag (energizing)
         assert!(filter.dharma_key().re > 0.0);
         assert!(filter.dharma_key().im > 0.0);
@@ -436,57 +439,69 @@ mod tests {
     #[test]
     fn test_perfect_alignment() {
         let filter = DharmaFilter::new(Complex32::new(1.0, 0.0));
-        
+
         // Action in same direction should have alignment = 1.0
         let action = Complex32::new(2.0, 0.0);
         let alignment = filter.check_alignment(action);
-        
-        assert!(approx_eq(alignment, 1.0, 1e-6), "Perfect alignment expected: got {}", alignment);
+
+        assert!(
+            approx_eq(alignment, 1.0, 1e-6),
+            "Perfect alignment expected: got {}",
+            alignment
+        );
     }
 
     #[test]
     fn test_orthogonal_alignment() {
         let filter = DharmaFilter::new(Complex32::new(1.0, 0.0)); // Pure real
-        
+
         // Pure imaginary action should be orthogonal
         let action = Complex32::new(0.0, 1.0);
         let alignment = filter.check_alignment(action);
-        
-        assert!(approx_eq(alignment, 0.0, 1e-6), "Zero alignment expected: got {}", alignment);
+
+        assert!(
+            approx_eq(alignment, 0.0, 1e-6),
+            "Zero alignment expected: got {}",
+            alignment
+        );
     }
 
     #[test]
     fn test_opposite_alignment() {
         let filter = DharmaFilter::new(Complex32::new(1.0, 0.0));
-        
+
         // Opposite direction should have alignment = -1.0
         let action = Complex32::new(-1.0, 0.0);
         let alignment = filter.check_alignment(action);
-        
-        assert!(approx_eq(alignment, -1.0, 1e-6), "Opposite alignment expected: got {}", alignment);
+
+        assert!(
+            approx_eq(alignment, -1.0, 1e-6),
+            "Opposite alignment expected: got {}",
+            alignment
+        );
     }
 
     #[test]
     fn test_veto_opposite_action() {
         let filter = DharmaFilter::new(Complex32::new(1.0, 0.0));
-        
+
         // DoD Test: Actions opposite to dharma_key should be vetoed
         let harmful = Complex32::new(-1.0, 0.0);
         let result = filter.sanction(harmful);
-        
+
         assert!(result.is_none(), "Opposite action should be vetoed");
     }
 
     #[test]
     fn test_pass_aligned_action() {
         let filter = DharmaFilter::new(Complex32::new(1.0, 0.0));
-        
+
         // Aligned action should pass
         let good = Complex32::new(1.0, 0.0);
         let result = filter.sanction(good);
-        
+
         assert!(result.is_some(), "Aligned action should pass");
-        
+
         // Should be scaled by alignment (1.0)
         let sanctioned = result.unwrap();
         assert!(approx_eq(sanctioned.re, 1.0, 0.1));
@@ -495,23 +510,26 @@ mod tests {
     #[test]
     fn test_soft_sanction() {
         let filter = DharmaFilter::new(Complex32::new(1.0, 0.0));
-        
+
         // Even opposite actions get soft-scaled (not vetoed)
         let harmful = Complex32::new(-1.0, 0.0);
         let result = filter.soft_sanction(harmful);
-        
+
         // Alignment is -1.0, clamped to 0.0, so result should be zero
-        assert!(result.norm() < 1e-6, "Soft sanction of opposite should be near zero");
+        assert!(
+            result.norm() < 1e-6,
+            "Soft sanction of opposite should be near zero"
+        );
     }
 
     #[test]
     fn test_project_onto_dharma() {
         let filter = DharmaFilter::new(Complex32::new(1.0, 0.0));
-        
+
         // Project a diagonal vector onto dharma (real axis)
         let diagonal = Complex32::new(1.0, 1.0);
         let projected = filter.project_onto_dharma(diagonal);
-        
+
         // Should only have real component
         assert!(approx_eq(projected.re, 1.0, 1e-6));
         assert!(approx_eq(projected.im, 0.0, 1e-6));
@@ -520,7 +538,7 @@ mod tests {
     #[test]
     fn test_complex_decision_creation() {
         let decision = ComplexDecision::from_polar(2.0, PI / 4.0);
-        
+
         assert!(approx_eq(decision.magnitude(), 2.0, 1e-6));
         assert!(approx_eq(decision.phase(), PI / 4.0, 1e-6));
     }
@@ -528,40 +546,52 @@ mod tests {
     #[test]
     fn test_complex_decision_bpm_conversion() {
         let baseline = 6.0;
-        
+
         // Calming decision (target 5 BPM)
         let calming = ComplexDecision::from_bpm_target(5.0, baseline);
         assert!(calming.vector.re > 0.0, "Calming should have positive real");
-        
+
         // Energizing decision (target 7 BPM)
         let energizing = ComplexDecision::from_bpm_target(7.0, baseline);
-        assert!(energizing.vector.im > 0.0, "Energizing should have positive imaginary");
+        assert!(
+            energizing.vector.im > 0.0,
+            "Energizing should have positive imaginary"
+        );
     }
 
     #[test]
     fn test_alignment_categories() {
         let filter = DharmaFilter::new(Complex32::new(1.0, 0.0));
-        
-        assert_eq!(filter.alignment_category(Complex32::new(1.0, 0.0)), AlignmentCategory::Excellent);
-        assert_eq!(filter.alignment_category(Complex32::new(-1.0, 0.0)), AlignmentCategory::Harmful);
-        assert_eq!(filter.alignment_category(Complex32::new(0.0, 1.0)), AlignmentCategory::Marginal);
+
+        assert_eq!(
+            filter.alignment_category(Complex32::new(1.0, 0.0)),
+            AlignmentCategory::Excellent
+        );
+        assert_eq!(
+            filter.alignment_category(Complex32::new(-1.0, 0.0)),
+            AlignmentCategory::Harmful
+        );
+        assert_eq!(
+            filter.alignment_category(Complex32::new(0.0, 1.0)),
+            AlignmentCategory::Marginal
+        );
     }
 
     #[test]
     fn test_zenb_realistic_scenario() {
         let filter = DharmaFilter::default_for_zenb();
-        
+
         // Scenario 1: Gentle calming breath (6 -> 5 BPM)
         let calming = ComplexDecision::from_bpm_target(5.0, 6.0);
         let result = calming.filter_with(&filter);
         assert!(result.is_some(), "Gentle calming should be allowed");
-        
+
         // Scenario 2: Moderate energizing (6 -> 7 BPM)
         // ZenB dharma allows slight energizing
         let energizing = ComplexDecision::from_bpm_target(7.0, 6.0);
         let result = energizing.filter_with(&filter);
         assert!(result.is_some(), "Moderate energizing should be allowed");
-        
+
         // Scenario 3: Extreme opposite action
         // This would be something like target -10 BPM (nonsensical)
         let extreme = Complex32::new(-5.0, -5.0); // Opposite quadrant

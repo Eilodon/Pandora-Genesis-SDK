@@ -20,13 +20,13 @@
 //! let engine = Engine::new(6.0);
 //! ```
 
+mod actions;
 mod config;
 mod variables;
-mod actions;
 
+pub use actions::BioAction;
 pub use config::BreathConfig;
 pub use variables::BioVariable;
-pub use actions::BioAction;
 
 use crate::core::Domain;
 
@@ -66,17 +66,17 @@ impl Domain for BiofeedbackDomain {
                 // Notifications cause stress (↑HR, ↓HRV)
                 (0, 1) => 0.6,  // NotificationPressure → HeartRate
                 (0, 2) => -0.4, // NotificationPressure → HRV (negative)
-                
+
                 // Respiratory Sinus Arrhythmia (RSA)
                 (7, 1) => -0.3, // RespiratoryRate → HeartRate (slow breathing lowers HR)
                 (7, 2) => 0.4,  // RespiratoryRate → HRV (breath coherence)
-                
+
                 // User action affects respiratory rate (breath guidance)
-                (5, 7) => 0.5,  // UserAction → RespiratoryRate
-                
+                (5, 7) => 0.5, // UserAction → RespiratoryRate
+
                 // Noise affects heart rate
-                (8, 1) => 0.3,  // NoiseLevel → HeartRate
-                
+                (8, 1) => 0.3, // NoiseLevel → HeartRate
+
                 // No prior for other relationships
                 _ => 0.0,
             }
@@ -87,7 +87,7 @@ impl Domain for BiofeedbackDomain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{OscillatorConfig, SignalVariable, ActionKind};
+    use crate::core::{ActionKind, OscillatorConfig, SignalVariable};
 
     #[test]
     fn test_domain_name() {
@@ -106,7 +106,7 @@ mod tests {
     fn test_variable_trait() {
         assert_eq!(BioVariable::count(), 12);
         assert!(BioVariable::all().len() > 0);
-        
+
         let hr = BioVariable::HeartRate;
         let idx = hr.index();
         assert_eq!(BioVariable::from_index(idx), Some(hr));

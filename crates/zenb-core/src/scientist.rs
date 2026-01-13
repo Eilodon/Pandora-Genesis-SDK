@@ -235,29 +235,24 @@ impl AutomaticScientist {
     /// Returns whether a state transition occurred.
     pub fn tick(&mut self) -> bool {
         self.total_cycles += 1;
-        
+
         match &self.state {
-            ScientistState::Observing { observations, steps } => {
-                self.handle_observing(observations.clone(), *steps)
-            }
-            ScientistState::Proposing { hypothesis } => {
-                self.handle_proposing(hypothesis.clone())
-            }
-            ScientistState::Experimenting { hypothesis, step, max_steps, results } => {
-                self.handle_experimenting(
-                    hypothesis.clone(),
-                    *step,
-                    *max_steps,
-                    results.clone(),
-                )
-            }
-            ScientistState::Verifying { hypothesis, results, confirmation_rate } => {
-                self.handle_verifying(
-                    hypothesis.clone(),
-                    results.clone(),
-                    *confirmation_rate,
-                )
-            }
+            ScientistState::Observing {
+                observations,
+                steps,
+            } => self.handle_observing(observations.clone(), *steps),
+            ScientistState::Proposing { hypothesis } => self.handle_proposing(hypothesis.clone()),
+            ScientistState::Experimenting {
+                hypothesis,
+                step,
+                max_steps,
+                results,
+            } => self.handle_experimenting(hypothesis.clone(), *step, *max_steps, results.clone()),
+            ScientistState::Verifying {
+                hypothesis,
+                results,
+                confirmation_rate,
+            } => self.handle_verifying(hypothesis.clone(), results.clone(), *confirmation_rate),
         }
     }
 
@@ -503,7 +498,7 @@ impl AutomaticScientist {
                 "Scientist: Hypothesis CONFIRMED ({:.0}%), crystallizing",
                 confirmation_rate * 100.0
             );
-            
+
             let mut confirmed = hypothesis.clone();
             confirmed.confidence = confirmation_rate;
             self.crystallized.push(confirmed);
@@ -557,7 +552,7 @@ mod tests {
     #[test]
     fn test_observation_accumulation() {
         let mut scientist = AutomaticScientist::new();
-        
+
         for i in 0..10 {
             scientist.observe([i as f32 * 0.1; 5]);
         }
@@ -585,7 +580,7 @@ mod tests {
 
         // Should detect correlation and transition to Proposing
         scientist.tick();
-        
+
         assert_eq!(scientist.state_name(), "Proposing");
     }
 
@@ -610,7 +605,7 @@ mod tests {
             if scientist.tick() {
                 transitions += 1;
             }
-            
+
             // Check if we're back to Observing after full cycle
             if scientist.state_name() == "Observing" && transitions >= 3 {
                 break;

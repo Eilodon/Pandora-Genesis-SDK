@@ -258,7 +258,8 @@ impl ShardedCircuitBreakerManager {
                 if new_failures >= self.config.failure_threshold {
                     log::warn!(
                         "Circuit opened for '{}' after {} failures",
-                        operation_name, new_failures
+                        operation_name,
+                        new_failures
                     );
                     CircuitState::Open {
                         opened_at: Instant::now(),
@@ -266,7 +267,9 @@ impl ShardedCircuitBreakerManager {
                 } else {
                     log::debug!(
                         "Circuit failure {}/{} for '{}'",
-                        new_failures, self.config.failure_threshold, operation_name
+                        new_failures,
+                        self.config.failure_threshold,
+                        operation_name
                     );
                     CircuitState::Closed {
                         failures: new_failures,
@@ -352,7 +355,8 @@ impl ShardedCircuitBreakerManager {
                 states.pop(&name);
                 log::debug!(
                     "Cleaned up expired circuit state for '{}' in shard {}",
-                    name, shard_idx
+                    name,
+                    shard_idx
                 );
             }
         }

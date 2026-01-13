@@ -104,7 +104,8 @@ impl ResonanceTracker {
 
         // Use guide_phase_norm directly as phase (0..1) scaled to radians, matching test generation
         // Goertzel phase is offset by pi/2; compensate to align
-        let guide_phase_rad = guide_phase_norm * (2.0 * std::f32::consts::PI) - std::f32::consts::PI / 2.0;
+        let guide_phase_rad =
+            guide_phase_norm * (2.0 * std::f32::consts::PI) - std::f32::consts::PI / 2.0;
         let diff_rad = wrap_pi(phase_rad - guide_phase_rad).abs();
         let phase_diff_norm = diff_rad / std::f32::consts::PI; // remove clamp to avoid friction
 

@@ -365,7 +365,10 @@ mod tests {
 
     #[test]
     fn test_device_tier() {
-        assert_eq!(EdgeOptimizer::new(EdgeDeviceSpecs::desktop()).device_tier(), 3);
+        assert_eq!(
+            EdgeOptimizer::new(EdgeDeviceSpecs::desktop()).device_tier(),
+            3
+        );
         assert_eq!(EdgeOptimizer::new(EdgeDeviceSpecs::iot()).device_tier(), 1);
     }
 

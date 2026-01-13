@@ -112,6 +112,8 @@ pub enum IntentAction {
 /// Final synthesized output (Vinnana stage output).
 #[derive(Debug, Clone, Default)]
 pub struct SynthesizedState {
+    /// The processed physiological form (preserved from Rupa)
+    pub form: ProcessedForm,
     /// Belief state distribution
     pub belief: [f32; 5],
     /// Dominant mode
@@ -133,7 +135,7 @@ pub struct ControlOutput {
 }
 
 // ============================================================================
-// Skandha Traits  
+// Skandha Traits
 // ============================================================================
 
 /// Rupa Skandha - Form processing.
@@ -310,14 +312,25 @@ pub mod defaults {
             };
 
             // Simple alignment check
-            let alignment = if pattern.is_trauma_associated { 0.3 } else { 0.9 };
+            let alignment = if pattern.is_trauma_associated {
+                0.3
+            } else {
+                0.9
+            };
             let is_sanctioned = alignment >= self.alignment_threshold;
 
             FormedIntent {
-                action: if is_sanctioned { action } else { IntentAction::Observe },
+                action: if is_sanctioned {
+                    action
+                } else {
+                    IntentAction::Observe
+                },
                 alignment,
                 is_sanctioned,
-                reasoning: format!("Pattern {} with arousal {:.2}", pattern.pattern_id, affect.arousal),
+                reasoning: format!(
+                    "Pattern {} with arousal {:.2}",
+                    pattern.pattern_id, affect.arousal
+                ),
             }
         }
     }
@@ -336,7 +349,7 @@ pub mod defaults {
         ) -> SynthesizedState {
             // Synthesize belief state
             let mut belief = [0.2f32; 5];
-            
+
             // Map affect to belief
             if affect.arousal < 0.3 && affect.valence > 0.2 {
                 belief[0] = 0.6; // Calm
@@ -377,6 +390,7 @@ pub mod defaults {
             };
 
             SynthesizedState {
+                form: form.clone(),
                 belief,
                 mode,
                 confidence: affect.confidence,
@@ -473,10 +487,14 @@ pub fn default_pipeline() -> SkandhaPipeline<
     defaults::DefaultVinnana,
 > {
     SkandhaPipeline::new(
-        defaults::DefaultRupa { anomaly_threshold: 0.5 },
+        defaults::DefaultRupa {
+            anomaly_threshold: 0.5,
+        },
         defaults::DefaultVedana,
         defaults::DefaultSanna { pattern_count: 0 },
-        defaults::DefaultSankhara { alignment_threshold: 0.2 },
+        defaults::DefaultSankhara {
+            alignment_threshold: 0.2,
+        },
         defaults::DefaultVinnana,
     )
 }
@@ -489,8 +507,9 @@ pub fn default_pipeline() -> SkandhaPipeline<
 /// to the Skandha pipeline traits.
 pub mod zenb {
     use super::*;
-    use crate::perception::{SheafPerception, PhysiologicalContext};
+    use crate::belief::{BeliefEngine, BeliefState, Context, FepState};
     use crate::memory::HolographicMemory;
+    use crate::perception::{PhysiologicalContext, SheafPerception};
     use crate::safety::DharmaFilter;
     use nalgebra::DVector;
     use num_complex::Complex32;
@@ -511,9 +530,9 @@ pub mod zenb {
 
     impl ZenbRupa {
         /// Detect physiological context from sensor values
-        /// 
+        ///
         /// Uses HR, HRV, and motion to infer user's current state.
-        /// 
+        ///
         /// # Arguments
         /// * `hr_norm` - Normalized heart rate (0-1, where 0.3 = 60bpm, 0.5 = 100bpm)
         /// * `hrv_norm` - Normalized HRV (0-1, where 0.5 = 50ms RMSSD)
@@ -526,7 +545,7 @@ pub mod zenb {
             if motion > 0.4 {
                 return PhysiologicalContext::ModerateExercise;
             }
-            
+
             // HR-based detection (normalized: 60bpm=0.3, 100bpm=0.5, 130bpm=0.65)
             if hr_norm > 0.65 {
                 return PhysiologicalContext::ModerateExercise;
@@ -535,7 +554,7 @@ pub mod zenb {
                 // High HR + low HRV = stress
                 return PhysiologicalContext::Stress;
             }
-            
+
             // Low arousal states
             if hr_norm < 0.25 && motion < 0.1 {
                 // Very low HR + still = sleep
@@ -544,34 +563,34 @@ pub mod zenb {
             if hr_norm < 0.35 && motion < 0.2 {
                 return PhysiologicalContext::LightActivity;
             }
-            
+
             PhysiologicalContext::Rest
         }
-        
+
         /// Set physiological context on sheaf perception
         pub fn set_context(&mut self, context: PhysiologicalContext) {
             self.sheaf.set_context(context);
         }
-        
+
         /// Get current physiological context
         pub fn context(&self) -> PhysiologicalContext {
             self.sheaf.context()
         }
-        
+
         /// Process form with auto-context detection
         pub fn process_form_adaptive(&mut self, input: &SensorInput) -> ProcessedForm {
             // Normalize values
             let hr_norm = input.hr_bpm.unwrap_or(60.0) / 200.0;
             let hrv_norm = input.hrv_rmssd.unwrap_or(50.0) / 100.0;
-            
+
             // Auto-detect and update context
             let context = Self::detect_context(hr_norm, hrv_norm, input.motion);
             self.sheaf.set_context(context);
-            
+
             // Process with updated context
             self.process_form_internal(input)
         }
-        
+
         /// Internal processing (shared between trait impl and adaptive method)
         fn process_form_internal(&self, input: &SensorInput) -> ProcessedForm {
             // Convert to DVector for sheaf processing
@@ -626,10 +645,12 @@ pub mod zenb {
     impl SannaSkandha for ZenbSanna {
         fn perceive(&self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern {
             // Encode current context as key
-            let key: Vec<Complex32> = form.values.iter()
+            let key: Vec<Complex32> = form
+                .values
+                .iter()
                 .map(|&v| Complex32::new(v, 0.0))
                 .collect();
-            
+
             // Pad to memory dimension
             let dim = self.memory.dim();
             let mut padded_key = vec![Complex32::new(0.0, 0.0); dim];
@@ -639,12 +660,9 @@ pub mod zenb {
 
             // Recall associated pattern
             let recalled = self.memory.recall(&padded_key);
-            
+
             // Compute similarity (norm of recalled pattern)
-            let similarity: f32 = recalled.iter()
-                .take(5)
-                .map(|c| c.norm())
-                .sum::<f32>() / 5.0;
+            let similarity: f32 = recalled.iter().take(5).map(|c| c.norm()).sum::<f32>() / 5.0;
 
             // Pattern classification based on affect
             let pattern_id = if affect.arousal > 0.7 {
@@ -694,21 +712,22 @@ pub mod zenb {
             // Create complex action vector representing the intent
             // Real part: valence (positive = beneficial/calming)
             // Imag part: arousal deviation (positive = energizing, negative = calming)
-            let action_vector = Complex32::new(
-                affect.valence,
-                affect.arousal - 0.5,
-            );
+            let action_vector = Complex32::new(affect.valence, affect.arousal - 0.5);
 
             // Check alignment directly
             let alignment = self.dharma.check_alignment(action_vector);
             let category = self.dharma.alignment_category(action_vector);
-            
+
             // Apply sanction
             let sanctioned_vector = self.dharma.sanction(action_vector);
             let is_sanctioned = sanctioned_vector.is_some();
 
             FormedIntent {
-                action: if is_sanctioned { action } else { IntentAction::Observe },
+                action: if is_sanctioned {
+                    action
+                } else {
+                    IntentAction::Observe
+                },
                 alignment,
                 is_sanctioned,
                 reasoning: format!(
@@ -719,26 +738,98 @@ pub mod zenb {
         }
     }
 
-    pub type ZenbPipeline = SkandhaPipeline<
-        ZenbRupa,
-        defaults::DefaultVedana,
-        ZenbSanna,
-        ZenbSankhara,
-        defaults::DefaultVinnana,
-    >;
+    /// ZenbVinnana: Wraps BeliefEngine for Active Inference synthesis
+    #[derive(Debug, Clone)]
+    pub struct ZenbVinnana {
+        pub engine: BeliefEngine,
+        pub state: BeliefState,
+        pub fep: FepState,
+    }
+
+    impl Default for ZenbVinnana {
+        fn default() -> Self {
+            Self {
+                engine: BeliefEngine::default(),
+                state: BeliefState::default(),
+                fep: FepState::default(),
+            }
+        }
+    }
+
+    impl VinnanaSkandha for ZenbVinnana {
+        fn synthesize(
+            &self,
+            form: &ProcessedForm,
+            affect: &AffectiveState,
+            pattern: &PerceivedPattern,
+            intent: &FormedIntent,
+        ) -> SynthesizedState {
+            // In a full implementation, this would call self.engine.update()
+            // But Skandha traits are immutable (&self).
+            // This suggests a design mismatch: BeliefEngine relies on interior mutability or &mut self.
+            // For now, to unblock the compilation/refactor, we will map the inputs to a belief state
+            // using a pure function (or assume interior mutability if we refactor later).
+
+            // HACK: For now, strictly map Affect -> Belief Distribution cleanly
+            // This matches the "DefaultVinnana" behavior but allows us to insert real logic later.
+            // Real Active Inference requires state updates which we can't do in &self trait.
+            // TODO: Refactor Skandha traits to strictly allow &mut self or use RefCell.
+
+            let mut belief = [0.2f32; 5];
+            // Map affect to belief (Simplified Logic for "Pure" synthesis)
+            // Real engine requires mutability.
+            if affect.arousal < 0.3 && affect.valence > 0.2 {
+                belief[0] = 0.6; // Calm
+            } else if affect.arousal > 0.6 {
+                belief[1] = 0.5; // Stress
+            } else if affect.valence > 0.3 {
+                belief[2] = 0.5; // Focus
+            }
+
+            // Normalize
+            let sum: f32 = belief.iter().sum();
+            if sum > 0.0 {
+                for b in &mut belief {
+                    *b /= sum;
+                }
+            }
+
+            // Simple proxy for now
+            SynthesizedState {
+                form: form.clone(),
+                belief,
+                mode: 0,
+                confidence: affect.confidence,
+                decision: None,
+                free_energy: 0.0,
+            }
+        }
+    }
+
+    impl ZenbVinnana {
+        pub fn from_config(cfg: &crate::config::ZenbConfig) -> Self {
+            Self {
+                engine: BeliefEngine::from_config(&cfg.belief),
+                state: BeliefState::default(),
+                fep: FepState::default(),
+            }
+        }
+    }
+
+    pub type ZenbPipeline =
+        SkandhaPipeline<ZenbRupa, defaults::DefaultVedana, ZenbSanna, ZenbSankhara, ZenbVinnana>;
 
     /// Create ZenB pipeline with AGOLOS components wired in
-    pub fn zenb_pipeline() -> ZenbPipeline {
+    pub fn zenb_pipeline(cfg: &crate::config::ZenbConfig) -> ZenbPipeline {
         SkandhaPipeline::new(
             ZenbRupa::default(),
             defaults::DefaultVedana,
             ZenbSanna::default(),
             ZenbSankhara::default(),
-            defaults::DefaultVinnana,
+            ZenbVinnana::from_config(cfg),
         )
     }
 }
-
 
 // ============================================================================
 // Tests
@@ -751,7 +842,7 @@ mod tests {
     #[test]
     fn test_default_pipeline() {
         let pipeline = default_pipeline();
-        
+
         let input = SensorInput {
             hr_bpm: Some(75.0),
             hrv_rmssd: Some(45.0),
@@ -762,7 +853,7 @@ mod tests {
         };
 
         let result = pipeline.process(&input);
-        
+
         // Should have valid belief state
         let sum: f32 = result.belief.iter().sum();
         assert!((sum - 1.0).abs() < 0.01);
@@ -772,9 +863,9 @@ mod tests {
     #[test]
     fn test_high_arousal_triggers_calming() {
         let pipeline = default_pipeline();
-        
+
         let input = SensorInput {
-            hr_bpm: Some(150.0), // Very high HR
+            hr_bpm: Some(150.0),   // Very high HR
             hrv_rmssd: Some(20.0), // Low HRV
             rr_bpm: Some(18.0),
             quality: 0.9,
@@ -783,7 +874,7 @@ mod tests {
         };
 
         let result = pipeline.process(&input);
-        
+
         // Should suggest calming breath
         if let Some(decision) = result.decision {
             assert_eq!(decision.target_bpm, 6.0);
@@ -793,7 +884,7 @@ mod tests {
     #[test]
     fn test_low_quality_reduces_confidence() {
         let pipeline = default_pipeline();
-        
+
         let good_input = SensorInput {
             hr_bpm: Some(70.0),
             hrv_rmssd: Some(50.0),
@@ -808,7 +899,7 @@ mod tests {
             hrv_rmssd: Some(50.0),
             rr_bpm: Some(12.0),
             quality: 0.1, // Low quality
-            motion: 0.9, // High motion
+            motion: 0.9,  // High motion
             timestamp_us: 0,
         };
 
@@ -833,56 +924,56 @@ mod tests {
         };
 
         let result = pipeline.process(&input);
-        
+
         // With sankhara disabled, intent defaults to Observe
         // So no control decision should be made
         assert!(result.decision.is_none());
     }
-    
+
     #[test]
     fn test_zenb_rupa_context_detection() {
         use super::zenb::ZenbRupa;
         use crate::perception::PhysiologicalContext;
-        
+
         // Test intense exercise detection (high motion)
         let context = ZenbRupa::detect_context(0.5, 0.5, 0.8);
         assert_eq!(context, PhysiologicalContext::IntenseExercise);
-        
+
         // Test moderate exercise detection (moderate motion)
         let context = ZenbRupa::detect_context(0.5, 0.5, 0.5);
         assert_eq!(context, PhysiologicalContext::ModerateExercise);
-        
+
         // Test moderate exercise from HR (high HR, low motion)
         let context = ZenbRupa::detect_context(0.7, 0.5, 0.1); // 140 bpm
         assert_eq!(context, PhysiologicalContext::ModerateExercise);
-        
+
         // Test stress detection (high HR + low HRV)
         let context = ZenbRupa::detect_context(0.6, 0.2, 0.1); // 120 bpm, 20ms HRV
         assert_eq!(context, PhysiologicalContext::Stress);
-        
+
         // Test sleep detection (very low HR + still)
         let context = ZenbRupa::detect_context(0.2, 0.6, 0.05); // 40 bpm
         assert_eq!(context, PhysiologicalContext::Sleep);
-        
+
         // Test light activity (low HR + minimal motion)
         let context = ZenbRupa::detect_context(0.3, 0.5, 0.1); // 60 bpm
         assert_eq!(context, PhysiologicalContext::LightActivity);
-        
+
         // Test rest (default)
         let context = ZenbRupa::detect_context(0.4, 0.5, 0.25); // 80 bpm, normal
         assert_eq!(context, PhysiologicalContext::Rest);
     }
-    
+
     #[test]
     fn test_zenb_rupa_adaptive_processing() {
         use super::zenb::ZenbRupa;
         use crate::perception::PhysiologicalContext;
-        
+
         let mut rupa = ZenbRupa::default();
-        
+
         // Initial context should be Rest
         assert_eq!(rupa.context(), PhysiologicalContext::Rest);
-        
+
         // Process high-motion input
         let input = SensorInput {
             hr_bpm: Some(100.0),
@@ -892,12 +983,12 @@ mod tests {
             motion: 0.8, // High motion → IntenseExercise
             timestamp_us: 0,
         };
-        
+
         let _ = rupa.process_form_adaptive(&input);
-        
+
         // Context should be updated to IntenseExercise
         assert_eq!(rupa.context(), PhysiologicalContext::IntenseExercise);
-        
+
         // Manual override
         rupa.set_context(PhysiologicalContext::Sleep);
         assert_eq!(rupa.context(), PhysiologicalContext::Sleep);

@@ -33,12 +33,12 @@ impl PhysiologicalContext {
     /// Threshold value - higher means more tolerant of sensor disagreement
     pub fn anomaly_threshold(&self) -> f32 {
         match self {
-            Self::Sleep => 0.2,              // Very sensitive - detect small anomalies
-            Self::Rest => 0.3,               // Sensitive - current default
-            Self::LightActivity => 0.5,      // Moderate tolerance
-            Self::Stress => 0.6,             // Higher tolerance for stress-induced variation
-            Self::ModerateExercise => 0.8,   // High tolerance for exercise variation
-            Self::IntenseExercise => 1.2,    // Very high tolerance
+            Self::Sleep => 0.2,            // Very sensitive - detect small anomalies
+            Self::Rest => 0.3,             // Sensitive - current default
+            Self::LightActivity => 0.5,    // Moderate tolerance
+            Self::Stress => 0.6,           // Higher tolerance for stress-induced variation
+            Self::ModerateExercise => 0.8, // High tolerance for exercise variation
+            Self::IntenseExercise => 1.2,  // Very high tolerance
         }
     }
 
@@ -48,12 +48,12 @@ impl PhysiologicalContext {
     /// Base diffusion rate - higher means faster consensus
     pub fn base_alpha(&self) -> f32 {
         match self {
-            Self::Sleep => 0.01,             // Very gentle diffusion, preserve signals
-            Self::Rest => 0.02,              // Current default
-            Self::LightActivity => 0.025,    // Slightly more aggressive
-            Self::Stress => 0.03,            // More consensus needed
-            Self::ModerateExercise => 0.04,  // Strong consensus for noisy data
-            Self::IntenseExercise => 0.05,   // Very aggressive filtering
+            Self::Sleep => 0.01,            // Very gentle diffusion, preserve signals
+            Self::Rest => 0.02,             // Current default
+            Self::LightActivity => 0.025,   // Slightly more aggressive
+            Self::Stress => 0.03,           // More consensus needed
+            Self::ModerateExercise => 0.04, // Strong consensus for noisy data
+            Self::IntenseExercise => 0.05,  // Very aggressive filtering
         }
     }
 }
@@ -124,9 +124,9 @@ impl SheafPerception {
             laplacian,
             n_sensors: n,
             alpha,
-            anomaly_threshold: 1.0, // Default threshold
+            anomaly_threshold: 1.0,              // Default threshold
             context: PhysiologicalContext::Rest, // Default context
-            use_adaptive_alpha: true, // Enable adaptive alpha by default
+            use_adaptive_alpha: true,            // Enable adaptive alpha by default
         }
     }
 
@@ -171,10 +171,10 @@ impl SheafPerception {
         adj[(3, 0)] = 0.2;
         adj[(0, 3)] = 0.2;
 
-        let mut perception = Self::new(&adj, 0.02);  // Base alpha (will be adjusted by context/energy)
-        perception.context = PhysiologicalContext::Rest;  // Default to resting state
+        let mut perception = Self::new(&adj, 0.02); // Base alpha (will be adjusted by context/energy)
+        perception.context = PhysiologicalContext::Rest; // Default to resting state
         perception.anomaly_threshold = perception.context.anomaly_threshold();
-        perception.use_adaptive_alpha = true;  // Enable energy-based adaptation
+        perception.use_adaptive_alpha = true; // Enable energy-based adaptation
         perception
     }
 
@@ -475,7 +475,10 @@ mod tests {
         let diffused = perception.diffuse(&disagreeing, 20);
         let energy_after = perception.compute_energy(&diffused);
 
-        println!("Energy before: {:.4}, after: {:.4}", energy_before, energy_after);
+        println!(
+            "Energy before: {:.4}, after: {:.4}",
+            energy_before, energy_after
+        );
 
         assert!(
             energy_after < energy_before,

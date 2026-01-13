@@ -3,8 +3,8 @@ use std::fs;
 use std::path::Path;
 use thiserror::Error;
 
-use crate::estimators::ukf::AukfConfig;
 use crate::causal::PCConfig;
+use crate::estimators::ukf::AukfConfig;
 use crate::sensory::binaural::PsychoacousticCalibration;
 
 #[derive(Error, Debug)]
@@ -42,13 +42,13 @@ pub struct FeatureConfig {
     pub ukf_fallback_enabled: bool,
     /// Adaptive UKF configuration (Sage-Husa)
     pub ukf_config: AukfConfig,
-    
+
     /// Enable EFE-based policy selection
     pub use_efe_selection: bool,
     /// EFE precision (beta) - controls exploration vs exploitation
     /// If None, uses adaptive meta-learning
     pub efe_precision_beta: Option<f32>,
-    
+
     /// Enable PC algorithm for causal structure learning
     pub pc_learning_enabled: bool,
     /// PC Algorithm configuration
@@ -65,7 +65,7 @@ pub struct FeatureConfig {
     /// Enable Thermodynamic Logic Engine (GENERIC framework)
     #[serde(default)]
     pub thermo_enabled: Option<bool>,
-    
+
     /// Temperature for thermodynamic exploration (higher = more exploration)
     #[serde(default)]
     pub thermo_temperature: Option<f32>,
@@ -125,19 +125,16 @@ pub struct SafetyConfig {
     pub trauma_hard_th: f32,
     pub trauma_soft_th: f32,
     pub trauma_decay_default: f32,
-    
+
     /// Device-specific secret for trauma hash grinding resistance
     /// If None, generates random secret on first use
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_secret: Option<[u8; 32]>,
-    
+
     /// Persisted circuit breaker states: component_name -> (failure_count, last_failure_ts)
     /// Enables resume after restart without re-triggering failed components
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub circuit_breaker_states: Vec<CircuitBreakerSnapshot>,
-    
-
-
 }
 
 /// Snapshot of a circuit breaker for persistence
@@ -211,17 +208,17 @@ impl Default for FeatureConfig {
     fn default() -> Self {
         Self {
             vajra_enabled: true, // Vajra-001 Unified Architecture ENABLED by default
-            use_ukf: false, // Default to false for safe rollout
+            use_ukf: false,      // Default to false for safe rollout
             ukf_fallback_enabled: true,
             ukf_config: AukfConfig::default(),
             use_efe_selection: false,
             efe_precision_beta: None, // Enable adaptive by default if EFE is on
             pc_learning_enabled: false,
             pc_config: PCConfig::default(),
-            scientist_enabled: None, // Default: disabled
+            scientist_enabled: None,      // Default: disabled
             policy_adapter_enabled: None, // Default: disabled for safe rollout
-            thermo_enabled: None, // Default: disabled for safe rollout
-            thermo_temperature: None, // Default: 1.0 if enabled
+            thermo_enabled: None,         // Default: disabled for safe rollout
+            thermo_temperature: None,     // Default: 1.0 if enabled
             audio_profile: AudioProfile::default(),
         }
     }
@@ -254,9 +251,8 @@ impl Default for SafetyConfig {
             trauma_hard_th: 3.0,
             trauma_soft_th: 1.5,
             trauma_decay_default: 0.001,
-            device_secret: None,  // Generate on first use
+            device_secret: None, // Generate on first use
             circuit_breaker_states: Vec::new(),
-
         }
     }
 }

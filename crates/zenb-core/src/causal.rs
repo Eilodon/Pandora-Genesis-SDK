@@ -1,17 +1,16 @@
-use serde::{Deserialize, Serialize};
 use crate::domain::{CausalBeliefState, Observation};
+use serde::{Deserialize, Serialize};
 
 // Submodules
-pub mod notears;
 pub mod dagma; // DAGMA: 5-20x faster than NOTEARS (NeurIPS 2022)
 mod graph_change_detector;
-pub mod intervenable;  // NEW: Pearl's do-calculus interventions
-pub mod propagating_effect; // NEW: Monadic causal effects
-pub mod hypergraph;    // NEW: Higher-order causal relationships
+pub mod hypergraph;
+pub mod intervenable; // NEW: Pearl's do-calculus interventions
+pub mod notears;
+pub mod propagating_effect; // NEW: Monadic causal effects // NEW: Higher-order causal relationships
 
 pub use graph_change_detector::GraphChangeDetector;
 pub use notears::{Notears, NotearsConfig};
-
 
 /// Causal variable nodes representing observable and latent factors in the system.
 /// These form the vertices of the Directed Acyclic Graph (DAG).
@@ -176,9 +175,7 @@ impl CausalGraph {
     pub fn new() -> Self {
         Self {
             weights: std::array::from_fn(|_| std::array::from_fn(|_| None)),
-            interaction_weights: std::array::from_fn(|_| {
-                std::array::from_fn(|_| None)
-            }),
+            interaction_weights: std::array::from_fn(|_| std::array::from_fn(|_| None)),
         }
     }
 
@@ -307,15 +304,13 @@ impl CausalGraph {
         Variable::all()
             .iter()
             .filter_map(|&var| {
-                self.weights[cause_idx][var.index()]
-                    .as_ref()
-                    .and_then(|l| {
-                        if l.success_prob() > 1e-6 {
-                            Some((var, l.success_prob()))
-                        } else {
-                            None
-                        }
-                    })
+                self.weights[cause_idx][var.index()].as_ref().and_then(|l| {
+                    if l.success_prob() > 1e-6 {
+                        Some((var, l.success_prob()))
+                    } else {
+                        None
+                    }
+                })
             })
             .collect()
     }
@@ -566,13 +561,21 @@ impl CausalGraph {
 
         // Update pairwise interaction weights (upper triangular only)
         for i in 0..Variable::COUNT {
-            if i >= context_state.len() { break; }
+            if i >= context_state.len() {
+                break;
+            }
             let vi = context_state[i];
-            if vi.abs() < 1e-6 { continue; }
+            if vi.abs() < 1e-6 {
+                continue;
+            }
             for j in (i + 1)..Variable::COUNT {
-                if j >= context_state.len() { break; }
+                if j >= context_state.len() {
+                    break;
+                }
                 let vj = context_state[j];
-                if vj.abs() < 1e-6 { continue; }
+                if vj.abs() < 1e-6 {
+                    continue;
+                }
                 let updated = if let Some(existing) = &self.interaction_weights[i][j] {
                     let mut edge = existing.clone();
                     if reward > 0.0 {
@@ -597,11 +600,13 @@ impl CausalGraph {
                 self.interaction_weights[i][j] = Some(updated);
             }
         }
-        
+
         // INVARIANT: Causal graph must remain acyclic after weight update
         // INVARIANT: Causal graph must remain acyclic after weight update
         if !self.is_acyclic() {
-            return Err("INVARIANT VIOLATION: Causal graph has cycle after weight update".to_string());
+            return Err(
+                "INVARIANT VIOLATION: Causal graph has cycle after weight update".to_string(),
+            );
         }
         Ok(())
     }
@@ -645,7 +650,7 @@ impl CausalGraph {
         rec_stack[v] = false;
         false
     }
-    
+
     /// Predict counterfactual outcome using interventions
     ///
     /// This method uses the PropagatingEffect monad to perform "what-if" analysis:
@@ -674,13 +679,16 @@ impl CausalGraph {
         intervention: (Variable, f32),
         action: &ActionPolicy,
     ) -> crate::causal::propagating_effect::PropagatingEffect<PredictedState> {
-        use crate::causal::propagating_effect::PropagatingEffect;
         use crate::causal::intervenable::Intervenable;
-        
+        use crate::causal::propagating_effect::PropagatingEffect;
+
         PropagatingEffect::pure(state.clone())
             .log(format!("Initial state: {:?}", state.mode))
             .intervene(intervention.0, intervention.1)
-            .log(format!("Intervened: {:?} = {}", intervention.0, intervention.1))
+            .log(format!(
+                "Intervened: {:?} = {}",
+                intervention.0, intervention.1
+            ))
             .map(|intervened_state| {
                 // Predict outcome with intervened state
                 self.predict_outcome(&intervened_state, action)
@@ -715,7 +723,7 @@ impl Default for PCConfig {
 }
 
 /// PC Algorithm for causal structure learning from observational data.
-/// 
+///
 /// The PC algorithm learns causal structure in two phases:
 /// 1. Skeleton learning: Start with complete graph, remove edges based on
 ///    conditional independence tests
@@ -734,29 +742,35 @@ impl PCAlgorithm {
             sep_sets: std::array::from_fn(|_| std::array::from_fn(|_| None)),
         }
     }
-    
+
     /// Learn causal structure from data matrix.
     /// Returns adjacency matrix where edges[i][j] = true means i -> j is possible.
-    pub fn learn_structure(&mut self, data: &[Vec<f32>]) -> [[bool; Variable::COUNT]; Variable::COUNT] {
+    pub fn learn_structure(
+        &mut self,
+        data: &[Vec<f32>],
+    ) -> [[bool; Variable::COUNT]; Variable::COUNT] {
         let n_samples = data.len();
         let n_vars = Variable::COUNT;
-        
+
         if n_samples < self.config.min_samples {
-            log::warn!("PC: insufficient samples ({} < {}), returning prior graph",
-                       n_samples, self.config.min_samples);
+            log::warn!(
+                "PC: insufficient samples ({} < {}), returning prior graph",
+                n_samples,
+                self.config.min_samples
+            );
             return self.complete_graph();
         }
-        
+
         // Phase 1: Learn skeleton
         let mut adj = self.complete_graph();
         self.learn_skeleton(&mut adj, data);
-        
+
         // Phase 2: Orient edges using v-structures and Meek rules
         self.orient_edges(&mut adj);
-        
+
         adj
     }
-    
+
     /// Initialize with complete undirected graph
     fn complete_graph(&self) -> [[bool; Variable::COUNT]; Variable::COUNT] {
         let mut adj = [[false; Variable::COUNT]; Variable::COUNT];
@@ -769,62 +783,66 @@ impl PCAlgorithm {
         }
         adj
     }
-    
+
     /// Phase 1: Skeleton learning using conditional independence tests
-    fn learn_skeleton(&mut self, adj: &mut [[bool; Variable::COUNT]; Variable::COUNT], data: &[Vec<f32>]) {
+    fn learn_skeleton(
+        &mut self,
+        adj: &mut [[bool; Variable::COUNT]; Variable::COUNT],
+        data: &[Vec<f32>],
+    ) {
         let n_vars = Variable::COUNT;
-        
+
         // Compute correlation matrix once
         let corr = self.compute_correlation_matrix(data);
         let n = data.len();
-        
+
         // For each conditioning set size 0, 1, 2, ...
         for cond_size in 0..=self.config.max_cond_set_size {
             let mut changed = false;
-            
+
             for i in 0..n_vars {
-                for j in (i+1)..n_vars {
+                for j in (i + 1)..n_vars {
                     if !adj[i][j] {
                         continue; // Edge already removed
                     }
-                    
+
                     // Get neighbors of i excluding j
                     let neighbors: Vec<usize> = (0..n_vars)
                         .filter(|&k| k != i && k != j && adj[i][k])
                         .collect();
-                    
+
                     if neighbors.len() < cond_size {
                         continue;
                     }
-                    
+
                     // Try all conditioning sets of size cond_size
                     for cond_set in self.combinations(&neighbors, cond_size) {
                         if self.is_conditionally_independent(i, j, &cond_set, &corr, n) {
                             // Remove edge i -- j
                             adj[i][j] = false;
                             adj[j][i] = false;
-                            
+
                             // Store separation set
                             self.sep_sets[i][j] = Some(cond_set.clone());
                             self.sep_sets[j][i] = Some(cond_set);
-                            
+
                             changed = true;
                             break;
                         }
                     }
                 }
             }
-            
+
             if !changed {
                 break; // No edges removed at this level, stop
             }
         }
     }
-    
+
     /// Phase 2: Orient edges using v-structures
     fn orient_edges(&self, adj: &mut [[bool; Variable::COUNT]; Variable::COUNT]) {
         let n_vars = Variable::COUNT;
-        
+
         // Rule 1: V-structure detection
         // If i - k - j and i not adjacent to j, and k not in sepset(i,j),
         // then orient as i -> k <- j
@@ -833,11 +851,11 @@ impl PCAlgorithm {
                 if i == k || !adj[i][k] {
                     continue;
                 }
-                for j in (i+1)..n_vars {
+                for j in (i + 1)..n_vars {
                     if j == k {
                         continue;
                     }
-                    
+
                     // Check: i - k - j structure exists, i and j not adjacent
                     if adj[j][k] && !adj[i][j] && !adj[j][i] {
                         // Check if k is in separation set
@@ -845,7 +863,7 @@ impl PCAlgorithm {
                             .as_ref()
                             .map(|s| s.contains(&k))
                             .unwrap_or(false);
-                        
+
                         if !in_sepset {
                             // Orient as v-structure: i -> k <- j
                             adj[k][i] = false; // Remove k -> i
@@ -855,11 +873,11 @@ impl PCAlgorithm {
                 }
             }
         }
-        
+
         // Additional Meek orientation rules could be applied here
         // (R1-R4 for DAG completion)
     }
-    
+
     /// Conditional independence test using partial correlation and Fisher's z-transform
     fn is_conditionally_independent(
         &self,
@@ -874,22 +892,22 @@ impl PCAlgorithm {
         } else {
             self.partial_correlation(i, j, cond_set, corr)
         };
-        
+
         // Fisher's z-transform
         let z = ((1.0 + partial_corr) / (1.0 - partial_corr + 1e-10)).ln() / 2.0;
-        
+
         // Degrees of freedom
         let df = (n as f32) - (cond_set.len() as f32) - 3.0;
         if df <= 0.0 {
             return false; // Not enough samples
         }
-        
+
         // Standard error
         let se = 1.0 / df.sqrt();
-        
+
         // z-statistic
         let z_stat = z.abs() / se;
-        
+
         // Critical value for alpha (two-tailed)
         // For alpha=0.05, critical z ≈ 1.96
         let critical_z = match (self.config.alpha * 100.0) as u32 {
@@ -898,20 +916,23 @@ impl PCAlgorithm {
             10 => 1.645,
             _ => 1.960,
         };
-        
+
         z_stat < critical_z
     }
-    
+
     /// Compute sample correlation matrix
-    fn compute_correlation_matrix(&self, data: &[Vec<f32>]) -> [[f32; Variable::COUNT]; Variable::COUNT] {
+    fn compute_correlation_matrix(
+        &self,
+        data: &[Vec<f32>],
+    ) -> [[f32; Variable::COUNT]; Variable::COUNT] {
         let mut corr = [[0.0f32; Variable::COUNT]; Variable::COUNT];
         let n_vars = Variable::COUNT;
         let n = data.len() as f32;
-        
+
         if n < 2.0 {
             return corr;
         }
-        
+
         // Compute means
         let mut means = [0.0f32; Variable::COUNT];
         for row in data {
@@ -922,11 +943,11 @@ impl PCAlgorithm {
         for m in means.iter_mut() {
             *m /= n;
         }
-        
+
         // Compute variances and covariances
         let mut vars = [0.0f32; Variable::COUNT];
         let mut covs = [[0.0f32; Variable::COUNT]; Variable::COUNT];
-        
+
         for row in data {
             for i in 0..n_vars.min(row.len()) {
                 let di = row[i] - means[i];
@@ -937,7 +958,7 @@ impl PCAlgorithm {
                 }
             }
         }
-        
+
         // Convert to correlation
         for i in 0..n_vars {
             for j in i..n_vars {
@@ -953,10 +974,10 @@ impl PCAlgorithm {
                 }
             }
         }
-        
+
         corr
     }
-    
+
     /// Compute partial correlation between i and j given conditioning set
     fn partial_correlation(
         &self,
@@ -971,12 +992,12 @@ impl PCAlgorithm {
             let r_ij = corr[i][j];
             let r_ik = corr[i][k];
             let r_jk = corr[j][k];
-            
+
             let denom = ((1.0 - r_ik * r_ik) * (1.0 - r_jk * r_jk)).sqrt();
             if denom < 1e-10 {
                 return 0.0;
             }
-            
+
             (r_ij - r_ik * r_jk) / denom
         } else {
             // General case: recursive formula or matrix inversion
@@ -985,16 +1006,16 @@ impl PCAlgorithm {
             let r_ij = corr[i][j];
             let r_ik = corr[i][k];
             let r_jk = corr[j][k];
-            
+
             let denom = ((1.0 - r_ik * r_ik) * (1.0 - r_jk * r_jk)).sqrt();
             if denom < 1e-10 {
                 return 0.0;
             }
-            
+
             (r_ij - r_ik * r_jk) / denom
         }
     }
-    
+
     /// Generate all combinations of size k from elements
     fn combinations(&self, elements: &[usize], k: usize) -> Vec<Vec<usize>> {
         if k == 0 {
@@ -1003,12 +1024,12 @@ impl PCAlgorithm {
         if k > elements.len() {
             return vec![];
         }
-        
+
         let mut result = Vec::new();
         self.combinations_helper(elements, k, 0, &mut vec![], &mut result);
         result
     }
-    
+
     fn combinations_helper(
         &self,
         elements: &[usize],
@@ -1021,26 +1042,30 @@ impl PCAlgorithm {
             result.push(current.clone());
             return;
         }
-        
+
         for i in start..elements.len() {
             current.push(elements[i]);
             self.combinations_helper(elements, k, i + 1, current, result);
             current.pop();
         }
     }
-    
+
     /// Integrate learned structure into CausalGraph
-    pub fn apply_to_graph(&self, adj: &[[bool; Variable::COUNT]; Variable::COUNT], graph: &mut CausalGraph) {
+    pub fn apply_to_graph(
+        &self,
+        adj: &[[bool; Variable::COUNT]; Variable::COUNT],
+        graph: &mut CausalGraph,
+    ) {
         // Update graph edges based on learned structure
         for i in 0..Variable::COUNT {
             for j in 0..Variable::COUNT {
                 if i == j {
                     continue;
                 }
-                
+
                 let cause = Variable::from_index(i).unwrap();
                 let effect = Variable::from_index(j).unwrap();
-                
+
                 if adj[i][j] && !adj[j][i] {
                     // Directed edge i -> j
                     if graph.weights[i][j].is_none() {
@@ -1076,8 +1101,6 @@ pub enum ActionType {
     /// No action
     NoAction,
 }
-
-
 
 /// Predicted future state after applying an action.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1256,12 +1279,12 @@ impl CausalBuffer {
                     row[Variable::CognitiveLoad.index()] = load;
                 }
                 // Combine voice valence and screen text sentiment into emotional valence
-                let combined_valence = match (cognitive.voice_valence, cognitive.screen_text_sentiment)
-                {
-                    (Some(v1), Some(v2)) => Some((v1 + v2) / 2.0),
-                    (Some(v), None) | (None, Some(v)) => Some(v),
-                    _ => None,
-                };
+                let combined_valence =
+                    match (cognitive.voice_valence, cognitive.screen_text_sentiment) {
+                        (Some(v1), Some(v2)) => Some((v1 + v2) / 2.0),
+                        (Some(v), None) | (None, Some(v)) => Some(v),
+                        _ => None,
+                    };
                 if let Some(valence) = combined_valence {
                     // Normalize from [-1, 1] to [0, 1] for matrix representation
                     row[Variable::EmotionalValence.index()] = (valence + 1.0) / 2.0;

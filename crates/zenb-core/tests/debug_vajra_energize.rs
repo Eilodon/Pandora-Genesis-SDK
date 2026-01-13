@@ -3,8 +3,8 @@
 //! This test traces the FULL data flow from sensors to belief to identify
 //! where the bias toward Energize mode is introduced.
 
+use zenb_core::domain::{BioMetrics, Observation};
 use zenb_core::engine::Engine;
-use zenb_core::domain::{Observation, BioMetrics};
 
 #[test]
 fn debug_vajra_energize_bias() {
@@ -14,8 +14,8 @@ fn debug_vajra_energize_bias() {
     let calm_obs = Observation {
         timestamp_us: 0,
         bio_metrics: Some(BioMetrics {
-            hr_bpm: Some(62.0),   // Low HR (calm)
-            hrv_rmssd: Some(55.0), // High HRV (calm)
+            hr_bpm: Some(62.0),           // Low HR (calm)
+            hrv_rmssd: Some(55.0),        // High HRV (calm)
             respiratory_rate: Some(10.0), // Slow breathing (calm)
         }),
         environmental_context: None,
@@ -44,13 +44,25 @@ fn debug_vajra_energize_bias() {
     println!("1. Raw Features: {:?}", raw_features);
 
     let est_baseline = baseline.ingest_sensor(&raw_features, 0);
-    println!("2. Estimate: hr={:?}, hrv={:?}, rr={:?}, conf={:.3}",
-             est_baseline.hr_bpm, est_baseline.rmssd, est_baseline.rr_bpm, est_baseline.confidence);
+    println!(
+        "2. Estimate: hr={:?}, hrv={:?}, rr={:?}, conf={:.3}",
+        est_baseline.hr_bpm, est_baseline.rmssd, est_baseline.rr_bpm, est_baseline.confidence
+    );
 
     let _ = baseline.make_control(&est_baseline, 0);
     println!("3. Belief State: {:?}", baseline.belief_state.p);
-    println!("   Mode: {:?} (idx={})", baseline.belief_state.mode,
-             baseline.belief_state.p.iter().enumerate().max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0);
+    println!(
+        "   Mode: {:?} (idx={})",
+        baseline.belief_state.mode,
+        baseline
+            .belief_state
+            .p
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0
+    );
     println!();
 
     // Vajra (with Sheaf)
@@ -66,26 +78,45 @@ fn debug_vajra_energize_bias() {
     ];
 
     println!("--- VAJRA PATH ---");
-    println!("1. Raw Features (with quality/motion): {:?}", vajra_features);
+    println!(
+        "1. Raw Features (with quality/motion): {:?}",
+        vajra_features
+    );
 
     let est_vajra = vajra.ingest_sensor(&vajra_features, 0);
     println!("2. After Sheaf:");
     println!("   Sheaf Energy: {:.3}", vajra.last_sheaf_energy);
-    println!("   Estimate: hr={:?}, hrv={:?}, rr={:?}, conf={:.3}",
-             est_vajra.hr_bpm, est_vajra.rmssd, est_vajra.rr_bpm, est_vajra.confidence);
+    println!(
+        "   Estimate: hr={:?}, hrv={:?}, rr={:?}, conf={:.3}",
+        est_vajra.hr_bpm, est_vajra.rmssd, est_vajra.rr_bpm, est_vajra.confidence
+    );
 
     // Check if PhysioState is different
     if let Some(ref phys) = vajra.last_phys {
-        println!("   PhysioState: hr={:?}, hrv={:?}, rr={:?}, conf={:.3}",
-                 phys.hr_bpm, phys.rmssd, phys.rr_bpm, phys.confidence);
+        println!(
+            "   PhysioState: hr={:?}, hrv={:?}, rr={:?}, conf={:.3}",
+            phys.hr_bpm, phys.rmssd, phys.rr_bpm, phys.confidence
+        );
     }
 
     let _ = vajra.make_control(&est_vajra, 0);
     println!("3. Belief State: {:?}", vajra.belief_state.p);
-    println!("   Mode: {:?} (idx={})", vajra.belief_state.mode,
-             vajra.belief_state.p.iter().enumerate().max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0);
-    println!("   FEP State: mu={:?}, sigma={:?}, FE_ema={:.3}",
-             vajra.fep_state.mu, vajra.fep_state.sigma, vajra.fep_state.free_energy_ema);
+    println!(
+        "   Mode: {:?} (idx={})",
+        vajra.belief_state.mode,
+        vajra
+            .belief_state
+            .p
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0
+    );
+    println!(
+        "   FEP State: mu={:?}, sigma={:?}, FE_ema={:.3}",
+        vajra.fep_state.mu, vajra.fep_state.sigma, vajra.fep_state.free_energy_ema
+    );
     println!();
 
     // Run 10 iterations to see convergence
@@ -101,24 +132,59 @@ fn debug_vajra_energize_bias() {
         let est_v = vajra.ingest_sensor(&vajra_features, ts);
         let _ = vajra.make_control(&est_v, ts);
 
-        let baseline_mode_idx = baseline.belief_state.p.iter().enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
-        let vajra_mode_idx = vajra.belief_state.p.iter().enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
+        let baseline_mode_idx = baseline
+            .belief_state
+            .p
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0;
+        let vajra_mode_idx = vajra
+            .belief_state
+            .p
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .unwrap()
+            .0;
 
-        println!("Iter {}: Baseline mode={} (p={:.3}), Vajra mode={} (p={:.3})",
-                 i, baseline_mode_idx, baseline.belief_state.p[baseline_mode_idx],
-                 vajra_mode_idx, vajra.belief_state.p[vajra_mode_idx]);
+        println!(
+            "Iter {}: Baseline mode={} (p={:.3}), Vajra mode={} (p={:.3})",
+            i,
+            baseline_mode_idx,
+            baseline.belief_state.p[baseline_mode_idx],
+            vajra_mode_idx,
+            vajra.belief_state.p[vajra_mode_idx]
+        );
     }
 
     println!("\n--- FINAL ANALYSIS ---");
-    let baseline_mode_idx = baseline.belief_state.p.iter().enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
-    let vajra_mode_idx = vajra.belief_state.p.iter().enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap()).unwrap().0;
+    let baseline_mode_idx = baseline
+        .belief_state
+        .p
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .unwrap()
+        .0;
+    let vajra_mode_idx = vajra
+        .belief_state
+        .p
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .unwrap()
+        .0;
 
-    println!("Baseline final: mode={}, belief={:?}", baseline_mode_idx, baseline.belief_state.p);
-    println!("Vajra final: mode={}, belief={:?}", vajra_mode_idx, vajra.belief_state.p);
+    println!(
+        "Baseline final: mode={}, belief={:?}",
+        baseline_mode_idx, baseline.belief_state.p
+    );
+    println!(
+        "Vajra final: mode={}, belief={:?}",
+        vajra_mode_idx, vajra.belief_state.p
+    );
 
     if vajra_mode_idx == 4 {
         println!("\n❌ CONFIRMED: Vajra converges to Energize (mode=4) even with CALM data!");
@@ -154,7 +220,10 @@ fn debug_vajra_energize_bias() {
         println!("    Vajra belief: {:?}", vajra.belief_state.p);
         println!("    → Need to inspect BeliefEngine.update_fep_with_config() internals.");
     } else {
-        println!("\n✅ Vajra converged to mode={} (not Energize)", vajra_mode_idx);
+        println!(
+            "\n✅ Vajra converged to mode={} (not Energize)",
+            vajra_mode_idx
+        );
     }
 }
 
@@ -179,12 +248,17 @@ fn debug_sheaf_output_vs_raw() {
         let est = engine.ingest_sensor(&features, 0);
 
         println!("After Sheaf:");
-        println!("  HR={:?}, HRV={:?}, RR={:?}", est.hr_bpm, est.rmssd, est.rr_bpm);
+        println!(
+            "  HR={:?}, HRV={:?}, RR={:?}",
+            est.hr_bpm, est.rmssd, est.rr_bpm
+        );
         println!("  Sheaf Energy: {:.3}", engine.last_sheaf_energy);
-        println!("  Changes: HR {:+.1}, HRV {:+.1}, RR {:+.1}",
-                 est.hr_bpm.unwrap_or(0.0) - raw[0],
-                 est.rmssd.unwrap_or(0.0) - raw[1],
-                 est.rr_bpm.unwrap_or(0.0) - raw[2]);
+        println!(
+            "  Changes: HR {:+.1}, HRV {:+.1}, RR {:+.1}",
+            est.hr_bpm.unwrap_or(0.0) - raw[0],
+            est.rmssd.unwrap_or(0.0) - raw[1],
+            est.rr_bpm.unwrap_or(0.0) - raw[2]
+        );
         println!();
     }
 }

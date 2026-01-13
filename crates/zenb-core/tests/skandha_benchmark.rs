@@ -11,9 +11,9 @@
 //! - Memory: Heap allocations
 //! - Code complexity: Lines of code in execution path
 
-use zenb_core::engine::Engine;
-use zenb_core::domain::Observation;
 use zenb_core::belief::BeliefState;
+use zenb_core::domain::Observation;
+use zenb_core::engine::Engine;
 // Skandha pipeline is tested through Engine methods
 use std::time::Instant;
 
@@ -173,27 +173,35 @@ fn test_skandha_vs_baseline_calm_scenario() {
     let (vajra_time, vajra_belief) = benchmark_vajra_piecemeal(&observations);
     let vajra_dev = compute_deviation(&vajra_belief, zenb_core::belief::BeliefBasis::Calm);
     println!("\nVajra Piecemeal (current):");
-    println!("  Time: {:.6}s ({:+.2}% vs baseline)",
-             vajra_time,
-             ((vajra_time - baseline_time) / baseline_time * 100.0));
+    println!(
+        "  Time: {:.6}s ({:+.2}% vs baseline)",
+        vajra_time,
+        ((vajra_time - baseline_time) / baseline_time * 100.0)
+    );
     println!("  Belief: {:?}", vajra_belief.p);
     println!("  Mode: {:?}", vajra_belief.mode);
-    println!("  Deviation from ideal: {:.4} ({:+.2}% vs baseline)",
-             vajra_dev,
-             ((vajra_dev - baseline_dev) / baseline_dev * 100.0));
+    println!(
+        "  Deviation from ideal: {:.4} ({:+.2}% vs baseline)",
+        vajra_dev,
+        ((vajra_dev - baseline_dev) / baseline_dev * 100.0)
+    );
 
     // Skandha Unified
     let (skandha_time, skandha_belief) = benchmark_skandha_unified(&observations);
     let skandha_dev = compute_deviation(&skandha_belief, zenb_core::belief::BeliefBasis::Calm);
     println!("\nSkandha Unified (proposed):");
-    println!("  Time: {:.6}s ({:+.2}% vs baseline)",
-             skandha_time,
-             ((skandha_time - baseline_time) / baseline_time * 100.0));
+    println!(
+        "  Time: {:.6}s ({:+.2}% vs baseline)",
+        skandha_time,
+        ((skandha_time - baseline_time) / baseline_time * 100.0)
+    );
     println!("  Belief: {:?}", skandha_belief.p);
     println!("  Mode: {:?}", skandha_belief.mode);
-    println!("  Deviation from ideal: {:.4} ({:+.2}% vs baseline)",
-             skandha_dev,
-             ((skandha_dev - baseline_dev) / baseline_dev * 100.0));
+    println!(
+        "  Deviation from ideal: {:.4} ({:+.2}% vs baseline)",
+        skandha_dev,
+        ((skandha_dev - baseline_dev) / baseline_dev * 100.0)
+    );
 }
 
 #[test]
@@ -215,24 +223,32 @@ fn test_skandha_vs_baseline_stress_scenario() {
     let (vajra_time, vajra_belief) = benchmark_vajra_piecemeal(&observations);
     let vajra_dev = compute_deviation(&vajra_belief, zenb_core::belief::BeliefBasis::Stress);
     println!("\nVajra Piecemeal:");
-    println!("  Time: {:.6}s ({:+.2}%)",
-             vajra_time,
-             ((vajra_time - baseline_time) / baseline_time * 100.0));
+    println!(
+        "  Time: {:.6}s ({:+.2}%)",
+        vajra_time,
+        ((vajra_time - baseline_time) / baseline_time * 100.0)
+    );
     println!("  Belief: {:?}", vajra_belief.p);
-    println!("  Deviation: {:.4} ({:+.2}%)",
-             vajra_dev,
-             ((vajra_dev - baseline_dev) / baseline_dev * 100.0));
+    println!(
+        "  Deviation: {:.4} ({:+.2}%)",
+        vajra_dev,
+        ((vajra_dev - baseline_dev) / baseline_dev * 100.0)
+    );
 
     let (skandha_time, skandha_belief) = benchmark_skandha_unified(&observations);
     let skandha_dev = compute_deviation(&skandha_belief, zenb_core::belief::BeliefBasis::Stress);
     println!("\nSkandha Unified:");
-    println!("  Time: {:.6}s ({:+.2}%)",
-             skandha_time,
-             ((skandha_time - baseline_time) / baseline_time * 100.0));
+    println!(
+        "  Time: {:.6}s ({:+.2}%)",
+        skandha_time,
+        ((skandha_time - baseline_time) / baseline_time * 100.0)
+    );
     println!("  Belief: {:?}", skandha_belief.p);
-    println!("  Deviation: {:.4} ({:+.2}%)",
-             skandha_dev,
-             ((skandha_dev - baseline_dev) / baseline_dev * 100.0));
+    println!(
+        "  Deviation: {:.4} ({:+.2}%)",
+        skandha_dev,
+        ((skandha_dev - baseline_dev) / baseline_dev * 100.0)
+    );
 }
 
 #[test]
@@ -247,7 +263,7 @@ fn test_skandha_contradictory_sensors() {
         observations.push(Observation {
             timestamp_us: ts,
             bio_metrics: Some(zenb_core::domain::BioMetrics {
-                hr_bpm: Some(60.0), // Low HR (calm)
+                hr_bpm: Some(60.0),    // Low HR (calm)
                 hrv_rmssd: Some(20.0), // Low HRV (stressed)
                 respiratory_rate: Some(12.0),
             }),
@@ -268,18 +284,22 @@ fn test_skandha_contradictory_sensors() {
 
     let (vajra_time, vajra_belief) = benchmark_vajra_piecemeal(&observations);
     println!("\nVajra Piecemeal (with SheafPerception):");
-    println!("  Time: {:.6}s ({:+.2}%)",
-             vajra_time,
-             ((vajra_time - baseline_time) / baseline_time * 100.0));
+    println!(
+        "  Time: {:.6}s ({:+.2}%)",
+        vajra_time,
+        ((vajra_time - baseline_time) / baseline_time * 100.0)
+    );
     println!("  Belief: {:?}", vajra_belief.p);
     println!("  Mode: {:?}", vajra_belief.mode);
     println!("  Sheaf should reduce contradiction!");
 
     let (skandha_time, skandha_belief) = benchmark_skandha_unified(&observations);
     println!("\nSkandha Unified:");
-    println!("  Time: {:.6}s ({:+.2}%)",
-             skandha_time,
-             ((skandha_time - baseline_time) / baseline_time * 100.0));
+    println!(
+        "  Time: {:.6}s ({:+.2}%)",
+        skandha_time,
+        ((skandha_time - baseline_time) / baseline_time * 100.0)
+    );
     println!("  Belief: {:?}", skandha_belief.p);
     println!("  Mode: {:?}", skandha_belief.mode);
 }
@@ -325,15 +345,19 @@ fn test_memory_usage() {
     ALLOCATED.store(0, Ordering::SeqCst);
     let _ = benchmark_vajra_piecemeal(&observations);
     let vajra_mem = ALLOCATED.load(Ordering::SeqCst);
-    println!("Vajra Piecemeal peak allocations: {} bytes ({:+.2}%)",
-             vajra_mem,
-             ((vajra_mem as f64 - baseline_mem as f64) / baseline_mem as f64 * 100.0));
+    println!(
+        "Vajra Piecemeal peak allocations: {} bytes ({:+.2}%)",
+        vajra_mem,
+        ((vajra_mem as f64 - baseline_mem as f64) / baseline_mem as f64 * 100.0)
+    );
 
     // Skandha Unified
     ALLOCATED.store(0, Ordering::SeqCst);
     let _ = benchmark_skandha_unified(&observations);
     let skandha_mem = ALLOCATED.load(Ordering::SeqCst);
-    println!("Skandha Unified peak allocations: {} bytes ({:+.2}%)",
-             skandha_mem,
-             ((skandha_mem as f64 - baseline_mem as f64) / baseline_mem as f64 * 100.0));
+    println!(
+        "Skandha Unified peak allocations: {} bytes ({:+.2}%)",
+        skandha_mem,
+        ((skandha_mem as f64 - baseline_mem as f64) / baseline_mem as f64 * 100.0)
+    );
 }

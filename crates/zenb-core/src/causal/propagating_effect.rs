@@ -33,10 +33,10 @@ use super::Variable;
 pub struct PropagatingEffect<T> {
     /// The current value (None if error occurred)
     value: Option<T>,
-    
+
     /// Audit trail of operations
     logs: Vec<String>,
-    
+
     /// Error state (if any)
     error: Option<String>,
 }
@@ -52,7 +52,7 @@ impl<T> PropagatingEffect<T> {
             error: None,
         }
     }
-    
+
     /// Create an error effect
     pub fn error(msg: impl Into<String>) -> Self {
         Self {
@@ -61,7 +61,7 @@ impl<T> PropagatingEffect<T> {
             error: Some(msg.into()),
         }
     }
-    
+
     /// Monadic bind - chain computations
     ///
     /// If current effect is error, short-circuit and return error.
@@ -102,7 +102,7 @@ impl<T> PropagatingEffect<T> {
             }
         }
     }
-    
+
     /// Functor map - transform value without changing monad structure
     ///
     /// This is lighter than `bind` when you don't need to return a new effect.
@@ -128,13 +128,13 @@ impl<T> PropagatingEffect<T> {
             },
         }
     }
-    
+
     /// Add log entry to audit trail
     pub fn log(mut self, msg: impl Into<String>) -> Self {
         self.logs.push(msg.into());
         self
     }
-    
+
     /// Extract final value or error
     pub fn extract(self) -> Result<T, String> {
         match (self.value, self.error) {
@@ -143,27 +143,27 @@ impl<T> PropagatingEffect<T> {
             (None, None) => Err("No value and no error".to_string()),
         }
     }
-    
+
     /// Get reference to value (if present)
     pub fn value(&self) -> Option<&T> {
         self.value.as_ref()
     }
-    
+
     /// Get logs
     pub fn logs(&self) -> &[String] {
         &self.logs
     }
-    
+
     /// Get error (if present)
     pub fn get_error(&self) -> Option<&str> {
         self.error.as_deref()
     }
-    
+
     /// Check if effect is in error state
     pub fn is_error(&self) -> bool {
         self.error.is_some()
     }
-    
+
     /// Check if effect has value
     pub fn has_value(&self) -> bool {
         self.value.is_some() && self.error.is_none()
@@ -213,10 +213,8 @@ mod tests {
 
     #[test]
     fn test_map() {
-        let result = PropagatingEffect::pure(10)
-            .map(|x| x * 2)
-            .map(|x| x + 5);
-        
+        let result = PropagatingEffect::pure(10).map(|x| x * 2).map(|x| x + 5);
+
         assert_eq!(result.extract(), Ok(25));
     }
 
@@ -225,7 +223,7 @@ mod tests {
         let result = PropagatingEffect::pure(5)
             .bind(|x| PropagatingEffect::pure(x * 2))
             .bind(|x| PropagatingEffect::pure(x + 3));
-        
+
         assert_eq!(result.extract(), Ok(13));
     }
 
@@ -235,7 +233,7 @@ mod tests {
             .bind(|x| PropagatingEffect::pure(x * 2))
             .bind(|_| PropagatingEffect::<i32>::error("computation failed"))
             .bind(|x| PropagatingEffect::pure(x + 100)); // Should not execute
-        
+
         assert!(result.is_error());
         assert_eq!(result.extract(), Err("computation failed".to_string()));
     }
@@ -248,7 +246,7 @@ mod tests {
             .log("Step 2: doubled")
             .map(|x| x + 5)
             .log("Step 3: added 5");
-        
+
         assert_eq!(result.logs().len(), 3);
         assert_eq!(result.logs()[0], "Step 1: initialized");
         assert_eq!(result.extract(), Ok(25));
@@ -259,7 +257,7 @@ mod tests {
         let result = PropagatingEffect::pure(5)
             .log("Initial value")
             .bind(|x| PropagatingEffect::pure(x * 2).log("Doubled"));
-        
+
         assert_eq!(result.logs().len(), 2);
         assert_eq!(result.logs()[0], "Initial value");
         assert_eq!(result.logs()[1], "Doubled");
@@ -268,11 +266,11 @@ mod tests {
     #[test]
     fn test_intervention() {
         let state = BeliefState::default();
-        
+
         let result = PropagatingEffect::pure(state)
             .intervene(Variable::HeartRate, 0.9)
             .extract();
-        
+
         assert!(result.is_ok());
         let final_state = result.unwrap();
         // Should have modified belief state (increased stress)
@@ -282,10 +280,9 @@ mod tests {
     #[test]
     fn test_intervention_logs() {
         let state = BeliefState::default();
-        
-        let effect = PropagatingEffect::pure(state)
-            .intervene(Variable::HeartRate, 0.9);
-        
+
+        let effect = PropagatingEffect::pure(state).intervene(Variable::HeartRate, 0.9);
+
         assert!(effect.logs().iter().any(|log| log.contains("Intervention")));
     }
 
@@ -293,7 +290,7 @@ mod tests {
     fn test_conditional_intervention() {
         let state = BeliefState::default();
         let emergency = true;
-        
+
         let result = PropagatingEffect::pure(state)
             .map(|s| {
                 if emergency {
@@ -303,7 +300,7 @@ mod tests {
                 }
             })
             .extract();
-        
+
         assert!(result.is_ok());
     }
 
@@ -316,7 +313,7 @@ mod tests {
             .log("Double")
             .bind(|x| PropagatingEffect::pure(x - 0.5).log("Subtract 0.5"))
             .extract();
-        
+
         assert_eq!(result, Ok(3.5)); // (1 + 1) * 2 - 0.5 = 3.5
     }
 }

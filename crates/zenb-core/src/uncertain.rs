@@ -31,13 +31,13 @@ use serde::{Deserialize, Serialize};
 pub struct Uncertain<T> {
     /// The predicted/estimated value
     pub value: T,
-    
+
     /// Confidence score in [0.0, 1.0]
     /// - 1.0 = completely certain (e.g., from prior knowledge)
     /// - 0.5 = neutral (cold start, no information)
     /// - 0.0 = completely uncertain (contradictory evidence)
     pub confidence: f32,
-    
+
     /// Source of this value (for audit trail)
     /// Examples: "PC Algorithm", "Prior Knowledge", "UKF Estimation"
     pub source: String,
@@ -52,17 +52,17 @@ impl<T> Uncertain<T> {
             source: source.into(),
         }
     }
-    
+
     /// Create a certain value (confidence = 1.0)
     pub fn certain(value: T, source: impl Into<String>) -> Self {
         Self::new(value, 1.0, source)
     }
-    
+
     /// Create a neutral value (confidence = 0.5)
     pub fn neutral(value: T, source: impl Into<String>) -> Self {
         Self::new(value, 0.5, source)
     }
-    
+
     /// Map the value while preserving uncertainty metadata
     pub fn map<U, F>(self, f: F) -> Uncertain<U>
     where
@@ -74,12 +74,12 @@ impl<T> Uncertain<T> {
             source: self.source,
         }
     }
-    
+
     /// Check if confidence is above threshold
     pub fn is_confident(&self, threshold: f32) -> bool {
         self.confidence >= threshold
     }
-    
+
     /// Combine two uncertain values using weighted average
     /// Weights are based on confidence scores
     pub fn combine_with<F>(self, other: Uncertain<T>, combiner: F) -> Uncertain<T>
@@ -93,7 +93,7 @@ impl<T> Uncertain<T> {
             0.5
         };
         let weight_other = 1.0 - weight_self;
-        
+
         Uncertain {
             value: combiner(self.value, other.value, weight_self, weight_other),
             confidence: (self.confidence + other.confidence) / 2.0,
@@ -108,7 +108,7 @@ impl<T: Clone> Uncertain<T> {
     pub fn into_value(self) -> T {
         self.value
     }
-    
+
     /// Get reference to value
     pub fn value(&self) -> &T {
         &self.value
@@ -123,7 +123,7 @@ impl<T: Clone> Uncertain<T> {
 pub enum MaybeUncertain<T> {
     /// Value is certain (no uncertainty)
     Certain(T),
-    
+
     /// Value has associated uncertainty
     Uncertain(Uncertain<T>),
 }
@@ -136,7 +136,7 @@ impl<T> MaybeUncertain<T> {
             MaybeUncertain::Uncertain(u) => u.value,
         }
     }
-    
+
     /// Get confidence (1.0 for certain values)
     pub fn confidence(&self) -> f32 {
         match self {
@@ -144,7 +144,7 @@ impl<T> MaybeUncertain<T> {
             MaybeUncertain::Uncertain(u) => u.confidence,
         }
     }
-    
+
     /// Convert to Uncertain (certain values get confidence = 1.0)
     pub fn into_uncertain(self, default_source: impl Into<String>) -> Uncertain<T> {
         match self {
@@ -186,7 +186,7 @@ mod tests {
     fn test_confidence_clamping() {
         let u1 = Uncertain::new(1, 1.5, "test");
         assert_eq!(u1.confidence, 1.0);
-        
+
         let u2 = Uncertain::new(2, -0.5, "test");
         assert_eq!(u2.confidence, 0.0);
     }
@@ -195,7 +195,7 @@ mod tests {
     fn test_map() {
         let u = Uncertain::new(10, 0.9, "test");
         let mapped = u.map(|x| x * 2);
-        
+
         assert_eq!(mapped.value, 20);
         assert_eq!(mapped.confidence, 0.9);
         assert_eq!(mapped.source, "test");
@@ -212,9 +212,9 @@ mod tests {
     fn test_combine() {
         let u1 = Uncertain::new(10.0, 0.8, "source1");
         let u2 = Uncertain::new(20.0, 0.6, "source2");
-        
+
         let combined = u1.combine_with(u2, |v1, v2, w1, w2| v1 * w1 + v2 * w2);
-        
+
         // Should be weighted average: 10*0.571 + 20*0.429 = 14.29
         assert!((combined.value - 14.29).abs() < 0.1);
         assert!((combined.confidence - 0.7).abs() < 0.01); // (0.8 + 0.6) / 2
@@ -225,7 +225,7 @@ mod tests {
         let certain = MaybeUncertain::Certain(42);
         assert_eq!(certain.confidence(), 1.0);
         assert_eq!(certain.into_value(), 42);
-        
+
         let uncertain = MaybeUncertain::Uncertain(Uncertain::new(10, 0.5, "test"));
         assert_eq!(uncertain.confidence(), 0.5);
     }

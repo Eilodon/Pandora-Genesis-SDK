@@ -50,16 +50,16 @@ pub struct DagmaConfig {
 impl Default for DagmaConfig {
     fn default() -> Self {
         Self {
-            lambda: 0.02,       // Moderate sparsity
-            s: 1.0,             // Standard log-det parameter
-            rho_init: 1.0,      // Initial penalty
-            rho_mult: 10.0,     // Aggressive penalty increase
-            rho_max: 1e16,      // Prevent overflow
-            max_iter: 100,      // Outer iterations
-            h_tol: 1e-8,        // Tight convergence
-            lr: 0.02,           // Learning rate
+            lambda: 0.02,        // Moderate sparsity
+            s: 1.0,              // Standard log-det parameter
+            rho_init: 1.0,       // Initial penalty
+            rho_mult: 10.0,      // Aggressive penalty increase
+            rho_max: 1e16,       // Prevent overflow
+            max_iter: 100,       // Outer iterations
+            h_tol: 1e-8,         // Tight convergence
+            lr: 0.02,            // Learning rate
             max_inner_iter: 300, // Inner steps
-            threshold: 0.3,     // Sparsification threshold
+            threshold: 0.3,      // Sparsification threshold
         }
     }
 }
@@ -91,12 +91,19 @@ impl Dagma {
         let n_samples = data.nrows();
 
         if data.ncols() != n {
-            log::error!("DAGMA: Data dimension mismatch: got {}, expected {}", data.ncols(), n);
+            log::error!(
+                "DAGMA: Data dimension mismatch: got {}, expected {}",
+                data.ncols(),
+                n
+            );
             return DMatrix::zeros(n, n);
         }
 
         if n_samples < 10 {
-            log::warn!("DAGMA: Very few samples ({}), results may be unreliable", n_samples);
+            log::warn!(
+                "DAGMA: Very few samples ({}), results may be unreliable",
+                n_samples
+            );
         }
 
         // Initialize W with small random values
@@ -114,7 +121,11 @@ impl Dagma {
         // Precompute X^T X for efficiency
         let xtx = data.transpose() * data;
 
-        log::info!("DAGMA: Starting optimization (n_vars={}, n_samples={})", n, n_samples);
+        log::info!(
+            "DAGMA: Starting optimization (n_vars={}, n_samples={})",
+            n,
+            n_samples
+        );
 
         // Outer loop: augmented Lagrangian method
         for iter in 0..self.config.max_iter {
@@ -129,7 +140,10 @@ impl Dagma {
                 let sparsity = self.count_nonzero(&w, 0.01);
                 log::info!(
                     "DAGMA iter {}: h(W)={:.6e}, loss={:.4}, ||W||_0={}",
-                    iter, h, loss, sparsity
+                    iter,
+                    h,
+                    loss,
+                    sparsity
                 );
             }
 
@@ -320,10 +334,18 @@ mod tests {
         println!("DAGMA Learned W:\n{}", w);
 
         // Check that W[0,1] > 0 (X1 -> X2)
-        assert!(w[(0, 1)].abs() > 0.1, "Should learn X1 -> X2, got {}", w[(0, 1)]);
+        assert!(
+            w[(0, 1)].abs() > 0.1,
+            "Should learn X1 -> X2, got {}",
+            w[(0, 1)]
+        );
 
         // Check that W[1,2] > 0 (X2 -> X3)
-        assert!(w[(1, 2)].abs() > 0.1, "Should learn X2 -> X3, got {}", w[(1, 2)]);
+        assert!(
+            w[(1, 2)].abs() > 0.1,
+            "Should learn X2 -> X3, got {}",
+            w[(1, 2)]
+        );
 
         // Check acyclicity
         let h = dagma.h_logdet(&w);
@@ -341,7 +363,7 @@ mod tests {
         println!("DAGMA h(DAG) = {}", h_dag);
         assert!(h_dag.abs() < 0.1, "DAG should have h ≈ 0");
 
-        // Cycle: W = [[0, 0.5], [0.5, 0]] 
+        // Cycle: W = [[0, 0.5], [0.5, 0]]
         // Note: For log-det acyclicity, weak cycles (small edge weights) produce small h values
         // The formula h(W) = -log det(sI - W⊙W) + d*log(s) gives:
         // - h = 0 for true DAGs
@@ -353,7 +375,7 @@ mod tests {
         // Cycle should have h > 0 (any positive value indicates cycle)
         // Threshold lowered from 0.1 to 0.01 because weak cycles have small h
         assert!(h_cycle > 0.01, "Cycle should have h > 0, got {}", h_cycle);
-        
+
         // Stronger cycle test: higher weights should give higher h
         let w_strong_cycle = DMatrix::from_row_slice(2, 2, &[0.0, 0.9, 0.9, 0.0]);
         let h_strong = dagma.h_logdet(&w_strong_cycle);

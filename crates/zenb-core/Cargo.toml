@@ -36,3 +36,7 @@ skandha_pipeline = []
 thermodynamic_logic = []
 # Allow dharma key mutation (test/research only - unsafe for production)
 allow_dharma_mutation = []
+
+[[bench]]
+name = "forensic_bench"
+harness = false

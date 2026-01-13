@@ -17,10 +17,12 @@
 //!
 //! // Self-adjusting threshold
 //! let mut threshold = AdaptiveThreshold::new(0.5, 0.2, 0.8, 0.05);
+//! let value = 0.6;
 //! if value > threshold.get() {
 //!     // Take action...
 //! }
 //! // After observing outcome, adapt
+//! let performance_delta = 0.1;
 //! threshold.adapt(performance_delta);
 //! ```
 
@@ -57,9 +59,15 @@ impl AdaptiveThreshold {
     /// * `max` - Maximum allowed value
     /// * `learning_rate` - How quickly to adapt (0.01 - 0.1)
     pub fn new(base: f32, min: f32, max: f32, learning_rate: f32) -> Self {
-        debug_assert!(min <= base && base <= max, "Invalid bounds: min <= base <= max");
-        debug_assert!(learning_rate > 0.0 && learning_rate < 1.0, "Learning rate must be in (0, 1)");
-        
+        debug_assert!(
+            min <= base && base <= max,
+            "Invalid bounds: min <= base <= max"
+        );
+        debug_assert!(
+            learning_rate > 0.0 && learning_rate < 1.0,
+            "Learning rate must be in (0, 1)"
+        );
+
         Self {
             base_value: base,
             current_value: base,
@@ -88,12 +96,14 @@ impl AdaptiveThreshold {
     pub fn adapt(&mut self, performance_delta: f32) {
         // Invert: good performance (positive) should lower threshold
         let adjustment = -performance_delta * self.learning_rate;
-        self.current_value = (self.current_value + adjustment)
-            .clamp(self.min_value, self.max_value);
-        
+        self.current_value =
+            (self.current_value + adjustment).clamp(self.min_value, self.max_value);
+
         log::trace!(
             "Adapted threshold: {:.4} → {:.4} (delta: {:.4})",
-            self.base_value, self.current_value, adjustment
+            self.base_value,
+            self.current_value,
+            adjustment
         );
     }
 
@@ -144,7 +154,7 @@ impl AnomalyDetector {
     pub fn new(window_size: usize, threshold_std: f32) -> Self {
         debug_assert!(window_size >= 3, "Window size must be at least 3");
         debug_assert!(threshold_std > 0.0, "Threshold must be positive");
-        
+
         Self {
             window_size,
             history: VecDeque::with_capacity(window_size),
@@ -170,9 +180,8 @@ impl AnomalyDetector {
 
         // Calculate mean and std
         let mean: f32 = self.history.iter().sum::<f32>() / self.history.len() as f32;
-        let variance: f32 = self.history.iter()
-            .map(|x| (x - mean).powi(2))
-            .sum::<f32>() / self.history.len() as f32;
+        let variance: f32 = self.history.iter().map(|x| (x - mean).powi(2)).sum::<f32>()
+            / self.history.len() as f32;
         let std = variance.sqrt();
 
         // Avoid division by zero
@@ -187,7 +196,10 @@ impl AnomalyDetector {
         if z_score > self.threshold_std {
             log::debug!(
                 "Anomaly detected: value={:.4}, mean={:.4}, std={:.4}, z={:.4}",
-                value, mean, std, z_score
+                value,
+                mean,
+                std,
+                z_score
             );
             z_score / self.threshold_std // Normalized: 1.0 = at threshold
         } else {
@@ -200,12 +212,11 @@ impl AnomalyDetector {
         if self.history.len() < 2 {
             return (0.0, 0.0);
         }
-        
+
         let mean: f32 = self.history.iter().sum::<f32>() / self.history.len() as f32;
-        let variance: f32 = self.history.iter()
-            .map(|x| (x - mean).powi(2))
-            .sum::<f32>() / self.history.len() as f32;
-        
+        let variance: f32 = self.history.iter().map(|x| (x - mean).powi(2)).sum::<f32>()
+            / self.history.len() as f32;
+
         (mean, variance.sqrt())
     }
 
@@ -248,7 +259,7 @@ impl ConfidenceTracker {
     /// * `window_size` - Number of recent outcomes to track
     pub fn new(window_size: usize) -> Self {
         debug_assert!(window_size > 0, "Window size must be positive");
-        
+
         Self {
             success_count: 0,
             total_count: 0,

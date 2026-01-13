@@ -44,9 +44,9 @@ pub struct ModernHopfieldConfig {
 impl Default for ModernHopfieldConfig {
     fn default() -> Self {
         Self {
-            beta: 3.0,        // Moderate sharpness
+            beta: 3.0,          // Moderate sharpness
             max_patterns: 1000, // Can store many patterns
-            dimension: 128,    // Typical dimension
+            dimension: 128,     // Typical dimension
         }
     }
 }
@@ -93,9 +93,9 @@ impl ModernHopfieldNetwork {
     /// Create with default configuration optimized for ZenB
     pub fn default_for_zenb() -> Self {
         Self::new(ModernHopfieldConfig {
-            beta: 5.0,        // Sharp retrieval
+            beta: 5.0, // Sharp retrieval
             max_patterns: 500,
-            dimension: 128,   // Balance capacity and speed
+            dimension: 128, // Balance capacity and speed
         })
     }
 
@@ -172,10 +172,7 @@ impl ModernHopfieldNetwork {
             .cloned()
             .fold(f32::NEG_INFINITY, f32::max);
 
-        let exp_sims: Vec<f32> = similarities
-            .iter()
-            .map(|s| (s - max_sim).exp())
-            .collect();
+        let exp_sims: Vec<f32> = similarities.iter().map(|s| (s - max_sim).exp()).collect();
 
         let sum_exp: f32 = exp_sims.iter().sum();
 
@@ -184,10 +181,7 @@ impl ModernHopfieldNetwork {
             return self.find_nearest(query);
         }
 
-        let weights: Vec<f32> = exp_sims
-            .iter()
-            .map(|e| e / sum_exp)
-            .collect();
+        let weights: Vec<f32> = exp_sims.iter().map(|e| e / sum_exp).collect();
 
         // Step 3: Weighted sum of patterns
         let mut result = DVector::zeros(self.config.dimension);
@@ -200,7 +194,11 @@ impl ModernHopfieldNetwork {
 
     /// Retrieve from raw f32 slice (convenience wrapper)
     pub fn retrieve_slice(&mut self, query: &[f32]) -> Vec<f32> {
-        assert_eq!(query.len(), self.config.dimension, "Query dimension mismatch");
+        assert_eq!(
+            query.len(),
+            self.config.dimension,
+            "Query dimension mismatch"
+        );
         let q = DVector::from_vec(query.to_vec());
         let result = self.retrieve(&q);
         result.iter().cloned().collect()
@@ -213,7 +211,9 @@ impl ModernHopfieldNetwork {
             .min_by(|a, b| {
                 let dist_a = (*a - query).norm_squared();
                 let dist_b = (*b - query).norm_squared();
-                dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
+                dist_a
+                    .partial_cmp(&dist_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
             .cloned()
             .unwrap_or_else(|| query.clone())
@@ -241,10 +241,7 @@ impl ModernHopfieldNetwork {
             .cloned()
             .fold(f32::NEG_INFINITY, f32::max);
 
-        let sum_exp: f32 = similarities
-            .iter()
-            .map(|s| (s - max_sim).exp())
-            .sum();
+        let sum_exp: f32 = similarities.iter().map(|s| (s - max_sim).exp()).sum();
 
         // E = -lse = -(max + log(sum(exp)))
         -(max_sim + sum_exp.ln())

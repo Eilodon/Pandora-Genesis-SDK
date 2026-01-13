@@ -13,8 +13,8 @@
 //! 2. Only testing architectural difference (piecemeal vs unified pipeline)
 //! 3. Measuring pipeline-specific benefits (Sheaf consensus, Holographic memory, Dharma ethics)
 
+use zenb_core::domain::{BioMetrics, Observation};
 use zenb_core::engine::Engine;
-use zenb_core::domain::{Observation, BioMetrics};
 // BeliefState not needed directly
 use std::time::Instant;
 
@@ -23,9 +23,9 @@ fn contradictory_observation(timestamp_us: i64) -> Observation {
     Observation {
         timestamp_us,
         bio_metrics: Some(BioMetrics {
-            hr_bpm: Some(55.0),      // Says CALM (low HR)
-            hrv_rmssd: Some(15.0),   // Says STRESSED (very low HRV!)
-            respiratory_rate: Some(10.0),  // Says calm
+            hr_bpm: Some(55.0),           // Says CALM (low HR)
+            hrv_rmssd: Some(15.0),        // Says STRESSED (very low HRV!)
+            respiratory_rate: Some(10.0), // Says calm
         }),
         environmental_context: None,
         digital_context: None,
@@ -39,7 +39,7 @@ fn calm_observation(timestamp_us: i64) -> Observation {
         timestamp_us,
         bio_metrics: Some(BioMetrics {
             hr_bpm: Some(62.0),
-            hrv_rmssd: Some(55.0),  // High HRV (calm)
+            hrv_rmssd: Some(55.0), // High HRV (calm)
             respiratory_rate: Some(10.0),
         }),
         environmental_context: None,
@@ -53,9 +53,9 @@ fn stress_observation(timestamp_us: i64) -> Observation {
     Observation {
         timestamp_us,
         bio_metrics: Some(BioMetrics {
-            hr_bpm: Some(95.0),     // High HR
-            hrv_rmssd: Some(22.0),  // Low HRV
-            respiratory_rate: Some(18.0),  // Fast breathing
+            hr_bpm: Some(95.0),           // High HR
+            hrv_rmssd: Some(22.0),        // Low HRV
+            respiratory_rate: Some(18.0), // Fast breathing
         }),
         environmental_context: None,
         digital_context: None,
@@ -76,7 +76,8 @@ fn belief_entropy(belief: &[f32; 5]) -> f32 {
 
 /// Find dominant mode index
 fn dominant_mode(belief: &[f32; 5]) -> usize {
-    belief.iter()
+    belief
+        .iter()
         .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
         .map(|(idx, _)| idx)
@@ -114,13 +115,17 @@ fn test_sheaf_consensus_benefit() {
 
     println!("Baseline (no Sheaf):");
     println!("  Belief: {:?}", baseline_belief.p);
-    println!("  Mode: {} (idx={})", format!("{:?}", baseline_belief.mode), baseline_mode);
+    println!(
+        "  Mode: {} (idx={})",
+        format!("{:?}", baseline_belief.mode),
+        baseline_mode
+    );
     println!("  Confidence: {:.3}", baseline_belief.conf);
     println!("  Entropy: {:.3} (lower = more decisive)", baseline_entropy);
 
     // Vajra with Sheaf
     let mut vajra_engine = Engine::new_for_test(6.0);
-    vajra_engine.config.features.vajra_enabled = true;  // Enable Sheaf
+    vajra_engine.config.features.vajra_enabled = true; // Enable Sheaf
 
     for obs in &observations {
         let bio = obs.bio_metrics.as_ref().unwrap();
@@ -128,8 +133,8 @@ fn test_sheaf_consensus_benefit() {
             bio.hr_bpm.unwrap(),
             bio.hrv_rmssd.unwrap(),
             bio.respiratory_rate.unwrap(),
-            0.9,  // quality
-            0.1,  // motion
+            0.9, // quality
+            0.1, // motion
         ];
         let est = vajra_engine.ingest_sensor(&features, obs.timestamp_us);
         let _ = vajra_engine.make_control(&est, obs.timestamp_us);
@@ -141,7 +146,11 @@ fn test_sheaf_consensus_benefit() {
 
     println!("\nVajra (with Sheaf):");
     println!("  Belief: {:?}", vajra_belief.p);
-    println!("  Mode: {} (idx={})", format!("{:?}", vajra_belief.mode), vajra_mode);
+    println!(
+        "  Mode: {} (idx={})",
+        format!("{:?}", vajra_belief.mode),
+        vajra_mode
+    );
     println!("  Confidence: {:.3}", vajra_belief.conf);
     println!("  Entropy: {:.3} (lower = more decisive)", vajra_entropy);
 
@@ -150,7 +159,10 @@ fn test_sheaf_consensus_benefit() {
     if vajra_entropy < baseline_entropy {
         println!("  ✅ Sheaf REDUCES ambiguity by {:.1}%", entropy_reduction);
     } else {
-        println!("  ❌ Sheaf INCREASES ambiguity by {:.1}%", -entropy_reduction);
+        println!(
+            "  ❌ Sheaf INCREASES ambiguity by {:.1}%",
+            -entropy_reduction
+        );
     }
 
     // Sheaf should reduce entropy (make more decisive decision)
@@ -163,9 +175,8 @@ fn test_convergence_speed() {
     println!("Scenario: Clean calm data (HR=62, HRV=55)");
     println!("Expected: Both converge to Calm mode, measure speed\n");
 
-    let observations: Vec<Observation> = (0..100)
-        .map(|i| calm_observation(i * 1_000_000))
-        .collect();
+    let observations: Vec<Observation> =
+        (0..100).map(|i| calm_observation(i * 1_000_000)).collect();
 
     // Baseline
     let mut baseline_engine = Engine::new_for_test(6.0);
@@ -185,7 +196,8 @@ fn test_convergence_speed() {
         // Check convergence (Calm mode, confidence > 0.5)
         if baseline_converged_at.is_none()
             && dominant_mode(&baseline_engine.belief_state.p) == 0  // Calm
-            && baseline_engine.belief_state.p[0] > 0.5 {
+            && baseline_engine.belief_state.p[0] > 0.5
+        {
             baseline_converged_at = Some(i);
         }
     }
@@ -209,17 +221,24 @@ fn test_convergence_speed() {
 
         if vajra_converged_at.is_none()
             && dominant_mode(&vajra_engine.belief_state.p) == 0
-            && vajra_engine.belief_state.p[0] > 0.5 {
+            && vajra_engine.belief_state.p[0] > 0.5
+        {
             vajra_converged_at = Some(i);
         }
     }
 
     println!("Baseline:");
-    println!("  Converged at: {} observations", baseline_converged_at.unwrap_or(999));
+    println!(
+        "  Converged at: {} observations",
+        baseline_converged_at.unwrap_or(999)
+    );
     println!("  Final belief: {:?}", baseline_engine.belief_state.p);
 
     println!("\nVajra:");
-    println!("  Converged at: {} observations", vajra_converged_at.unwrap_or(999));
+    println!(
+        "  Converged at: {} observations",
+        vajra_converged_at.unwrap_or(999)
+    );
     println!("  Final belief: {:?}", vajra_engine.belief_state.p);
 
     if let (Some(b), Some(v)) = (baseline_converged_at, vajra_converged_at) {
@@ -238,9 +257,8 @@ fn test_pattern_memory_benefit() {
     println!("Scenario: Train on stress pattern (20x), then test recall");
     println!("Expected: Holographic memory should recognize pattern faster\n");
 
-    let stress_pattern: Vec<Observation> = (0..20)
-        .map(|i| stress_observation(i * 1_000_000))
-        .collect();
+    let stress_pattern: Vec<Observation> =
+        (0..20).map(|i| stress_observation(i * 1_000_000)).collect();
 
     // Baseline (no Holographic memory)
     let mut baseline_engine = Engine::new_for_test(6.0);
@@ -269,10 +287,13 @@ fn test_pattern_memory_benefit() {
     let est = baseline_engine.ingest_sensor(&features, test_obs.timestamp_us);
     let _ = baseline_engine.make_control(&est, test_obs.timestamp_us);
 
-    let baseline_stress_conf = baseline_engine.belief_state.p[1];  // Stress mode
+    let baseline_stress_conf = baseline_engine.belief_state.p[1]; // Stress mode
 
     println!("Baseline (no memory):");
-    println!("  Stress confidence after 20 training: {:.3}", baseline_stress_conf);
+    println!(
+        "  Stress confidence after 20 training: {:.3}",
+        baseline_stress_conf
+    );
 
     // Vajra (with Holographic memory)
     let mut vajra_engine = Engine::new_for_test(6.0);
@@ -306,13 +327,22 @@ fn test_pattern_memory_benefit() {
     let vajra_stress_conf = vajra_engine.belief_state.p[1];
 
     println!("\nVajra (with Holographic memory):");
-    println!("  Stress confidence after 20 training: {:.3}", vajra_stress_conf);
+    println!(
+        "  Stress confidence after 20 training: {:.3}",
+        vajra_stress_conf
+    );
 
     let improvement = (vajra_stress_conf - baseline_stress_conf) / baseline_stress_conf * 100.0;
     if vajra_stress_conf > baseline_stress_conf {
-        println!("\n📊 RESULT: ✅ Memory improves recognition by {:.1}%", improvement);
+        println!(
+            "\n📊 RESULT: ✅ Memory improves recognition by {:.1}%",
+            improvement
+        );
     } else {
-        println!("\n📊 RESULT: ❌ Memory WORSENS recognition by {:.1}%", -improvement);
+        println!(
+            "\n📊 RESULT: ❌ Memory WORSENS recognition by {:.1}%",
+            -improvement
+        );
     }
 
     // NOTE: This test might show no benefit if Holographic memory is not properly integrated!
@@ -328,9 +358,9 @@ fn test_dharma_ethical_veto() {
     let extreme_obs = Observation {
         timestamp_us: 0,
         bio_metrics: Some(BioMetrics {
-            hr_bpm: Some(120.0),  // Very high (panic?)
-            hrv_rmssd: Some(10.0),  // Very low
-            respiratory_rate: Some(25.0),  // Very fast
+            hr_bpm: Some(120.0),          // Very high (panic?)
+            hrv_rmssd: Some(10.0),        // Very low
+            respiratory_rate: Some(25.0), // Very fast
         }),
         environmental_context: None,
         digital_context: None,
@@ -348,7 +378,8 @@ fn test_dharma_ethical_veto() {
         bio.respiratory_rate.unwrap(),
     ];
     let est = baseline_engine.ingest_sensor(&features, extreme_obs.timestamp_us);
-    let (baseline_decision, _, _, baseline_deny) = baseline_engine.make_control(&est, extreme_obs.timestamp_us);
+    let (baseline_decision, _, _, baseline_deny) =
+        baseline_engine.make_control(&est, extreme_obs.timestamp_us);
 
     println!("Baseline (no Dharma):");
     println!("  Proposed BPM: {:.2}", baseline_decision.target_rate_bpm);
@@ -366,7 +397,8 @@ fn test_dharma_ethical_veto() {
         0.1,
     ];
     let est = vajra_engine.ingest_sensor(&features, extreme_obs.timestamp_us);
-    let (vajra_decision, _, _, vajra_deny) = vajra_engine.make_control(&est, extreme_obs.timestamp_us);
+    let (vajra_decision, _, _, vajra_deny) =
+        vajra_engine.make_control(&est, extreme_obs.timestamp_us);
 
     println!("\nVajra (with Dharma):");
     println!("  Proposed BPM: {:.2}", vajra_decision.target_rate_bpm);
@@ -374,9 +406,15 @@ fn test_dharma_ethical_veto() {
 
     let bpm_diff = (baseline_decision.target_rate_bpm - vajra_decision.target_rate_bpm).abs();
     if bpm_diff > 0.5 {
-        println!("\n📊 RESULT: ✅ Dharma modified action (diff={:.2} BPM)", bpm_diff);
+        println!(
+            "\n📊 RESULT: ✅ Dharma modified action (diff={:.2} BPM)",
+            bpm_diff
+        );
     } else {
-        println!("\n📊 RESULT: ⚠️ Dharma had no effect (diff={:.2} BPM)", bpm_diff);
+        println!(
+            "\n📊 RESULT: ⚠️ Dharma had no effect (diff={:.2} BPM)",
+            bpm_diff
+        );
     }
 }
 
@@ -384,9 +422,8 @@ fn test_dharma_ethical_veto() {
 fn test_latency_comparison() {
     println!("\n=== LATENCY BENCHMARK ===\n");
 
-    let observations: Vec<Observation> = (0..1000)
-        .map(|i| calm_observation(i * 1_000_000))
-        .collect();
+    let observations: Vec<Observation> =
+        (0..1000).map(|i| calm_observation(i * 1_000_000)).collect();
 
     // Baseline
     let start = Instant::now();
@@ -424,12 +461,16 @@ fn test_latency_comparison() {
     }
     let vajra_time = start.elapsed();
 
-    println!("Baseline: {:.3}s ({:.1} µs/observation)",
-             baseline_time.as_secs_f64(),
-             baseline_time.as_micros() as f64 / observations.len() as f64);
-    println!("Vajra:    {:.3}s ({:.1} µs/observation)",
-             vajra_time.as_secs_f64(),
-             vajra_time.as_micros() as f64 / observations.len() as f64);
+    println!(
+        "Baseline: {:.3}s ({:.1} µs/observation)",
+        baseline_time.as_secs_f64(),
+        baseline_time.as_micros() as f64 / observations.len() as f64
+    );
+    println!(
+        "Vajra:    {:.3}s ({:.1} µs/observation)",
+        vajra_time.as_secs_f64(),
+        vajra_time.as_micros() as f64 / observations.len() as f64
+    );
 
     let speedup = (baseline_time.as_micros() as f64 / vajra_time.as_micros() as f64 - 1.0) * 100.0;
     if vajra_time < baseline_time {

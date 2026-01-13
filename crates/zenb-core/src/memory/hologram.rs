@@ -4,9 +4,9 @@
 //! Information is stored as interference patterns across the entire memory trace,
 //! enabling content-addressable retrieval in O(dim log dim) time.
 
+use crate::memory::krylov::KrylovProjector;
 use rustfft::{num_complex::Complex32, Fft, FftPlanner};
 use std::sync::Arc;
-use crate::memory::krylov::KrylovProjector;
 
 /// Holographic Associative Memory
 ///
@@ -119,8 +119,9 @@ impl HolographicMemory {
         // Critical threshold: 80% of max to ensure we never hit overflow
         const CRITICAL_ENERGY_RATIO: f32 = 0.8;
         let current_energy = self.energy();
-        let critical_threshold = self.max_magnitude * self.max_magnitude * (self.dim as f32) * CRITICAL_ENERGY_RATIO;
-        
+        let critical_threshold =
+            self.max_magnitude * self.max_magnitude * (self.dim as f32) * CRITICAL_ENERGY_RATIO;
+
         if current_energy > critical_threshold {
             // HARD CAP: Aggressive decay to ensure we stay bounded
             let decay_factor = (critical_threshold / current_energy).sqrt().min(0.9);
@@ -156,13 +157,13 @@ impl HolographicMemory {
             .iter()
             .map(|c| c.norm())
             .fold(0.0f32, f32::max);
-        
+
         if !max_mag.is_finite() {
             log::error!("HolographicMemory: NaN/Inf detected! Resetting memory trace.");
             self.clear();
             return;
         }
-        
+
         // 5. Reactive decay if magnitude still exceeds limit (backup safety)
         if max_mag > self.max_magnitude {
             self.decay(0.9);
@@ -188,10 +189,10 @@ impl HolographicMemory {
     ) {
         // Apply temporal decay before adding new memory
         self.decay_temporal(now_us, half_life_us);
-        
+
         // Standard entanglement
         self.entangle(key, value);
-        
+
         // Update timestamp for next decay calculation
         self.last_entangle_ts_us = Some(now_us);
     }
@@ -275,8 +276,9 @@ impl HolographicMemory {
                 // decay_factor = 0.5^(age/half_life) = exp(-ln(2) * age / half_life)
                 let exponent = -0.693147 * (age_us as f64 / half_life_us as f64);
                 let factor = exponent.exp().clamp(0.01, 1.0) as f32; // Min 1% to prevent total erasure
-                
-                if factor < 0.999 { // Only decay if meaningful
+
+                if factor < 0.999 {
+                    // Only decay if meaningful
                     log::debug!(
                         "HolographicMemory: Temporal decay factor={:.4} (age={}ms, half_life={}ms)",
                         factor,
@@ -399,14 +401,16 @@ impl HolographicMemory {
             let n = v.len();
             let mut out = Vec::with_capacity(n);
             for i in 0..n {
-                let left = if i == 0 { v[n-1] } else { v[i-1] };
-                let right = if i == n-1 { v[0] } else { v[i+1] };
+                let left = if i == 0 { v[n - 1] } else { v[i - 1] };
+                let right = if i == n - 1 { v[0] } else { v[i + 1] };
                 out.push(v[i] + Complex32::new(0.5, 0.0) * (left + right));
             }
             out
         };
 
-        let new_state = self.projector.exp_time_evolution(h_op, &self.memory_trace, dt);
+        let new_state = self
+            .projector
+            .exp_time_evolution(h_op, &self.memory_trace, dt);
         self.memory_trace = new_state;
     }
 }
@@ -538,12 +542,7 @@ mod tests {
         // Store 10,000 items
         for i in 0..10_000 {
             let key: Vec<Complex32> = (0..dim)
-                .map(|j| {
-                    Complex32::new(
-                        ((i as f32 * 0.01 + j as f32 * 0.1).sin()),
-                        0.0,
-                    )
-                })
+                .map(|j| Complex32::new(((i as f32 * 0.01 + j as f32 * 0.1).sin()), 0.0))
                 .collect();
             let value: Vec<Complex32> = (0..dim)
                 .map(|j| Complex32::new((i as f32 + j as f32) * 0.001, 0.0))
@@ -569,33 +568,36 @@ mod tests {
     }
 }
 
-    #[test]
-    fn test_krylov_benchmark() {
-        let mut mem = HolographicMemory::new(1024);
-        
-        // Fill with some data
-        for i in 0..10 {
-            let key: Vec<Complex32> = (0..1024)
-                .map(|j| Complex32::new((j as f32 * 0.1).sin(), 0.0))
-                .collect();
-            let value = key.clone(); // Self-association
-            mem.entangle(&key, &value);
-        }
-        
-        // Measure Krylov update
-        let start = std::time::Instant::now();
-        for _ in 0..100 {
-            mem.krylov_update(0.1);
-        }
-        let elapsed = start.elapsed();
-        
-        println!("Krylov update (100 steps, dim=1024): {:?}", elapsed);
-        // Expect < 50ms for 100 steps (0.5ms per step) in release, but debug is slower.
-        // Relaxing to 5000ms to pass in dev profile.
-        assert!(elapsed.as_millis() < 5000, "Krylov update too slow: {:?}", elapsed);
-        
-        // Check conservation (approximate)
-        let energy = mem.energy();
-        println!("Energy after evolution: {}", energy);
+#[test]
+fn test_krylov_benchmark() {
+    let mut mem = HolographicMemory::new(1024);
+
+    // Fill with some data
+    for i in 0..10 {
+        let key: Vec<Complex32> = (0..1024)
+            .map(|j| Complex32::new((j as f32 * 0.1).sin(), 0.0))
+            .collect();
+        let value = key.clone(); // Self-association
+        mem.entangle(&key, &value);
     }
 
+    // Measure Krylov update
+    let start = std::time::Instant::now();
+    for _ in 0..100 {
+        mem.krylov_update(0.1);
+    }
+    let elapsed = start.elapsed();
+
+    println!("Krylov update (100 steps, dim=1024): {:?}", elapsed);
+    // Expect < 50ms for 100 steps (0.5ms per step) in release, but debug is slower.
+    // Relaxing to 5000ms to pass in dev profile.
+    assert!(
+        elapsed.as_millis() < 5000,
+        "Krylov update too slow: {:?}",
+        elapsed
+    );
+
+    // Check conservation (approximate)
+    let energy = mem.energy();
+    println!("Energy after evolution: {}", energy);
+}

@@ -1,8 +1,8 @@
+use chrono::Timelike;
 use serde_json::Value;
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
-use chrono::Timelike;
 use zenb_core::domain::{ControlDecision, Envelope, Event, Observation, SessionId};
 use zenb_core::ZenbConfig;
 use zenb_core::{Engine, Estimate};
@@ -92,7 +92,8 @@ impl Runtime {
         match store.load_active_trauma(1000) {
             Ok(trauma_hits) => {
                 // Convert zenb_store::TraumaHit to zenb_core::safety_swarm::TraumaHit
-                let core_hits: Vec<([u8; 32], zenb_core::safety_swarm::TraumaHit)> = trauma_hits.clone()
+                let core_hits: Vec<([u8; 32], zenb_core::safety_swarm::TraumaHit)> = trauma_hits
+                    .clone()
                     .into_iter()
                     .map(|(sig, hit)| {
                         (
