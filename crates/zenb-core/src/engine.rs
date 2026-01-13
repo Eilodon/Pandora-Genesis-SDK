@@ -14,6 +14,7 @@ use crate::trauma_cache::TraumaCache;
 // VAJRA-001: New cognitive architecture imports
 use crate::memory::HolographicMemory;
 use crate::perception::SheafPerception;
+use crate::skandha::RupaSkandha;
 use nalgebra::DVector;
 
 // PANDORA PORT: Resilience and adaptive features
@@ -323,55 +324,75 @@ impl Engine {
     /// SheafPerception for consensus filtering before further processing.
     pub fn ingest_sensor(&mut self, features: &[f32], ts_us: i64) -> Estimate {
         // VAJRA-001: Sheaf Perception - filter inconsistent sensors
+        // FIX: Use ZenbRupa.process_form() instead of calling Sheaf directly
+        // to ensure proper normalization of sensor values
         let processed_features: Vec<f32> = if self.use_vajra_architecture && features.len() >= 3 {
-            // Pad to 5 sensors if needed
-            let mut padded = vec![0.0f32; 5];
-            for (i, &f) in features.iter().take(5).enumerate() {
-                padded[i] = f;
-            }
-            // Default quality and motion if not provided
-            if features.len() < 4 { padded[3] = 1.0; } // quality
-            if features.len() < 5 { padded[4] = 0.0; } // motion
-
-            let sensor_vec = DVector::from_vec(padded.clone());
+            // Build SensorInput for ZenbRupa
+            let sensor_input = crate::skandha::SensorInput {
+                hr_bpm: features.get(0).copied(),
+                hrv_rmssd: features.get(1).copied(),
+                rr_bpm: features.get(2).copied(),
+                quality: features.get(3).copied().unwrap_or(1.0),
+                motion: features.get(4).copied().unwrap_or(0.0),
+                timestamp_us: ts_us,
+            };
 
             // RESILIENCE: Circuit breaker protection for sheaf perception
             if !self.circuit_breaker.is_open("sheaf_perception") {
                 // Try sheaf processing with panic catch (Laplacian can fail on degenerate graphs)
                 let sheaf_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    self.skandha_pipeline.rupa.sheaf.process(&sensor_vec)
+                    // Use ZenbRupa which properly normalizes sensors before Sheaf
+                    self.skandha_pipeline.rupa.process_form(&sensor_input)
                 }));
 
                 match sheaf_result {
-                    Ok((diffused, is_anomalous, energy)) => {
+                    Ok(processed_form) => {
                         // Success: record and use sheaf result
                         self.circuit_breaker.record_success("sheaf_perception");
 
                         // Store energy for diagnostics
-                        self.last_sheaf_energy = energy;
+                        self.last_sheaf_energy = processed_form.energy;
 
-                        if is_anomalous {
+                        if !processed_form.is_reliable {
                             log::warn!(
                                 "SheafPerception: Anomalous sensor data detected (energy={:.3})",
-                                energy
+                                processed_form.energy
                             );
                         }
 
-                        // Use diffused values
-                        diffused.iter().cloned().collect()
+                        // Denormalize back to original scale
+                        vec![
+                            processed_form.values[0] * 200.0,  // HR: [0,1] → [0,200]
+                            processed_form.values[1] * 100.0,  // HRV: [0,1] → [0,100]
+                            processed_form.values[2] * 20.0,   // RR: [0,1] → [0,20]
+                            processed_form.values[3],          // Quality: already [0,1]
+                            processed_form.values[4],          // Motion: already [0,1]
+                        ]
                     }
                     Err(e) => {
                         // Sheaf panicked (Laplacian singularity, numerical issues, etc.)
                         self.circuit_breaker.record_failure("sheaf_perception");
                         log::error!("SheafPerception panicked: {:?}, using raw sensor fallback", e);
-                        // Fallback: use raw padded sensor values
-                        padded
+                        // Fallback: use raw sensor values
+                        vec![
+                            features.get(0).copied().unwrap_or(60.0),
+                            features.get(1).copied().unwrap_or(50.0),
+                            features.get(2).copied().unwrap_or(12.0),
+                            features.get(3).copied().unwrap_or(1.0),
+                            features.get(4).copied().unwrap_or(0.0),
+                        ]
                     }
                 }
             } else {
                 // Circuit is open: skip sheaf, use raw sensors
                 log::warn!("SheafPerception circuit open, using raw sensor fallback");
-                padded
+                vec![
+                    features.get(0).copied().unwrap_or(60.0),
+                    features.get(1).copied().unwrap_or(50.0),
+                    features.get(2).copied().unwrap_or(12.0),
+                    features.get(3).copied().unwrap_or(1.0),
+                    features.get(4).copied().unwrap_or(0.0),
+                ]
             }
         } else {
             features.to_vec()
