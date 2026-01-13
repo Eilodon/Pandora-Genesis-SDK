@@ -57,33 +57,55 @@ zenb-rust/
 
 ---
 
-## 🔌 Domain Modules (v2.0)
+## 🔌 Domain Modules (v2.1)
 
 AGOLOS supports **pluggable application domains** through a trait-based abstraction:
 
-| Domain | Status | Use Case |
-|--------|--------|----------|
-| `biofeedback` | ✅ Reference | Breath guidance, HRV, physiological signals |
-| `industrial` | 📋 Planned | IoT/sensor control, process automation |
-| `trading` | 📋 Planned | Financial signal processing, risk management |
+| Domain | Status | Variables | Modes | Use Case |
+|--------|--------|-----------|-------|----------|
+| `biofeedback` | ✅ Reference | 12 | 5 | Breath guidance, HRV, physiological signals |
+| `trading` | ✅ Example | 7 | 5 | Market analysis, algorithmic trading |
+| `robotics` | 📋 Planned | - | - | Autonomous systems, sensor fusion |
+| `industrial` | 📋 Planned | - | - | IoT/sensor control, process automation |
 
 ### Create Your Own Domain
 
-Implement four traits to create a custom domain:
+Implement **four traits** to create a custom domain:
 
 ```rust
-use zenb_core::core::{Domain, OscillatorConfig, SignalVariable, ActionKind};
+use zenb_core::core::{Domain, OscillatorConfig, SignalVariable, ActionKind, BeliefMode};
 
+// Define signal variables for causal modeling
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum MyVariable { Sensor1, Sensor2, Output }
+impl SignalVariable for MyVariable { /* ... */ }
+
+// Define belief modes
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum MyMode { Normal, Alert, Critical }
+impl BeliefMode for MyMode { /* ... */ }
+
+// Define actions
+enum MyAction { Activate, Deactivate, Hold }
+impl ActionKind for MyAction { /* ... */ }
+
+// Tie everything together
 struct MyDomain;
 impl Domain for MyDomain {
     type Config = MyConfig;      // OscillatorConfig
-    type Variable = MyVariable;  // SignalVariable  
+    type Variable = MyVariable;  // SignalVariable
     type Action = MyAction;      // ActionKind
+    type Mode = MyMode;          // BeliefMode (NEW!)
+    
     fn name() -> &'static str { "my_domain" }
+    fn default_priors() -> fn(usize, usize) -> f32 { |_, _| 0.0 }
 }
+
+// Use GenericCausalGraph with your variable type
+type MyCausalGraph = zenb_core::core::GenericCausalGraph<MyVariable>;
 ```
 
-See [**DOMAIN_GUIDE.md**](docs/DOMAIN_GUIDE.md) for complete implementation details.
+See the [**trading domain**](crates/zenb-core/src/domains/trading/) as a complete example.
 
 ---
 
@@ -416,6 +438,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] All P0 improvements (P0.1-P0.9)
 - [x] Async worker with retry queue
 - [x] Database migration system
+- [x] Domain-agnostic architecture (v2.1)
+- [x] Generic CausalGraph with SignalVariable
+- [x] BeliefMode trait with GenericBeliefState
+- [x] Trading domain example
 
 ### In Progress 🚧
 - [ ] Performance benchmarking suite
@@ -432,4 +458,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Built with ❤️ using Rust** 🦀
 
-*Last Updated: January 3, 2026*
+*Last Updated: January 13, 2026*

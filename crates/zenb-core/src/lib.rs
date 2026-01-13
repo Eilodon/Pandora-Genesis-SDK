@@ -10,9 +10,9 @@ pub mod agent_container;
 pub mod ai; // NEW: AI Tools
 pub mod belief;
 pub mod belief_subsystem; // Phase 2: Extracted from Engine god-object
-pub mod causal_subsystem; // Phase 6: Extracted from Engine god-object
 pub mod breath_engine;
 pub mod causal;
+pub mod causal_subsystem; // Phase 6: Extracted from Engine god-object
 pub mod circuit_breaker; // PANDORA PORT: Resilient operation execution
 pub mod config;
 pub mod control_flow; // NEW: Type-safe pipeline builder
@@ -28,6 +28,7 @@ pub mod estimators; // NEW: UKF and advanced estimators
 pub mod memory; // VAJRA-001: Holographic Memory
 pub mod perception; // VAJRA-001: Sheaf Perception
 
+pub mod ltc; // SOTA: Liquid Time-Constant Networks for adaptive prediction
 pub mod phase_machine;
 pub mod policy;
 pub mod replay;
@@ -39,7 +40,6 @@ pub mod scientist; // PANDORA PORT: Automatic causal discovery
 pub mod sensory; // NEW: Binaural, Soundscape, Haptics
 pub mod skandha; // PANDORA PORT: Five Skandhas cognitive pipeline
 pub mod thermo_logic; // TIER 3: Thermodynamic Logic (GENERIC framework)
-pub mod ltc; // SOTA: Liquid Time-Constant Networks for adaptive prediction
 pub mod timestamp;
 pub mod trauma_cache;
 pub mod uncertain; // NEW: Uncertainty quantification
@@ -48,13 +48,13 @@ pub mod validation; // Phase 2.4: Consolidated timestamp tracking
 #[cfg(test)]
 pub mod tests_config;
 #[cfg(test)]
-pub mod tests_scientist_integration;
-#[cfg(test)]
 pub mod tests_determinism;
 #[cfg(test)]
 pub mod tests_estimator;
 #[cfg(test)]
-pub mod tests_proptest; // EIDOLON FIX 4.1: Property-based testing
+pub mod tests_proptest;
+#[cfg(test)]
+pub mod tests_scientist_integration; // EIDOLON FIX 4.1: Property-based testing
 
 // ============================================================================
 // V2.0: DOMAIN-AGNOSTIC ABSTRACTION LAYER

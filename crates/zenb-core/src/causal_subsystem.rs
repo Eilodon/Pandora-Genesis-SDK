@@ -34,10 +34,10 @@ use crate::scientist::{AutomaticScientist, CausalHypothesis};
 pub struct CausalSubsystem {
     /// The causal graph structure (learned and prior relationships)
     pub graph: CausalGraph,
-    
+
     /// Automatic scientist for hypothesis generation
     scientist: AutomaticScientist,
-    
+
     /// Latest observation for context queries
     pub last_observation: Option<Observation>,
 
@@ -69,7 +69,7 @@ impl CausalSubsystem {
     // =========================================================================
 
     /// Add an observation with features.
-    /// 
+    ///
     /// - `features`: [hr, hrv, rr, quality, motion] (for scientist)
     /// - `snapshot`: Full observation for context/storage
     pub fn observe(&mut self, features: [f32; 5], snapshot: Option<Observation>) {
@@ -78,7 +78,7 @@ impl CausalSubsystem {
     }
 
     /// Run discovery tick (call periodically, e.g., every second).
-    /// 
+    ///
     /// Returns true if state machine transitioned.
     pub fn tick(&mut self) -> bool {
         self.scientist.tick()
@@ -88,12 +88,12 @@ impl CausalSubsystem {
     /// Drain pending discoveries (moves metadata to caller).
     pub fn drain_discoveries(&mut self) -> Vec<CausalHypothesis> {
         let discoveries = self.scientist.drain_pending_discoveries();
-        
+
         // Wire discoveries to graph automatically
         for h in &discoveries {
             self.wire_hypothesis(h);
         }
-        
+
         discoveries
     }
 
@@ -110,11 +110,7 @@ impl CausalSubsystem {
                 Self::index_to_variable(hypo.to_variable),
             ) {
                 let weight = (hypo.strength * 100.0) as u32;
-                let edge = CausalEdge::prior(
-                    weight, 
-                    100 - weight, 
-                    "Auto-Scientist Discovery"
-                );
+                let edge = CausalEdge::prior(weight, 100 - weight, "Auto-Scientist Discovery");
                 self.graph.set_link(cause, effect, edge);
             }
         }
@@ -193,12 +189,12 @@ mod tests {
     #[test]
     fn test_observe_and_tick() {
         let mut cs = CausalSubsystem::default();
-        
+
         // Add some observations
         for i in 0..5 {
             cs.observe([i as f32 / 5.0; 5], None);
         }
-        
+
         // Tick should return false (not enough observations)
         assert!(!cs.tick());
         assert_eq!(cs.scientist_state(), "Observing");
@@ -207,7 +203,7 @@ mod tests {
     #[test]
     fn test_graph_queries() {
         let cs = CausalSubsystem::default();
-        
+
         // Should have priors from with_priors()
         let effect = cs.effect(Variable::HeartRate, Variable::RespiratoryRate);
         // Default priors vary, just check it returns a value

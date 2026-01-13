@@ -200,6 +200,12 @@ pub trait ActionKind: Clone + Debug + Send + Sync + Serialize + DeserializeOwned
 /// package that the engine can work with. This enables the engine to be
 /// generic over different application domains while maintaining type safety.
 ///
+/// # Associated Types
+/// - `Config`: Oscillator/rhythm configuration
+/// - `Variable`: Signal variables for causal modeling
+/// - `Action`: Intervention action types
+/// - `Mode`: Belief modes for state estimation
+///
 /// # Built-in Domains
 /// - `BiofeedbackDomain`: Breath guidance, HRV tracking, physiological signal processing
 ///
@@ -215,6 +221,9 @@ pub trait Domain: 'static + Send + Sync {
     /// Action type for interventions.
     type Action: ActionKind;
 
+    /// Belief mode type for state estimation.
+    type Mode: BeliefMode;
+
     /// Human-readable name for this domain.
     fn name() -> &'static str;
 
@@ -226,6 +235,161 @@ pub trait Domain: 'static + Send + Sync {
     /// Override this to encode domain-specific prior knowledge.
     fn default_priors() -> fn(cause: usize, effect: usize) -> f32 {
         |_, _| 0.0 // No priors by default
+    }
+
+    /// Map from belief mode to recommended default action.
+    ///
+    /// Override to specify domain-specific mode-action mappings.
+    fn mode_to_default_action(_mode: Self::Mode) -> Option<Self::Action> {
+        None
+    }
+}
+
+// =============================================================================
+// BELIEF MODE
+// =============================================================================
+
+/// A belief mode representing a discrete state the system can be in.
+///
+/// Belief modes capture the "type" of state the system believes it's in.
+/// In biofeedback, modes might be Calm, Stress, Focus, etc.
+/// In trading, modes might be Bullish, Bearish, Volatile, etc.
+///
+/// # Requirements
+/// - Must be enumerable (all variants known at compile time)
+/// - Must map to/from indices for probability distribution
+/// - Must have a sensible default (neutral) mode
+///
+/// # Example
+/// ```rust,ignore
+/// #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+/// enum MarketMode {
+///     Bullish, Bearish, Sideways, Volatile,
+/// }
+///
+/// impl BeliefMode for MarketMode {
+///     fn count() -> usize { 4 }
+///     fn index(&self) -> usize { *self as usize }
+///     fn from_index(idx: usize) -> Option<Self> { /* ... */ }
+///     fn default_mode() -> Self { MarketMode::Sideways }
+/// }
+/// ```
+pub trait BeliefMode:
+    Clone
+    + Copy
+    + PartialEq
+    + Eq
+    + std::hash::Hash
+    + Debug
+    + Send
+    + Sync
+    + Serialize
+    + DeserializeOwned
+    + 'static
+{
+    /// Number of modes in this domain.
+    fn count() -> usize;
+
+    /// Convert mode to index for probability distribution.
+    fn index(&self) -> usize;
+
+    /// Convert index to mode.
+    fn from_index(idx: usize) -> Option<Self>;
+
+    /// Default (neutral) mode when no information is available.
+    fn default_mode() -> Self;
+
+    /// Human-readable name for this mode.
+    fn name(&self) -> &'static str {
+        "Mode"
+    }
+
+    /// All modes as a static slice for iteration.
+    fn all() -> &'static [Self];
+}
+
+/// Generic belief state over any mode type.
+///
+/// This is the domain-agnostic representation of belief. The system maintains
+/// a probability distribution over modes and tracks confidence.
+///
+/// # Type Parameters
+/// - `M`: The belief mode type (e.g., BioBeliefMode, MarketMode)
+#[derive(Clone, Debug)]
+pub struct GenericBeliefState<M: BeliefMode> {
+    /// Probability distribution over modes (sums to 1.0)
+    pub distribution: Vec<f32>,
+    /// Confidence in current belief (0.0 = uncertain, 1.0 = certain)
+    pub confidence: f32,
+    /// Current dominant mode (argmax of distribution)
+    pub mode: M,
+}
+
+impl<M: BeliefMode> Default for GenericBeliefState<M> {
+    fn default() -> Self {
+        let n = M::count();
+        let uniform = 1.0 / n as f32;
+        Self {
+            distribution: vec![uniform; n],
+            confidence: 0.0,
+            mode: M::default_mode(),
+        }
+    }
+}
+
+impl<M: BeliefMode> GenericBeliefState<M> {
+    /// Create a new belief state with uniform distribution.
+    pub fn uniform() -> Self {
+        Self::default()
+    }
+
+    /// Create from a probability distribution.
+    pub fn from_distribution(dist: Vec<f32>) -> Self {
+        let mode = dist
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .and_then(|(i, _)| M::from_index(i))
+            .unwrap_or_else(M::default_mode);
+
+        Self {
+            distribution: dist,
+            confidence: 0.5,
+            mode,
+        }
+    }
+
+    /// Get probability for a specific mode.
+    pub fn probability(&self, mode: M) -> f32 {
+        self.distribution.get(mode.index()).copied().unwrap_or(0.0)
+    }
+
+    /// Update the dominant mode based on current distribution.
+    pub fn update_mode(&mut self) {
+        if let Some((idx, _)) = self
+            .distribution
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        {
+            if let Some(m) = M::from_index(idx) {
+                self.mode = m;
+            }
+        }
+    }
+
+    /// Convert distribution to fixed-size array (for domains with known size).
+    pub fn to_array<const N: usize>(&self) -> [f32; N] {
+        let mut arr = [0.0f32; N];
+        for (i, &p) in self.distribution.iter().take(N).enumerate() {
+            arr[i] = p;
+        }
+        arr
+    }
+
+    /// Uncertainty = 1 - confidence
+    pub fn uncertainty(&self) -> f32 {
+        (1.0 - self.confidence).clamp(0.0, 1.0)
     }
 }
 

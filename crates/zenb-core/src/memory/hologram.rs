@@ -46,7 +46,7 @@ pub struct HolographicMemory {
     projector: KrylovProjector,
     /// Timestamp of last entanglement (for temporal decay)
     last_entangle_ts_us: Option<i64>,
-    
+
     // === SCRATCH BUFFERS (Zero-allocation optimization) ===
     /// Scratch buffer 1: for key FFT
     scratch_a: Vec<Complex32>,
@@ -146,11 +146,11 @@ impl HolographicMemory {
         }
 
         // === ZERO-ALLOCATION FFT OPERATIONS (using scratch buffers) ===
-        
+
         // 1. Copy key into scratch_a, run forward FFT
         self.scratch_a.copy_from_slice(key);
         self.fft.process(&mut self.scratch_a);
-        
+
         // 2. Copy value into scratch_b, run forward FFT
         self.scratch_b.copy_from_slice(value);
         self.fft.process(&mut self.scratch_b);
@@ -163,7 +163,7 @@ impl HolographicMemory {
         // 4. Copy to scratch_c for IFFT (scratch_a still needed for next step)
         self.scratch_c.copy_from_slice(&self.scratch_a);
         self.ifft.process(&mut self.scratch_c);
-        
+
         // 5. Normalize and superpose onto memory trace
         let norm = self.norm_factor;
         for (m, c) in self.memory_trace.iter_mut().zip(self.scratch_c.iter()) {

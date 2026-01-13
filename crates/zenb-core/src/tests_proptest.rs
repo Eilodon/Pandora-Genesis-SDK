@@ -201,34 +201,34 @@ mod tests {
             )
         ) {
             let mut graph = crate::causal::CausalGraph::new();
-            
+
             // Apply updates
             for (cause_idx, effect_idx, success, lr) in updates {
                 // Skip invalid or self-loops (logic handles them but good to be explicit)
                 if cause_idx >= Variable::COUNT || effect_idx >= Variable::COUNT || cause_idx == effect_idx {
                     continue;
                 }
-                
+
                 let _cause = Variable::from_index(cause_idx).unwrap();
                 let _params = [
                     if cause_idx == 0 { 1.0 } else { 0.0 }, // Simple context
-                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 
+                    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
                 ]; // Full context vec size
-                
+
                 // We need to mock "update_weights" context state
                 // Actually update_weights requires a context slice of length 12
                 let mut context = vec![0.0; Variable::COUNT];
-                context[cause_idx] = 1.0; 
-                
+                context[cause_idx] = 1.0;
+
                 // Try to update
                 // The ActionPolicy argument is unused in current implementation
                 let action = crate::causal::ActionPolicy {
                     action_type: crate::causal::ActionType::BreathGuidance,
                     intensity: 0.5,
                 };
-                
+
                 let _ = graph.update_weights(&context, &action, success, lr);
-                
+
                 // INVARIANT: Graph must ALWAYS be acyclic
                 prop_assert!(graph.is_acyclic(), "Graph cycle detected after update");
             }
@@ -247,18 +247,18 @@ mod tests {
             temp in 0.1f32..5.0f32,
         ) {
             let mut engine = Engine::new_with_config(60.0, None);
-            
+
             // Enable thermodynamics
             let mut cfg = engine.config.clone();
             cfg.features.thermo_enabled = Some(true);
             cfg.features.thermo_temperature = Some(temp);
             engine.config = cfg;
-            
+
             // Run steps
             for _ in 0..steps {
                 engine.tick(100_000);
             }
-            
+
             // Check stability - no NaNs in belief state
             let p = *engine.skandha_pipeline.vedana.probabilities();
             for &val in &p {

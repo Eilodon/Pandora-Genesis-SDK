@@ -389,7 +389,8 @@ impl CausalGraph {
                 }
                 // Normalize: 10-100 ms -> 0-1
                 if let Some(hrv) = bio.hrv_rmssd {
-                    values[Variable::HeartRateVariability.index()] = ((hrv - 10.0) / 90.0).clamp(0.0, 1.0);
+                    values[Variable::HeartRateVariability.index()] =
+                        ((hrv - 10.0) / 90.0).clamp(0.0, 1.0);
                 }
                 // Normalize: 6-30 BPM -> 0-1
                 if let Some(rr) = bio.respiratory_rate {
@@ -414,21 +415,23 @@ impl CausalGraph {
 
             if let Some(dig) = &obs.digital_context {
                 if let Some(pressure) = dig.notification_pressure {
-                     // 0-10 notifs/hr -> 0-1
-                    values[Variable::NotificationPressure.index()] = (pressure / 10.0).clamp(0.0, 1.0);
+                    // 0-10 notifs/hr -> 0-1
+                    values[Variable::NotificationPressure.index()] =
+                        (pressure / 10.0).clamp(0.0, 1.0);
                 }
                 if let Some(intensity) = dig.interaction_intensity {
                     values[Variable::InteractionIntensity.index()] = intensity.clamp(0.0, 1.0);
                 }
             }
-            
+
             if let Some(cog) = &obs.cognitive_context {
                 if let Some(load) = cog.cognitive_load {
-                     values[Variable::CognitiveLoad.index()] = load.clamp(0.0, 1.0);
+                    values[Variable::CognitiveLoad.index()] = load.clamp(0.0, 1.0);
                 }
                 if let Some(valence) = cog.voice_valence {
                     // -1.0 to 1.0 -> 0.0 to 1.0
-                    values[Variable::EmotionalValence.index()] = ((valence + 1.0) / 2.0).clamp(0.0, 1.0);
+                    values[Variable::EmotionalValence.index()] =
+                        ((valence + 1.0) / 2.0).clamp(0.0, 1.0);
                 }
                 if let Some(arousal) = cog.voice_arousal {
                     values[Variable::VoiceArousal.index()] = arousal.clamp(0.0, 1.0);
@@ -441,7 +444,7 @@ impl CausalGraph {
         if values[Variable::CognitiveLoad.index()] == 0.0 {
             let focus_level = belief_state.p[2]; // Focus mode
             values[Variable::CognitiveLoad.index()] = focus_level;
-            
+
             // Interaction intensity often correlates with focus (or distraction)
             // If we are in 'Focus' mode, assume high productive interaction? Or low distraction?
             // Actually, distraction mode (p[?]) isn't explicit in 5-mode, it's mixed.

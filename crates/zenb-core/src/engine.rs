@@ -24,8 +24,6 @@ use crate::circuit_breaker::{CircuitBreakerConfig, CircuitBreakerManager};
 pub struct Engine {
     pub controller: AdaptiveController,
     pub breath: BreathEngine,
-    
-    
 
     pub context: crate::belief::Context,
     pub config: ZenbConfig,
@@ -38,10 +36,8 @@ pub struct Engine {
     pub last_pattern_id: i64,
     pub last_goal: i64,
 
-    
     // === Causal Subsystem (Phase 6) ===
     pub causal: crate::causal_subsystem::CausalSubsystem,
-
 
     // --- EFE / META-LEARNING ---
     /// Current EFE precision (beta) for policy selection
@@ -61,7 +57,6 @@ pub struct Engine {
 
     /// Last synthesized state from Skandha pipeline
     pub skandha_state: Option<crate::skandha::SynthesizedState>,
-
 
     // === Timestamp Tracking ===
     pub timestamp: crate::timestamp::TimestampLog,
@@ -95,10 +90,8 @@ pub struct Engine {
     // === Enhanced Observation Buffer ===
     /// Minimum samples before triggering PC algorithm
 
-
     // === WEEK 2: Automatic Scientist Integration ===
     /// Automatic Scientist for causal hypothesis discovery
-
 
     // === POLICY ADAPTER: Learning from Outcomes ===
     /// Policy adapter for catastrophe detection and stagnation escape
@@ -140,8 +133,7 @@ impl Engine {
         Self {
             controller,
             breath,
-            
-            
+
             context: crate::belief::Context {
                 local_hour: 0,
                 is_charging: false,
@@ -175,7 +167,6 @@ impl Engine {
             last_sheaf_energy: 0.0,
 
             // Phase 2: Extracted Subsystems
-
             safety: SafetySubsystem::with_config(&cfg),
 
             // PANDORA PORT: Resilience
@@ -205,9 +196,7 @@ impl Engine {
 
             // Enhanced Observation Buffer
 
-
             // WEEK 2: Automatic Scientist
-
 
             // POLICY ADAPTER: Learning from Outcomes
             policy_adapter: crate::policy::PolicyAdapter::new(1.0),
@@ -321,11 +310,11 @@ impl Engine {
 
                 // Feed Causal Scientist
                 let causal_feats = [
-                     form_values[0],
-                     form_values[1],
-                     form_values[2],
-                     synthesized.confidence,
-                     self.last_resonance_score,
+                    form_values[0],
+                    form_values[1],
+                    form_values[2],
+                    synthesized.confidence,
+                    self.last_resonance_score,
                 ];
                 self.causal.observe(causal_feats, None);
 
@@ -333,11 +322,11 @@ impl Engine {
                 let _ = self.timestamp.update_ingest(ts_us);
 
                 estimate
-            },
+            }
             Err(_) => {
                 self.circuit_breaker.record_failure("skandha_pipeline");
                 log::error!("Skandha pipeline panic recovered - using raw fallback");
-                
+
                 Estimate {
                     ts_us,
                     hr_bpm: input.hr_bpm,
@@ -363,8 +352,10 @@ impl Engine {
             let discoveries = self.causal.drain_discoveries();
             for hypo in discoveries {
                 log::info!(
-                    "Agolos Discovery: {} -> {} (strength={:.2})", 
-                    hypo.from_variable, hypo.to_variable, hypo.strength
+                    "Agolos Discovery: {} -> {} (strength={:.2})",
+                    hypo.from_variable,
+                    hypo.to_variable,
+                    hypo.strength
                 );
             }
         }
@@ -430,7 +421,9 @@ impl Engine {
     ) {
         // Update belief engine (Active Inference learning)
         // Update belief engine (Active Inference learning)
-        self.skandha_pipeline.vedana.process_feedback(success, &mut self.config.fep);
+        self.skandha_pipeline
+            .vedana
+            .process_feedback(success, &mut self.config.fep);
 
         // Update causal graph weights based on outcome
         let context_state = self.causal.graph.extract_state_values(
@@ -444,7 +437,8 @@ impl Engine {
         };
         const CAUSAL_LEARNING_RATE: f32 = 0.05;
         if let Err(e) =
-            self.causal.graph
+            self.causal
+                .graph
                 .update_weights(&context_state, &action, success, CAUSAL_LEARNING_RATE)
         {
             log::warn!("Causal Update Failed: {}", e);
@@ -504,7 +498,9 @@ impl Engine {
         // PANDORA PORT: Adapt belief threshold based on performance
         // Compute performance delta: positive if success, negative if failure
         let performance_delta = if success { 0.1 } else { -0.1 };
-        self.skandha_pipeline.vedana.adapt_threshold(performance_delta);
+        self.skandha_pipeline
+            .vedana
+            .adapt_threshold(performance_delta);
 
         // === POLICY ADAPTER: Learning from Outcomes ===
         // Update PolicyAdapter if enabled and we have a last executed policy
@@ -534,8 +530,6 @@ impl Engine {
             }
         }
     }
-
-
 
     /// Get circuit breaker statistics for monitoring.
     pub fn circuit_breaker_stats(&self) -> crate::circuit_breaker::CircuitStats {
@@ -601,7 +595,8 @@ impl Engine {
         }
 
         // Convert belief state to DVector
-        let state = nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
+        let state =
+            nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
         let target_vec = nalgebra::DVector::from_vec(target.to_vec());
 
         // Integrate using GENERIC dynamics
@@ -629,7 +624,8 @@ impl Engine {
     /// # Returns
     /// (free_energy, entropy, temperature, enabled)
     pub fn thermo_info(&self) -> (f32, f32, f32, bool) {
-        let state = nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
+        let state =
+            nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
         let target = nalgebra::DVector::from_vec([0.5f32; 5].to_vec()); // Neutral target for diagnostics
 
         let free_energy = self.thermo_engine.free_energy(&state, &target);
@@ -709,7 +705,7 @@ impl Engine {
                 &self.config,
             );
             // State update is handled internally
-            
+
             let current_fep = self.skandha_pipeline.vedana.free_energy_ema();
             if current_fep > self.free_energy_peak {
                 self.free_energy_peak = current_fep;
@@ -957,7 +953,11 @@ impl Engine {
                     recommended_poll_interval_ms: poll_interval,
                 },
                 false,
-                Some((self.skandha_pipeline.vedana.mode() as u8, 0, self.skandha_pipeline.vedana.confidence())),
+                Some((
+                    self.skandha_pipeline.vedana.mode() as u8,
+                    0,
+                    self.skandha_pipeline.vedana.confidence(),
+                )),
                 Some(reason),
             );
         }
@@ -972,7 +972,8 @@ impl Engine {
             intensity: 0.8,
         };
         let success_prob = self
-            .causal.graph
+            .causal
+            .graph
             .predict_success_probability(&context_state, &breath_action);
 
         match decide {
@@ -994,7 +995,11 @@ impl Engine {
                         recommended_poll_interval_ms: poll_interval,
                     },
                     false,
-                    Some((self.skandha_pipeline.vedana.mode() as u8, 0, self.skandha_pipeline.vedana.confidence())),
+                    Some((
+                        self.skandha_pipeline.vedana.mode() as u8,
+                        0,
+                        self.skandha_pipeline.vedana.confidence(),
+                    )),
                     Some(reason),
                 )
             }
@@ -1008,7 +1013,9 @@ impl Engine {
                     );
                     eprintln!(
                         "ENGINE_DENY: causal_veto_low_prob prob={:.3} conf={:.3} mode={:?}",
-                        success_prob.value, success_prob.confidence, self.skandha_pipeline.vedana.mode()
+                        success_prob.value,
+                        success_prob.confidence,
+                        self.skandha_pipeline.vedana.mode()
                     );
 
                     // Fallback to safe default: maintain last decision or use gentle baseline
@@ -1028,7 +1035,11 @@ impl Engine {
                             recommended_poll_interval_ms: poll_interval,
                         },
                         false,
-                        Some((self.skandha_pipeline.vedana.mode() as u8, 0, self.skandha_pipeline.vedana.confidence())),
+                        Some((
+                            self.skandha_pipeline.vedana.mode() as u8,
+                            0,
+                            self.skandha_pipeline.vedana.confidence(),
+                        )),
                         Some(format!("causal_veto_low_prob_{:.2}", success_prob.value)),
                     );
                 }
@@ -1073,7 +1084,11 @@ impl Engine {
                         recommended_poll_interval_ms: poll_interval,
                     },
                     changed,
-                    Some((self.skandha_pipeline.vedana.mode() as u8, bits, self.skandha_pipeline.vedana.confidence())),
+                    Some((
+                        self.skandha_pipeline.vedana.mode() as u8,
+                        bits,
+                        self.skandha_pipeline.vedana.confidence(),
+                    )),
                     None,
                 )
             }
@@ -1127,7 +1142,6 @@ impl Engine {
         result
     }
 
-
     // Helper: Integrate Thermodynamics
     fn integrate_thermodynamics(&mut self) {
         // VAJRA-001: Thermodynamic Evolution (GENERIC)
@@ -1145,7 +1159,7 @@ impl Engine {
                 // Fallback: use current belief state (no drift)
                 *self.skandha_pipeline.vedana.probabilities()
             };
-            
+
             // Apply thermodynamic step - system smoothly evolves toward target
             // This provides temporal smoothing and prevents abrupt state transitions
             self.thermo_step(&target, 1);

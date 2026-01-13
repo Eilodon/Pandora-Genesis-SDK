@@ -232,14 +232,20 @@ fn test_convergence_speed() {
         "  Converged at: {} observations",
         baseline_converged_at.unwrap_or(999)
     );
-    println!("  Final belief: {:?}", baseline_engine.skandha_pipeline.vedana.probabilities());
+    println!(
+        "  Final belief: {:?}",
+        baseline_engine.skandha_pipeline.vedana.probabilities()
+    );
 
     println!("\nVajra:");
     println!(
         "  Converged at: {} observations",
         vajra_converged_at.unwrap_or(999)
     );
-    println!("  Final belief: {:?}", vajra_engine.skandha_pipeline.vedana.probabilities());
+    println!(
+        "  Final belief: {:?}",
+        vajra_engine.skandha_pipeline.vedana.probabilities()
+    );
 
     if let (Some(b), Some(v)) = (baseline_converged_at, vajra_converged_at) {
         let speedup = (b as f32 - v as f32) / b as f32 * 100.0;

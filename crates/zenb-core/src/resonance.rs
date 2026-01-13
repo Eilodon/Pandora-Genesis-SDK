@@ -87,10 +87,11 @@ impl ResonanceTracker {
         let target_freq_hz = (guide_bpm / 60.0).max(0.001);
         let fs_hz = 4.0f32;
         let dt_us = (1_000_000f32 / fs_hz).round() as i64;
-        
+
         // Use pre-allocated buffer instead of allocating new Vec
-        self.window.resample_into(dt_us, &mut self.resample_buffer)?;
-        
+        self.window
+            .resample_into(dt_us, &mut self.resample_buffer)?;
+
         if self.resample_buffer.len() < 8 {
             return None;
         }
@@ -101,7 +102,8 @@ impl ResonanceTracker {
             return None;
         }
 
-        let (mag, phase_rad, coh) = goertzel_mag_phase_coherence(&self.resample_buffer, fs_hz, target_freq_hz);
+        let (mag, phase_rad, coh) =
+            goertzel_mag_phase_coherence(&self.resample_buffer, fs_hz, target_freq_hz);
 
         let coherence_threshold = cfg.resonance.coherence_threshold.clamp(0.0, 1.0);
         if coh < coherence_threshold {
@@ -207,7 +209,7 @@ impl SignalWindow {
     /// Returns the number of samples written, or None if insufficient data
     fn resample_into(&self, dt_us: i64, out: &mut Vec<f32>) -> Option<usize> {
         out.clear();
-        
+
         let buf_len = self.buf.len();
         if buf_len < 2 {
             return None;
@@ -224,7 +226,7 @@ impl SignalWindow {
         if n < 2 {
             return None;
         }
-        
+
         out.reserve(n);
 
         let mut i = 0usize;
@@ -246,7 +248,7 @@ impl SignalWindow {
             let a = ((t - t0) as f32) / ((t1 - t0) as f32);
             out.push(x0 + (x1 - x0) * a.clamp(0.0, 1.0));
         }
-        
+
         if out.len() < 2 {
             None
         } else {

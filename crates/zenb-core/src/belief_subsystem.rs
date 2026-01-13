@@ -27,12 +27,13 @@
 //! - `belief_enter_threshold`
 
 use crate::adaptive::AdaptiveThreshold;
-use crate::belief::{BeliefBasis, BeliefDebug, BeliefEngine, BeliefState, Context, FepState, FepUpdateOut, SensorFeatures, PhysioState};
+use crate::belief::{
+    BeliefBasis, BeliefDebug, BeliefEngine, BeliefState, Context, FepState, FepUpdateOut,
+    PhysioState, SensorFeatures,
+};
 use crate::config::{BeliefConfig, ZenbConfig};
 use crate::resonance::ResonanceFeatures;
 use crate::skandha::{AffectiveState, ProcessedForm, VedanaSkandha};
-
-
 
 /// Encapsulated belief management subsystem.
 ///
@@ -42,13 +43,13 @@ use crate::skandha::{AffectiveState, ProcessedForm, VedanaSkandha};
 pub struct BeliefSubsystem {
     /// The belief update model (contains agent ensemble logic)
     engine: BeliefEngine,
-    
+
     /// Current belief state (5-mode probability distribution)
     state: BeliefState,
-    
+
     /// Free Energy Principle state (surprise tracking, learning rates)
     fep: FepState,
-    
+
     /// Adaptive threshold for mode transitions (hysteresis)
     enter_threshold: AdaptiveThreshold,
 }
@@ -145,7 +146,7 @@ impl BeliefSubsystem {
     }
 
     /// Get mutable reference to belief state (for direct manipulation).
-    /// 
+    ///
     /// # Warning
     /// Use sparingly — prefer using update methods instead.
     #[inline]
@@ -287,7 +288,7 @@ impl VedanaSkandha for BeliefSubsystem {
     fn extract_affect(&mut self, form: &ProcessedForm) -> AffectiveState {
         // Get current belief probabilities [Calm, Stress, Focus, Sleepy, Energize]
         let p = self.state.p;
-        
+
         // Map belief to valence: positive states contribute positively
         // valence = (Calm + Focus + 0.5*Energize) - (Stress + 0.5*Sleepy)
         let valence = (p[0] + p[2] + 0.5 * p[4]) - (p[1] + 0.5 * p[3]);
@@ -348,11 +349,11 @@ mod tests {
     fn test_threshold_adaptation() {
         let mut bs = BeliefSubsystem::default();
         let initial = bs.enter_threshold();
-        
+
         // Positive feedback should lower threshold (more aggressive)
         bs.adapt_threshold(0.5);
         assert!(bs.enter_threshold() < initial || bs.enter_threshold() == initial);
-        
+
         // Negative feedback should raise threshold (more conservative)
         bs.adapt_threshold(-0.5);
         // After both, should be somewhere in range

@@ -8,6 +8,7 @@
 //! - [`BreathConfig`]: Oscillator configuration for breath guidance
 //! - [`BioVariable`]: Signal variables (HeartRate, HRV, RespiratoryRate, etc.)
 //! - [`BioAction`]: Intervention actions (breath guidance, notifications)
+//! - [`BioBeliefMode`]: Belief modes (Calm, Stress, Focus, Sleepy, Energize)
 //! - [`BiofeedbackDomain`]: Domain implementation tying everything together
 //!
 //! # Usage
@@ -22,13 +23,18 @@
 
 mod actions;
 mod config;
+mod modes;
 mod variables;
 
 pub use actions::BioAction;
 pub use config::BreathConfig;
+pub use modes::BioBeliefMode;
 pub use variables::BioVariable;
 
-use crate::core::Domain;
+use crate::core::{Domain, GenericCausalGraph};
+
+/// Type alias for biofeedback-specific causal graph.
+pub type BioCausalGraph = GenericCausalGraph<BioVariable>;
 
 /// The Biofeedback domain for breath guidance and physiological signal processing.
 ///
@@ -50,6 +56,7 @@ impl Domain for BiofeedbackDomain {
     type Config = BreathConfig;
     type Variable = BioVariable;
     type Action = BioAction;
+    type Mode = BioBeliefMode;
 
     fn name() -> &'static str {
         "biofeedback"
@@ -81,6 +88,13 @@ impl Domain for BiofeedbackDomain {
                 _ => 0.0,
             }
         }
+    }
+
+    fn mode_to_default_action(mode: Self::Mode) -> Option<Self::Action> {
+        Some(BioAction::BreathGuidance {
+            target_bpm: mode.recommended_bpm(),
+            duration_sec: 60,
+        })
     }
 }
 

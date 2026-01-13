@@ -299,7 +299,11 @@ pub mod defaults {
     }
 
     impl SankharaSkandha for DefaultSankhara {
-        fn form_intent(&mut self, pattern: &PerceivedPattern, affect: &AffectiveState) -> FormedIntent {
+        fn form_intent(
+            &mut self,
+            pattern: &PerceivedPattern,
+            affect: &AffectiveState,
+        ) -> FormedIntent {
             // Form intent based on pattern and affect
             let action = if pattern.is_trauma_associated {
                 IntentAction::SafeFallback
@@ -647,11 +651,11 @@ pub mod zenb {
         fn perceive(&mut self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern {
             // Increment recall counter
             self.recall_count += 1;
-            
+
             // Encode current context as key (sensor values + affect)
             let dim = self.memory.dim();
             let mut padded_key = vec![Complex32::new(0.0, 0.0); dim];
-            
+
             // Encode sensor values in first 5 positions
             for (i, &v) in form.values.iter().enumerate().take(5) {
                 padded_key[i] = Complex32::new(v, 0.0);
@@ -668,15 +672,18 @@ pub mod zenb {
             // Compute similarity score (energy of recalled pattern)
             let recalled_energy: f32 = recalled.iter().take(10).map(|c| c.norm_sqr()).sum::<f32>();
             let similarity = (recalled_energy / 10.0).sqrt().clamp(0.0, 1.0);
-            
+
             // Extract recalled affect signature if strong enough match
             let (recalled_valence, recalled_arousal) = if similarity > 0.3 && dim > 6 {
                 // Recalled values are in the same positions we encoded them
-                (recalled[5].re.clamp(-1.0, 1.0), recalled[6].re.clamp(0.0, 1.0))
+                (
+                    recalled[5].re.clamp(-1.0, 1.0),
+                    recalled[6].re.clamp(0.0, 1.0),
+                )
             } else {
                 (0.0, 0.0) // No strong recall, use neutral
             };
-            
+
             // PATTERN CLASSIFICATION: Now uses BOTH current affect AND memory recall
             // Memory-informed classification gives us temporal context
             let pattern_id = if similarity > 0.5 {
@@ -698,12 +705,12 @@ pub mod zenb {
                     0 // Baseline
                 }
             };
-            
+
             // Trauma detection: strong match to negative high-arousal pattern
-            let is_trauma_associated = similarity > 0.4 
+            let is_trauma_associated = similarity > 0.4
                 && (recalled_valence < -0.2 && recalled_arousal > 0.6)
                 || (pattern_id == 2 && affect.arousal > 0.8);
-            
+
             // SELF-LEARNING: Store this observation for future recall
             // Create value vector encoding the current affect (what we want to recall later)
             let mut value = vec![Complex32::new(0.0, 0.0); dim];
@@ -742,7 +749,11 @@ pub mod zenb {
     }
 
     impl SankharaSkandha for ZenbSankhara {
-        fn form_intent(&mut self, pattern: &PerceivedPattern, affect: &AffectiveState) -> FormedIntent {
+        fn form_intent(
+            &mut self,
+            pattern: &PerceivedPattern,
+            affect: &AffectiveState,
+        ) -> FormedIntent {
             // Determine proposed action
             let action = if pattern.is_trauma_associated {
                 IntentAction::SafeFallback
@@ -855,7 +866,7 @@ pub mod zenb {
     // ========================================================================
 
     /// ZenbSannaHdc: HDC-based pattern recognition (NPU-accelerated)
-    /// 
+    ///
     /// Uses Binary Hyperdimensional Computing for:
     /// - Integer-only operations (runs on Apple Neural Engine, Qualcomm Hexagon)
     /// - 10x memory efficiency vs floating-point
@@ -891,15 +902,17 @@ pub mod zenb {
             ];
 
             let query = self.memory.encode_features(&features);
-            
+
             // Retrieve similar pattern
-            let (pattern_id, similarity, is_trauma_associated) = 
+            let (pattern_id, similarity, is_trauma_associated) =
                 if let Some((recalled, sim)) = self.memory.retrieve(&query) {
                     // Decode recalled pattern
-                    let recalled_arousal = recalled.as_slice().get(0)
+                    let recalled_arousal = recalled
+                        .as_slice()
+                        .get(0)
                         .map(|w| (w.count_ones() as f32 / 64.0))
                         .unwrap_or(0.5);
-                    
+
                     let pattern_id = if recalled_arousal > 0.6 {
                         1 // High arousal pattern
                     } else if sim < 0.5 {
@@ -907,7 +920,7 @@ pub mod zenb {
                     } else {
                         0 // Baseline
                     };
-                    
+
                     let is_trauma = sim > 0.5 && recalled_arousal > 0.7 && affect.arousal > 0.6;
                     (pattern_id, sim, is_trauma)
                 } else {
@@ -936,7 +949,7 @@ pub mod zenb {
     }
 
     /// ZenbVinnanaLtc: LTC-enhanced consciousness synthesis
-    /// 
+    ///
     /// Uses Liquid Time-Constant networks for:
     /// - Adaptive breath rate prediction
     /// - Input-dependent dynamics (τ adapts to context)
@@ -972,10 +985,10 @@ pub mod zenb {
         ) -> SynthesizedState {
             // Extract input features for LTC: [hr_norm, hrv_norm, motion]
             let ltc_inputs = [form.values[0], form.values[1], form.values[4]];
-            
+
             // Predict optimal breath rate using LTC
             let predicted_bpm = self.breath_predictor.predict(&ltc_inputs, self.last_dt);
-            
+
             // Map affect to belief distribution
             let mut belief = [0.2f32; 5];
             if affect.arousal < 0.3 && affect.valence > 0.2 {
@@ -994,7 +1007,8 @@ pub mod zenb {
                 }
             }
 
-            let mode = belief.iter()
+            let mode = belief
+                .iter()
                 .enumerate()
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
                 .map(|(i, _)| i as u8)
@@ -1038,7 +1052,8 @@ pub mod zenb {
 
         /// Learn from actual measured breath rate
         pub fn learn_from_breath_measurement(&mut self, actual_rr: f32, inputs: &[f32]) {
-            self.breath_predictor.learn_from_measurement(actual_rr, inputs);
+            self.breath_predictor
+                .learn_from_measurement(actual_rr, inputs);
         }
 
         /// Get LTC diagnostics
@@ -1060,8 +1075,13 @@ pub mod zenb {
         SkandhaPipeline<ZenbRupa, defaults::DefaultVedana, ZenbSanna, ZenbSankhara, ZenbVinnana>;
 
     /// SOTA Pipeline using HDC memory and LTC prediction
-    pub type ZenbPipelineSota =
-        SkandhaPipeline<ZenbRupa, defaults::DefaultVedana, ZenbSannaHdc, ZenbSankhara, ZenbVinnanaLtc>;
+    pub type ZenbPipelineSota = SkandhaPipeline<
+        ZenbRupa,
+        defaults::DefaultVedana,
+        ZenbSannaHdc,
+        ZenbSankhara,
+        ZenbVinnanaLtc,
+    >;
 
     /// Create ZenB pipeline with AGOLOS components wired in
     pub fn zenb_pipeline(cfg: &crate::config::ZenbConfig) -> ZenbPipeline {

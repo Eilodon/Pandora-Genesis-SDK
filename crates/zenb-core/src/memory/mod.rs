@@ -22,6 +22,6 @@ pub mod hdc; // Binary Hyperdimensional Computing (NPU-accelerated)
 pub mod hologram;
 pub mod krylov; // TIER 4b: Krylov Subspace Acceleration
 
-pub use hdc::{HdcMemory, HdcVector, HdcConfig};
+pub use hdc::{HdcConfig, HdcMemory, HdcVector};
 pub use hologram::HolographicMemory;
 pub use krylov::KrylovProjector;
