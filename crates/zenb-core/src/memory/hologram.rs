@@ -53,6 +53,13 @@ pub struct HolographicMemory {
     /// This helps preserve exact values alongside distributed encoding
     residual_alpha: f32,
 
+    // === LRU EVICTION (MOON UPGRADE) ===
+    /// Maximum number of items before automatic decay eviction
+    /// Default: 10_000 (as approved by user)
+    max_items: usize,
+    /// Decay factor applied when capacity is exceeded (0.9 = 10% decay)
+    capacity_decay_factor: f32,
+
     // === SCRATCH BUFFERS (Zero-allocation optimization) ===
     /// Scratch buffer 1: for key FFT
     scratch_a: Vec<Complex32>,
@@ -83,21 +90,36 @@ impl HolographicMemory {
     /// # Panics
     /// Panics if dim is 0.
     pub fn new(dim: usize) -> Self {
+        Self::with_capacity(dim, 10_000) // Default capacity: 10,000 items
+    }
+
+    /// Create a new holographic memory with given dimension and capacity limit.
+    ///
+    /// # Arguments
+    /// * `dim` - Dimension of the memory space
+    /// * `max_items` - Maximum items before automatic decay eviction
+    ///
+    /// # LRU Eviction Strategy
+    /// When `item_count >= max_items`, the memory applies a decay factor
+    /// before adding new items, causing older (weaker) memories to fade.
+    /// This is "soft LRU" - not true deletion, but gradual forgetting.
+    pub fn with_capacity(dim: usize, max_items: usize) -> Self {
         assert!(dim > 0, "Memory dimension must be positive");
 
         let mut planner = FftPlanner::new();
         Self {
-            memory_trace: vec![Complex32::new(0.0, 0.0); dim], // Start empty (Śūnyatā)
+            memory_trace: vec![Complex32::new(0.0, 0.0); dim],
             dim,
             fft: planner.plan_fft_forward(dim),
             ifft: planner.plan_fft_inverse(dim),
             norm_factor: 1.0 / (dim as f32),
             item_count: 0,
-            max_magnitude: 100.0, // Configurable threshold
+            max_magnitude: 100.0,
             projector: KrylovProjector::default(),
             last_entangle_ts_us: None,
-            residual_alpha: 0.0, // Default: pure holographic (no residual)
-            // Pre-allocate scratch buffers
+            residual_alpha: 0.0,
+            max_items,
+            capacity_decay_factor: 0.9, // Default: 10% decay per eviction
             scratch_a: vec![Complex32::new(0.0, 0.0); dim],
             scratch_b: vec![Complex32::new(0.0, 0.0); dim],
             scratch_c: vec![Complex32::new(0.0, 0.0); dim],
@@ -106,7 +128,7 @@ impl HolographicMemory {
 
     /// Create with default dimension optimized for ZenB use case
     pub fn default_for_zenb() -> Self {
-        Self::new(512) // 512 dimensions: good balance of capacity and speed
+        Self::with_capacity(512, 10_000)
     }
 
     /// Entangle (write) a key-value pair into memory.
@@ -150,6 +172,18 @@ impl HolographicMemory {
                 decay_factor
             );
             self.decay(decay_factor);
+        }
+
+        // MOON UPGRADE: LRU-style capacity eviction
+        // When we exceed max_items, apply decay to fade older memories
+        if self.item_count >= self.max_items {
+            log::debug!(
+                "HolographicMemory: Capacity {} reached, applying decay {:.2}",
+                self.max_items,
+                self.capacity_decay_factor
+            );
+            self.decay(self.capacity_decay_factor);
+            // Don't reset item_count - it's an approximation of total entanglements
         }
 
         // === ZERO-ALLOCATION FFT OPERATIONS (using scratch buffers) ===
@@ -349,6 +383,25 @@ impl HolographicMemory {
     /// Get number of items stored
     pub fn item_count(&self) -> usize {
         self.item_count
+    }
+
+    /// Get current capacity status (items_stored, max_items)
+    ///
+    /// # Returns
+    /// Tuple of (current item count, maximum items before decay eviction)
+    pub fn capacity_status(&self) -> (usize, usize) {
+        (self.item_count, self.max_items)
+    }
+
+    /// Set maximum items before decay eviction triggers
+    pub fn set_max_items(&mut self, max_items: usize) {
+        self.max_items = max_items;
+    }
+
+    /// Set decay factor for capacity-based eviction (0.0-1.0)
+    /// Lower values = more aggressive forgetting
+    pub fn set_capacity_decay_factor(&mut self, factor: f32) {
+        self.capacity_decay_factor = factor.clamp(0.1, 0.99);
     }
 
     /// Get the total energy (L2 norm squared) of the memory trace
@@ -599,6 +652,37 @@ mod tests {
 
         assert_eq!(key.len(), dim);
         assert_eq!(val.len(), dim);
+    }
+
+    #[test]
+    fn test_capacity_eviction() {
+        // Test LRU-style capacity eviction (MOON UPGRADE)
+        let dim = 32;
+        let max_items = 50;
+        let mut mem = HolographicMemory::with_capacity(dim, max_items);
+
+        // Store way more than capacity
+        for i in 0..150 {
+            let key: Vec<Complex32> = (0..dim)
+                .map(|j| Complex32::new(((i + j) as f32 * 0.1).sin(), 0.0))
+                .collect();
+            let value: Vec<Complex32> = (0..dim)
+                .map(|j| Complex32::new(((i * 2 + j) as f32 * 0.05).cos(), 0.0))
+                .collect();
+            mem.entangle(&key, &value);
+        }
+
+        // Item count should be 150 (tracks total entanglements)
+        assert_eq!(mem.item_count(), 150);
+
+        // But energy should be bounded (decay has been applied)
+        let energy = mem.energy();
+        assert!(energy.is_finite(), "Energy should be finite after eviction");
+        
+        // Capacity status should be correct
+        let (items, max) = mem.capacity_status();
+        assert_eq!(items, 150);
+        assert_eq!(max, 50);
     }
 
     #[test]

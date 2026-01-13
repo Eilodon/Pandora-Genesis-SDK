@@ -191,6 +191,15 @@ pub struct SkandhaConfig {
     pub enable_sankhara: bool,
     /// Enable Vinnana (synthesis)
     pub enable_vinnana: bool,
+
+    // === MOON UPGRADE: Uncertainty-Gated Refinement ===
+    /// Enable recursive refinement when uncertainty is high
+    pub refinement_enabled: bool,
+    /// Uncertainty threshold - if confidence < threshold, trigger refinement
+    /// Default: 0.15 (as approved by user)
+    pub uncertainty_threshold: f32,
+    /// Maximum refinement iterations (to prevent infinite loops)
+    pub max_refinement_depth: u8,
 }
 
 impl Default for SkandhaConfig {
@@ -201,6 +210,10 @@ impl Default for SkandhaConfig {
             enable_sanna: true,
             enable_sankhara: true,
             enable_vinnana: true,
+            // MOON UPGRADE defaults
+            refinement_enabled: true,
+            uncertainty_threshold: 0.15,
+            max_refinement_depth: 3,
         }
     }
 }
@@ -444,7 +457,58 @@ where
     }
 
     /// Process input through the full pipeline.
+    /// 
+    /// If refinement is enabled and uncertainty exceeds threshold,
+    /// the pipeline will run additional iterations to refine the output.
     pub fn process(&mut self, input: &SensorInput) -> SynthesizedState {
+        let mut result = self.process_single(input);
+        
+        // MOON UPGRADE: Uncertainty-gated refinement
+        if self.config.refinement_enabled {
+            let mut depth = 0;
+            while depth < self.config.max_refinement_depth {
+                let uncertainty = Self::compute_uncertainty(&result);
+                
+                if uncertainty <= self.config.uncertainty_threshold {
+                    // Confidence is high enough, stop refining
+                    log::debug!(
+                        "Skandha: Refinement stopped early at depth {} (uncertainty {:.3} <= threshold {:.3})",
+                        depth, uncertainty, self.config.uncertainty_threshold
+                    );
+                    break;
+                }
+                
+                // Refine: re-process with updated context from previous result
+                // Create synthetic input weighted by previous confidence
+                let refined_input = SensorInput {
+                    hr_bpm: input.hr_bpm.map(|v| v * (1.0 + result.confidence * 0.1)),
+                    hrv_rmssd: input.hrv_rmssd,
+                    rr_bpm: input.rr_bpm,
+                    quality: input.quality.max(result.confidence),
+                    motion: input.motion * (1.0 - result.confidence * 0.5).max(0.1),
+                    timestamp_us: input.timestamp_us,
+                };
+                
+                let new_result = self.process_single(&refined_input);
+                
+                // Blend new result with previous (exponential moving average)
+                result = Self::blend_results(&result, &new_result, 0.7);
+                depth += 1;
+            }
+            
+            if depth >= self.config.max_refinement_depth {
+                log::debug!(
+                    "Skandha: Refinement hit max depth {} (final uncertainty {:.3})",
+                    depth, Self::compute_uncertainty(&result)
+                );
+            }
+        }
+        
+        result
+    }
+    
+    /// Single-pass processing (no refinement).
+    fn process_single(&mut self, input: &SensorInput) -> SynthesizedState {
         // Stage 1: Rupa (Form)
         let form = if self.config.enable_rupa {
             self.rupa.process_form(input)
@@ -478,6 +542,51 @@ where
             self.vinnana.synthesize(&form, &affect, &pattern, &intent)
         } else {
             SynthesizedState::default()
+        }
+    }
+    
+    /// Compute uncertainty from synthesized state (inverse of confidence).
+    fn compute_uncertainty(state: &SynthesizedState) -> f32 {
+        // Uncertainty = 1 - confidence, adjusted by belief distribution entropy
+        let base_uncertainty = 1.0 - state.confidence;
+        
+        // Add entropy of belief distribution (more uniform = more uncertain)
+        let belief_entropy: f32 = state.belief.iter()
+            .filter(|&&p| p > 0.0)
+            .map(|&p| -p * p.ln())
+            .sum();
+        let max_entropy = (state.belief.len() as f32).ln();
+        let normalized_entropy = if max_entropy > 0.0 { 
+            belief_entropy / max_entropy 
+        } else { 
+            0.0 
+        };
+        
+        (base_uncertainty * 0.6 + normalized_entropy * 0.4).clamp(0.0, 1.0)
+    }
+    
+    /// Blend two synthesized states using exponential moving average.
+    fn blend_results(old: &SynthesizedState, new: &SynthesizedState, alpha: f32) -> SynthesizedState {
+        let mut blended_belief = [0.0f32; 5];
+        for i in 0..5 {
+            blended_belief[i] = alpha * new.belief[i] + (1.0 - alpha) * old.belief[i];
+        }
+        
+        // Renormalize belief
+        let sum: f32 = blended_belief.iter().sum();
+        if sum > 0.0 {
+            for b in &mut blended_belief {
+                *b /= sum;
+            }
+        }
+        
+        SynthesizedState {
+            form: new.form.clone(),
+            belief: blended_belief,
+            mode: new.mode,
+            confidence: alpha * new.confidence + (1.0 - alpha) * old.confidence,
+            decision: new.decision.clone(),
+            free_energy: alpha * new.free_energy + (1.0 - alpha) * old.free_energy,
         }
     }
 }

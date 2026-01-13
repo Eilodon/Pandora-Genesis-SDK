@@ -4,6 +4,7 @@
 //! - **Holographic Memory**: FFT-based, O(N log N), requires floating point
 //! - **Krylov Projector**: Subspace acceleration for iterative methods
 //! - **HDC Memory**: Binary hyperdimensional, integer-only, NPU-friendly
+//! - **Tiered HDC Memory**: Two-tier HDC with working + long-term storage (LifeHD pattern)
 //! - **Saccade Linker**: LTC-based predictive memory addressing
 //!
 //! # Mathematical Foundation
@@ -13,6 +14,9 @@
 //!
 //! Binary HDC uses high-dimensional binary vectors with XOR binding and majority
 //! bundling, achieving similar content-addressable properties with integer-only ops.
+//!
+//! Tiered HDC implements the LifeHD pattern: frequently accessed patterns are
+//! consolidated to long-term memory for anti-forgetting properties.
 //!
 //! Saccade Linker uses LTC neurons to predict memory locations for O(1) lookup.
 //!
@@ -25,8 +29,11 @@ pub mod hdc; // Binary Hyperdimensional Computing (NPU-accelerated)
 pub mod hologram;
 pub mod krylov; // TIER 4b: Krylov Subspace Acceleration
 pub mod saccade; // VAJRA V5: Predictive memory addressing
+pub mod tiered_hdc; // LifeHD pattern: Two-tier memory with consolidation
 
 pub use hdc::{HdcConfig, HdcMemory, HdcVector};
 pub use hologram::HolographicMemory;
 pub use krylov::KrylovProjector;
 pub use saccade::{SaccadeConfig, SaccadeLinker, SaccadeStats};
+pub use tiered_hdc::{MemoryTier, TieredHdcConfig, TieredHdcMemory, TieredHdcStats};
+
