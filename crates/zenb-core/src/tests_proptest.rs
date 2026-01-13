@@ -7,7 +7,7 @@ use proptest::prelude::*;
 mod tests {
     use super::*;
     use crate::{Engine, ZenbConfig};
-    use crate::domain::biofeedback::Variable;
+    use crate::causal::Variable;
     use crate::memory::hologram::HolographicMemory;
     use num_complex::Complex32;
 

@@ -112,8 +112,8 @@ impl SheafPerception {
         adj[(3, 0)] = 0.2;
         adj[(0, 3)] = 0.2;
 
-        let mut perception = Self::new(&adj, 0.05);
-        perception.anomaly_threshold = 0.5;
+        let mut perception = Self::new(&adj, 0.02);  // Reduced from 0.05 to reduce sensor modification
+        perception.anomaly_threshold = 0.3;  // Reduced from 0.5 for earlier anomaly detection
         perception
     }
 
