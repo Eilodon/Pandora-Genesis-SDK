@@ -205,9 +205,11 @@ pub trait ActionKind: Clone + Debug + Send + Sync + Serialize + DeserializeOwned
 /// - `Variable`: Signal variables for causal modeling
 /// - `Action`: Intervention action types
 /// - `Mode`: Belief modes for state estimation
+/// - `Observation`: Raw input data type for this domain
 ///
 /// # Built-in Domains
 /// - `BiofeedbackDomain`: Breath guidance, HRV tracking, physiological signal processing
+/// - `TradingDomain`: Market analysis and algorithmic trading
 ///
 /// # Creating Custom Domains
 /// See module-level documentation for a complete example.
@@ -223,6 +225,14 @@ pub trait Domain: 'static + Send + Sync {
 
     /// Belief mode type for state estimation.
     type Mode: BeliefMode;
+    
+    /// Observation type - the raw input data for this domain.
+    ///
+    /// Examples:
+    /// - Biofeedback: HR, HRV, RR sensor data
+    /// - Trading: Price, Volume, Timestamp market tick
+    /// - Robotics: Camera frame, LIDAR scan, IMU data
+    type Observation: DomainObservation;
 
     /// Human-readable name for this domain.
     fn name() -> &'static str;
@@ -242,6 +252,24 @@ pub trait Domain: 'static + Send + Sync {
     /// Override to specify domain-specific mode-action mappings.
     fn mode_to_default_action(_mode: Self::Mode) -> Option<Self::Action> {
         None
+    }
+    
+    /// Extract variable values from an observation.
+    ///
+    /// Returns a vector of normalized values [0, 1] for each variable.
+    fn extract_variables(obs: &Self::Observation) -> Vec<f32>;
+}
+
+/// Trait for domain observation types.
+///
+/// All domain observations must provide timestamp and quality information.
+pub trait DomainObservation: Clone + Send + Sync + 'static {
+    /// Timestamp in microseconds.
+    fn timestamp_us(&self) -> i64;
+    
+    /// Quality/confidence of this observation [0, 1].
+    fn quality(&self) -> f32 {
+        1.0
     }
 }
 

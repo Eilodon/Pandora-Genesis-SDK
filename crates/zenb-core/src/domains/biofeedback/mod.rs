@@ -24,14 +24,16 @@
 mod actions;
 mod config;
 mod modes;
+mod observation;
 mod variables;
 
 pub use actions::BioAction;
 pub use config::BreathConfig;
 pub use modes::BioBeliefMode;
+pub use observation::BioObservation;
 pub use variables::BioVariable;
 
-use crate::core::{Domain, GenericCausalGraph};
+use crate::core::{Domain, GenericCausalGraph, SignalVariable};
 
 /// Type alias for biofeedback-specific causal graph.
 pub type BioCausalGraph = GenericCausalGraph<BioVariable>;
@@ -57,6 +59,7 @@ impl Domain for BiofeedbackDomain {
     type Variable = BioVariable;
     type Action = BioAction;
     type Mode = BioBeliefMode;
+    type Observation = BioObservation;
 
     fn name() -> &'static str {
         "biofeedback"
@@ -95,6 +98,26 @@ impl Domain for BiofeedbackDomain {
             target_bpm: mode.recommended_bpm(),
             duration_sec: 60,
         })
+    }
+    
+    fn extract_variables(obs: &Self::Observation) -> Vec<f32> {
+        // Normalize sensor values to [0, 1] range
+        // HR: 40-180 BPM → [0, 1]
+        // HRV: 0-200 ms → [0, 1]
+        // RR: 4-20 BPM → [0, 1]
+        let hr_norm = obs.hr_bpm.map(|v| ((v - 40.0) / 140.0).clamp(0.0, 1.0)).unwrap_or(0.5);
+        let hrv_norm = obs.hrv_rmssd.map(|v| (v / 200.0).clamp(0.0, 1.0)).unwrap_or(0.5);
+        let rr_norm = obs.rr_bpm.map(|v| ((v - 4.0) / 16.0).clamp(0.0, 1.0)).unwrap_or(0.5);
+        
+        // Create variable vector matching BioVariable order
+        let mut vars = vec![0.0f32; BioVariable::COUNT];
+        vars[BioVariable::HeartRate.index()] = hr_norm;
+        vars[BioVariable::HeartRateVariability.index()] = hrv_norm;
+        vars[BioVariable::RespiratoryRate.index()] = rr_norm;
+        // Motion could affect NotificationPressure perception
+        vars[BioVariable::NoiseLevel.index()] = obs.motion;
+        
+        vars
     }
 }
 

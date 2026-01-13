@@ -9,17 +9,20 @@
 //! - [`TradingVariable`]: Market signal variables (Price, Volume, Volatility, etc.)
 //! - [`MarketMode`]: Market belief states (Bullish, Bearish, Volatile, etc.)
 //! - [`TradingAction`]: Trading actions (Buy, Sell, Hedge, Hold)
+//! - [`MarketTick`]: Observation input type
 //! - [`TradingDomain`]: Complete domain implementation
 
 mod actions;
 mod modes;
+mod observation;
 mod variables;
 
 pub use actions::TradingAction;
 pub use modes::MarketMode;
+pub use observation::MarketTick;
 pub use variables::TradingVariable;
 
-use crate::core::{Domain, GenericCausalGraph};
+use crate::core::{Domain, GenericCausalGraph, SignalVariable};
 
 /// Type alias for trading-specific causal graph.
 pub type TradingCausalGraph = GenericCausalGraph<TradingVariable>;
@@ -40,6 +43,7 @@ impl Domain for TradingDomain {
     type Variable = TradingVariable;
     type Action = TradingAction;
     type Mode = MarketMode;
+    type Observation = MarketTick;
 
     fn name() -> &'static str {
         "trading"
@@ -80,6 +84,31 @@ impl Domain for TradingDomain {
             MarketMode::HighVolatility => TradingAction::Hedge { ratio: 0.5 },
             MarketMode::LowVolatility => TradingAction::Hold,
         })
+    }
+    
+    fn extract_variables(obs: &Self::Observation) -> Vec<f32> {
+        // Normalize market values to [0, 1] range
+        let mut vars = vec![0.0f32; TradingVariable::COUNT];
+        
+        // Price: normalized (assume 0-1000 range for demo)
+        vars[TradingVariable::Price.index()] = (obs.price / 1000.0).clamp(0.0, 1.0);
+        
+        // Volume: normalized (assume 0-10000 range)
+        vars[TradingVariable::Volume.index()] = (obs.volume / 10000.0).clamp(0.0, 1.0);
+        
+        // Volatility: already [0, 1] typically
+        vars[TradingVariable::Volatility.index()] = obs.volatility.unwrap_or(0.5);
+        
+        // Momentum: [-1, 1] -> [0, 1]
+        vars[TradingVariable::Momentum.index()] = obs.momentum.map(|m| (m + 1.0) / 2.0).unwrap_or(0.5);
+        
+        // Sentiment: [-1, 1] -> [0, 1]
+        vars[TradingVariable::Sentiment.index()] = obs.sentiment.map(|s| (s + 1.0) / 2.0).unwrap_or(0.5);
+        
+        // MacroFactor
+        vars[TradingVariable::MacroFactor.index()] = obs.macro_factor.unwrap_or(0.5);
+        
+        vars
     }
 }
 
