@@ -31,7 +31,7 @@ fn debug_vajra_energize_bias() {
 
     // Baseline (no Vajra)
     let mut baseline = Engine::new_for_test(6.0);
-    baseline.use_vajra_architecture = false;
+    baseline.config.features.vajra_enabled = false;
 
     let bio = calm_obs.bio_metrics.as_ref().unwrap();
     let raw_features = vec![
@@ -55,7 +55,7 @@ fn debug_vajra_energize_bias() {
 
     // Vajra (with Sheaf)
     let mut vajra = Engine::new_for_test(6.0);
-    vajra.use_vajra_architecture = true;
+    vajra.config.features.vajra_enabled = true;
 
     let vajra_features = vec![
         bio.hr_bpm.unwrap(),
@@ -173,7 +173,7 @@ fn debug_sheaf_output_vs_raw() {
         println!("Raw: HR={:.1}, HRV={:.1}, RR={:.1}", raw[0], raw[1], raw[2]);
 
         let mut engine = Engine::new_for_test(6.0);
-        engine.use_vajra_architecture = true;
+        engine.config.features.vajra_enabled = true;
 
         let features = vec![raw[0], raw[1], raw[2], 0.9, 0.1];
         let est = engine.ingest_sensor(&features, 0);

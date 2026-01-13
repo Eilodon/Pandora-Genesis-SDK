@@ -120,6 +120,20 @@ pub struct ShardedCircuitBreakerManager {
     config: CircuitBreakerConfig,
 }
 
+impl std::fmt::Debug for ShardedCircuitBreakerManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let stats = self.stats();
+        f.debug_struct("ShardedCircuitBreakerManager")
+            .field("shard_count", &SHARD_COUNT)
+            .field("total_circuits", &stats.total_circuits)
+            .field("closed", &stats.closed)
+            .field("open", &stats.open)
+            .field("half_open", &stats.half_open)
+            .field("config", &self.config)
+            .finish()
+    }
+}
+
 impl ShardedCircuitBreakerManager {
     /// Creates a new sharded circuit breaker manager.
     pub fn new(config: CircuitBreakerConfig) -> Self {

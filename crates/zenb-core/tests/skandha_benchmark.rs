@@ -39,7 +39,7 @@ fn generate_test_observation(timestamp_us: i64, stress_level: f32) -> Observatio
 /// Benchmark: Baseline (No Vajra)
 fn benchmark_baseline(observations: &[Observation]) -> (f64, BeliefState) {
     let mut engine = Engine::new_for_test(6.0);
-    engine.use_vajra_architecture = false; // DISABLE Vajra
+    engine.config.features.vajra_enabled = false; // DISABLE Vajra
 
     let start = Instant::now();
     let mut final_belief = BeliefState::default();
@@ -66,7 +66,7 @@ fn benchmark_baseline(observations: &[Observation]) -> (f64, BeliefState) {
 /// Benchmark: Vajra Piecemeal (Current State)
 fn benchmark_vajra_piecemeal(observations: &[Observation]) -> (f64, BeliefState) {
     let mut engine = Engine::new_for_test(6.0);
-    engine.use_vajra_architecture = true; // ENABLE Vajra (piecemeal usage)
+    engine.config.features.vajra_enabled = true; // ENABLE Vajra (piecemeal usage)
 
     let start = Instant::now();
     let mut final_belief = BeliefState::default();
@@ -97,7 +97,7 @@ fn benchmark_vajra_piecemeal(observations: &[Observation]) -> (f64, BeliefState)
 /// Benchmark: Skandha Unified (Proposed)
 fn benchmark_skandha_unified(observations: &[Observation]) -> (f64, BeliefState) {
     let mut engine = Engine::new_for_test(6.0);
-    engine.use_vajra_architecture = true;
+    engine.config.features.vajra_enabled = true;
 
     let start = Instant::now();
     let mut final_belief = BeliefState::default();

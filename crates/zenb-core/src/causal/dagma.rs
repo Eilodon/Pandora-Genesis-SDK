@@ -341,11 +341,23 @@ mod tests {
         println!("DAGMA h(DAG) = {}", h_dag);
         assert!(h_dag.abs() < 0.1, "DAG should have h ≈ 0");
 
-        // Cycle: W = [[0, 0.5], [0.5, 0]]
+        // Cycle: W = [[0, 0.5], [0.5, 0]] 
+        // Note: For log-det acyclicity, weak cycles (small edge weights) produce small h values
+        // The formula h(W) = -log det(sI - W⊙W) + d*log(s) gives:
+        // - h = 0 for true DAGs
+        // - h > 0 for graphs with cycles (any positive value indicates cyclicity)
         let w_cycle = DMatrix::from_row_slice(2, 2, &[0.0, 0.5, 0.5, 0.0]);
         let h_cycle = dagma.h_logdet(&w_cycle);
 
         println!("DAGMA h(Cycle) = {}", h_cycle);
-        assert!(h_cycle > 0.1, "Cycle should have h > 0");
+        // Cycle should have h > 0 (any positive value indicates cycle)
+        // Threshold lowered from 0.1 to 0.01 because weak cycles have small h
+        assert!(h_cycle > 0.01, "Cycle should have h > 0, got {}", h_cycle);
+        
+        // Stronger cycle test: higher weights should give higher h
+        let w_strong_cycle = DMatrix::from_row_slice(2, 2, &[0.0, 0.9, 0.9, 0.0]);
+        let h_strong = dagma.h_logdet(&w_strong_cycle);
+        println!("DAGMA h(Strong Cycle) = {}", h_strong);
+        assert!(h_strong > h_cycle, "Stronger cycle should have higher h");
     }
 }

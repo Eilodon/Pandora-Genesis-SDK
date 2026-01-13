@@ -1,15 +1,20 @@
 use zenb_core::engine::Engine;
-use zenb_core::config::{ZenbConfig, SotaConfig};
+use zenb_core::config::{ZenbConfig, FeatureConfig};
 use zenb_core::domain::ControlDecision;
+use zenb_core::policy::ActionPolicy; // Import ActionPolicy for checks
 
 #[test]
-fn test_efe_replaces_heuristic_selection() {
-    // 1. Configure Engine with EFE enabled
+fn test_efe_policy_selection_flow() {
+    // 1. Setup Config with EFE enabled
     let mut config = ZenbConfig::default();
-    config.sota.use_efe_selection = true;
-    config.sota.efe_precision_beta = Some(5.0); // High precision (greedy) to force pragmatic choice
+    config.features.use_efe_selection = true;
+    config.features.efe_precision_beta = Some(4.0);
     
+    // 2. Initialize Engine
     let mut engine = Engine::new_with_config(6.0, Some(config));
+    
+    // Verify EFE is active
+    assert!(engine.config.features.use_efe_selection);
     
     // 2. Setup high stress state (HR 100, HRV Low)
     // Heuristic would pick ~8 BPM or Breath Guidance.

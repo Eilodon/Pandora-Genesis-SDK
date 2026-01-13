@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use super::{Variable, ObservationSnapshot};
+use super::ObservationSnapshot;
 
 /// Adaptive trigger for PC learning based on correlation changes
 /// 

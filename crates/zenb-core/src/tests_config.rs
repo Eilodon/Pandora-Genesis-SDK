@@ -102,14 +102,14 @@ mod tests {
             enable_burst_filter = true
             burst_filter_threshold_us = 5000
 
-            [sota]
+            [features]
             use_ukf = false
             ukf_fallback_enabled = true
             use_efe_selection = false
             pc_learning_enabled = false
             audio_profile = "Standard"
 
-            [sota.ukf_config]
+            [features.ukf_config]
             forgetting_factor = 0.95
             min_samples = 10
             adapt_q = true
@@ -117,7 +117,7 @@ mod tests {
             max_q_scale = 10.0
             min_r_scale = 0.01
 
-            [sota.ukf_config.ukf]
+            [features.ukf_config.ukf]
             q_scale = 0.01
             r_hr = 25.0
             r_hrv = 100.0
@@ -127,7 +127,7 @@ mod tests {
             beta = 2.0
             kappa = 0.0
 
-            [sota.pc_config]
+            [features.pc_config]
             alpha = 0.05
             max_cond_set_size = 3
             min_samples = 100

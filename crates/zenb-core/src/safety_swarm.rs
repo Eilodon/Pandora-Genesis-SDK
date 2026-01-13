@@ -327,10 +327,7 @@ pub struct TraumaGuard<'a> {
     pub source: &'a dyn TraumaSource,
     pub hard_th: f32,
     pub soft_th: f32,
-    /// DEPRECATED: This field is ignored. Test time bypass is now compile-time only.
-    /// Use `SafetyConfig::allow_test_time()` for the actual behavior.
-    #[deprecated(since = "0.2.0", note = "Use SafetyConfig::allow_test_time() instead")]
-    pub allow_test_time: bool,
+
 }
 
 impl<'a> TraumaGuard<'a> {
@@ -631,7 +628,7 @@ mod tests {
             source: &src,
             hard_th: 3.0,
             soft_th: 1.5,
-            allow_test_time: true,
+
         })];
         let patch = PatternPatch {
             target_bpm: 6.0,
@@ -673,7 +670,7 @@ mod tests {
             source: &src,
             hard_th: 1.5,
             soft_th: 0.7,
-            allow_test_time: true,
+
         })];
         let patch = PatternPatch {
             target_bpm: 6.0,

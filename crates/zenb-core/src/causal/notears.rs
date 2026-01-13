@@ -5,7 +5,7 @@
 //!
 //! Key Innovation: Formulate acyclicity as a smooth constraint h(W) = tr(e^(W⊙W)) - d = 0
 
-use nalgebra::{DMatrix, DVector};
+use nalgebra::DMatrix;
 use serde::{Deserialize, Serialize};
 
 /// NOTEARS configuration

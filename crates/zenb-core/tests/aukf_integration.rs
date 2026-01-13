@@ -1,6 +1,6 @@
-use zenb_core::config::{ZenbConfig, SotaConfig};
+use zenb_core::config::{ZenbConfig, FeatureConfig};
 // use zenb_core::estimators::{UkfConfig, ukf::AukfConfig}; // imports removed as they were unused in the test body?
-// Wait, I assign config.sota.ukf_config... which uses AukfConfig implicitly but struct name might not be needed?
+// Wait, I assign config.features.ukf_config... which uses AukfConfig implicitly but struct name might not be needed?
 // Actually compiler warned `unused imports: UkfConfig and ukf::AukfConfig`.
 // Let's remove them if they are truly unused.
 use zenb_core::engine::Engine;
@@ -9,10 +9,10 @@ use zenb_core::engine::Engine;
 fn test_aukf_q_adaptation_in_engine() {
     // 1. Setup Config with UKF enabled and Q adaptation active
     let mut config = ZenbConfig::default();
-    config.sota.use_ukf = true;
-    config.sota.ukf_config.adapt_q = true;
-    config.sota.ukf_config.min_samples = 10;
-    config.sota.ukf_config.ukf.q_scale = 0.01;
+    config.features.use_ukf = true;
+    config.features.ukf_config.adapt_q = true;
+    config.features.ukf_config.min_samples = 10;
+    config.features.ukf_config.ukf.q_scale = 0.01;
 
     // 2. Initialize Engine
     let mut engine = Engine::new_with_config(6.0, Some(config));

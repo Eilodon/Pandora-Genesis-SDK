@@ -95,7 +95,7 @@ fn test_sheaf_consensus_benefit() {
 
     // Baseline (no Sheaf)
     let mut baseline_engine = Engine::new_for_test(6.0);
-    baseline_engine.use_vajra_architecture = false;
+    baseline_engine.config.features.vajra_enabled = false;
 
     for obs in &observations {
         let bio = obs.bio_metrics.as_ref().unwrap();
@@ -120,7 +120,7 @@ fn test_sheaf_consensus_benefit() {
 
     // Vajra with Sheaf
     let mut vajra_engine = Engine::new_for_test(6.0);
-    vajra_engine.use_vajra_architecture = true;  // Enable Sheaf
+    vajra_engine.config.features.vajra_enabled = true;  // Enable Sheaf
 
     for obs in &observations {
         let bio = obs.bio_metrics.as_ref().unwrap();
@@ -169,7 +169,7 @@ fn test_convergence_speed() {
 
     // Baseline
     let mut baseline_engine = Engine::new_for_test(6.0);
-    baseline_engine.use_vajra_architecture = false;
+    baseline_engine.config.features.vajra_enabled = false;
 
     let mut baseline_converged_at = None;
     for (i, obs) in observations.iter().enumerate() {
@@ -192,7 +192,7 @@ fn test_convergence_speed() {
 
     // Vajra
     let mut vajra_engine = Engine::new_for_test(6.0);
-    vajra_engine.use_vajra_architecture = true;
+    vajra_engine.config.features.vajra_enabled = true;
 
     let mut vajra_converged_at = None;
     for (i, obs) in observations.iter().enumerate() {
@@ -244,7 +244,7 @@ fn test_pattern_memory_benefit() {
 
     // Baseline (no Holographic memory)
     let mut baseline_engine = Engine::new_for_test(6.0);
-    baseline_engine.use_vajra_architecture = false;
+    baseline_engine.config.features.vajra_enabled = false;
 
     // Train
     for obs in &stress_pattern {
@@ -276,7 +276,7 @@ fn test_pattern_memory_benefit() {
 
     // Vajra (with Holographic memory)
     let mut vajra_engine = Engine::new_for_test(6.0);
-    vajra_engine.use_vajra_architecture = true;
+    vajra_engine.config.features.vajra_enabled = true;
 
     // Train
     for obs in &stress_pattern {
@@ -339,7 +339,7 @@ fn test_dharma_ethical_veto() {
 
     // Baseline (no Dharma filter)
     let mut baseline_engine = Engine::new_for_test(6.0);
-    baseline_engine.use_vajra_architecture = false;
+    baseline_engine.config.features.vajra_enabled = false;
 
     let bio = extreme_obs.bio_metrics.as_ref().unwrap();
     let features = vec![
@@ -356,7 +356,7 @@ fn test_dharma_ethical_veto() {
 
     // Vajra (with Dharma filter)
     let mut vajra_engine = Engine::new_for_test(6.0);
-    vajra_engine.use_vajra_architecture = true;
+    vajra_engine.config.features.vajra_enabled = true;
 
     let features = vec![
         bio.hr_bpm.unwrap(),
@@ -391,7 +391,7 @@ fn test_latency_comparison() {
     // Baseline
     let start = Instant::now();
     let mut baseline_engine = Engine::new_for_test(6.0);
-    baseline_engine.use_vajra_architecture = false;
+    baseline_engine.config.features.vajra_enabled = false;
 
     for obs in &observations {
         let bio = obs.bio_metrics.as_ref().unwrap();
@@ -408,7 +408,7 @@ fn test_latency_comparison() {
     // Vajra
     let start = Instant::now();
     let mut vajra_engine = Engine::new_for_test(6.0);
-    vajra_engine.use_vajra_architecture = true;
+    vajra_engine.config.features.vajra_enabled = true;
 
     for obs in &observations {
         let bio = obs.bio_metrics.as_ref().unwrap();

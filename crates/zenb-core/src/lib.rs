@@ -38,6 +38,10 @@ pub mod trauma_cache;
 pub mod uncertain;   // NEW: Uncertainty quantification
 pub mod thermo_logic; // TIER 3: Thermodynamic Logic (GENERIC framework)
 pub mod validation;
+pub mod perception_subsystem; // Phase 2: Extracted from Engine god-object
+pub mod belief_subsystem;      // Phase 2: Extracted from Engine god-object
+pub mod safety_subsystem;      // Phase 2: Extracted from Engine god-object
+pub mod timestamp;             // Phase 2.4: Consolidated timestamp tracking
 
 #[cfg(test)]
 pub mod tests_config;

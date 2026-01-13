@@ -27,11 +27,15 @@ pub struct ZenbConfig {
     pub breath: BreathConfig,
     pub belief: BeliefConfig,
     pub performance: PerformanceConfig,
-    pub sota: SotaConfig,
+    pub features: FeatureConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SotaConfig {
+pub struct FeatureConfig {
+    /// Enable Vajra-001 Unified Cognitive Architecture (Skandha + Hologram)
+    #[serde(default)]
+    pub vajra_enabled: bool,
+
     /// Enable Hybrid UKF State Estimator
     pub use_ukf: bool,
     /// Automatically fall back to legacy estimator if UKF diverges
@@ -132,11 +136,8 @@ pub struct SafetyConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub circuit_breaker_states: Vec<CircuitBreakerSnapshot>,
     
-    /// DEPRECATED: This field is ignored at runtime.
-    /// Test time bypass is now compile-time only. See `SafetyConfig::allow_test_time()`.
-    #[serde(default)]
-    #[deprecated(since = "0.2.0", note = "Use compile-time cfg(test) instead")]
-    pub allow_test_time: bool,
+
+
 }
 
 /// Snapshot of a circuit breaker for persistence
@@ -201,14 +202,15 @@ impl Default for ZenbConfig {
             breath: BreathConfig::default(),
             belief: BeliefConfig::default(),
             performance: PerformanceConfig::default(),
-            sota: SotaConfig::default(),
+            features: FeatureConfig::default(),
         }
     }
 }
 
-impl Default for SotaConfig {
+impl Default for FeatureConfig {
     fn default() -> Self {
         Self {
+            vajra_enabled: true, // Vajra-001 Unified Architecture ENABLED by default
             use_ukf: false, // Default to false for safe rollout
             ukf_fallback_enabled: true,
             ukf_config: AukfConfig::default(),
@@ -254,7 +256,7 @@ impl Default for SafetyConfig {
             trauma_decay_default: 0.001,
             device_secret: None,  // Generate on first use
             circuit_breaker_states: Vec::new(),
-            allow_test_time: false,
+
         }
     }
 }
