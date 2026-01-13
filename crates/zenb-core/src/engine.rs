@@ -246,7 +246,7 @@ impl Engine {
     pub fn ingest_sensor(&mut self, features: &[f32], ts_us: i64) -> Estimate {
         // Construct input for Skandha pipeline
         let input = crate::skandha::SensorInput {
-            hr_bpm: features.get(0).copied(),
+            hr_bpm: features.first().copied(),
             hrv_rmssd: features.get(1).copied(),
             rr_bpm: features.get(2).copied(),
             quality: features.get(3).copied().unwrap_or(1.0),

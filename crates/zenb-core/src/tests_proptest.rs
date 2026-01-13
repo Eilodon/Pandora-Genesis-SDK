@@ -45,7 +45,7 @@ mod tests {
 
             // First timestamp accepted (initializes state)
             let features = [70.0, 50.0, 6.0];
-            let est1 = engine.ingest_sensor(&features, ts1);
+            let _est1 = engine.ingest_sensor(&features, ts1);
 
             // Second timestamp is earlier -> should return cached/previous estimate
             // (Estimator treats this as burst protection, returning last valid estimate)

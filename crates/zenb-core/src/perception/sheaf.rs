@@ -435,7 +435,6 @@ impl SheafPerception {
         // For phases: compute weighted average based on amplitude
         // (stronger signals contribute more to phase consensus)
         let total_amp: f32 = diffused_amp.iter().sum::<f32>().max(1e-6);
-        let mut phase_consensus = 0.0f32;
         
         // Use circular mean for phases (proper phase averaging)
         let mut sin_sum = 0.0f32;
@@ -445,7 +444,7 @@ impl SheafPerception {
             sin_sum += weight * phase.sin();
             cos_sum += weight * phase.cos();
         }
-        phase_consensus = sin_sum.atan2(cos_sum);
+        let phase_consensus = sin_sum.atan2(cos_sum);
 
         // Reconstruct complex values with diffused amplitude and consensus phase
         // Each sensor's phase is smoothed toward consensus

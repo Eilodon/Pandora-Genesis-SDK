@@ -104,8 +104,6 @@ pub struct GenericCausalGraph<V: SignalVariable> {
     /// Adjacency matrix: weights[cause][effect] = edge.
     /// Stored as flat Vec for cache efficiency.
     weights: Vec<Option<CausalEdge>>,
-    /// Pairwise interaction weights (upper triangular).
-    interaction_weights: Vec<Option<CausalEdge>>,
     /// Marker for the variable type.
     _marker: PhantomData<V>,
 }
@@ -123,7 +121,6 @@ impl<V: SignalVariable> GenericCausalGraph<V> {
         Self {
             size,
             weights: vec![None; size * size],
-            interaction_weights: vec![None; size * size],
             _marker: PhantomData,
         }
     }
@@ -148,7 +145,6 @@ impl<V: SignalVariable> GenericCausalGraph<V> {
         Self {
             size,
             weights,
-            interaction_weights: vec![None; size * size],
             _marker: PhantomData,
         }
     }
@@ -245,7 +241,7 @@ impl<V: SignalVariable> GenericCausalGraph<V> {
                 }
 
                 // Update or create edge
-                let edge = self.weights[idx].get_or_insert_with(|| CausalEdge {
+                let edge = self.weights[idx].get_or_insert(CausalEdge {
                     successes: 0,
                     failures: 0,
                     source: CausalSource::Learned {

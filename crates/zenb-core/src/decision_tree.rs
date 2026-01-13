@@ -20,9 +20,10 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 /// Actions that can be taken based on decision tree evaluation.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum RouteAction {
     /// Use full computation path (EFE, Vajra, etc.)
+    #[default]
     FullComputation,
     /// Use simplified computation for low resources
     SimplifiedComputation,
@@ -32,12 +33,6 @@ pub enum RouteAction {
     Defer,
     /// Fallback to safe defaults
     SafeFallback,
-}
-
-impl Default for RouteAction {
-    fn default() -> Self {
-        RouteAction::FullComputation
-    }
 }
 
 // ============================================================================

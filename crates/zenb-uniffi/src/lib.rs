@@ -1,3 +1,10 @@
+#![allow(clippy::empty_line_after_doc_comments)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(unused_imports)]
+#![allow(unused_mut)]
+#![allow(dead_code)]
+
 use chrono::Timelike;
 use serde_json::Value;
 use std::collections::VecDeque;
@@ -197,7 +204,7 @@ impl Runtime {
         // Trauma triggers at session end
         let fe_th: f32 = 1.2;
         let res_th: f32 = self.engine.config.resonance.coherence_threshold;
-        let decay_rate_default: f32 = self.engine.config.safety.trauma_decay_default;
+        let _decay_rate_default: f32 = self.engine.config.safety.trauma_decay_default;
 
         let fe_peak = self.engine.free_energy_peak;
         let res_ema = self.engine.resonance_score_ema;
@@ -213,14 +220,14 @@ impl Runtime {
             } else {
                 0.0
             };
-            let sev = (sev_fe.max(sev_res)
+            let _sev = (sev_fe.max(sev_res)
                 + if user_cancel { 0.5 } else { 0.0 }
                 + if ended_early { 0.5 } else { 0.0 })
             .clamp(0.0, 5.0);
 
-            let sig = zenb_core::safety_swarm::trauma_sig_hash(
+            let _sig = zenb_core::safety_swarm::trauma_sig_hash(
                 self.engine.last_goal,
-                self.engine.belief_state.mode as u8,
+                self.engine.skandha_pipeline.vedana.mode() as u8,
                 self.engine.last_pattern_id,
                 &self.engine.context,
             );
@@ -441,18 +448,17 @@ impl Runtime {
 
                 // Persist BeliefUpdatedV2 alongside control decisions (1-2Hz)
                 let seq = seq + 1;
-                let b = &self.engine.belief_state;
-                let fe = self.engine.fep_state.free_energy_ema;
-                let lr = self.engine.fep_state.lr;
+                let fe = self.engine.skandha_pipeline.vedana.free_energy_ema();
+                let lr = self.engine.skandha_pipeline.vedana.fep_state().lr;
                 let res = self.engine.resonance_score_ema;
                 let env_b = Envelope {
                     session_id: self.session_id.clone(),
                     seq,
                     ts_us,
                     event: Event::BeliefUpdatedV2 {
-                        p: b.p,
-                        conf: b.conf,
-                        mode: b.mode as u8,
+                        p: *self.engine.skandha_pipeline.vedana.probabilities(),
+                        conf: self.engine.skandha_pipeline.vedana.confidence(),
+                        mode: self.engine.skandha_pipeline.vedana.mode() as u8,
                         free_energy_ema: fe,
                         lr,
                         resonance_score: res,

@@ -45,6 +45,7 @@ pub struct P2PNode {
     config: P2PConfig,
     registry: Arc<Mutex<PeerRegistry>>,
     outbox_tx: mpsc::Sender<P2PMessage>,
+    #[allow(dead_code)] // Will be used in full network loop implementation
     outbox_rx: Arc<Mutex<mpsc::Receiver<P2PMessage>>>,
     inbox_tx: mpsc::Sender<P2PMessage>,
     inbox_rx: Arc<Mutex<mpsc::Receiver<P2PMessage>>>,
@@ -144,7 +145,7 @@ impl P2PNode {
         // Update peer last-seen
         {
             let mut registry = self.registry.lock().await;
-            if let Some(peer) = registry.get_mut(&PeerId::from_str(&msg.sender)) {
+            if let Some(peer) = registry.get_mut(&PeerId::new_from_str(&msg.sender)) {
                 peer.touch();
             }
         }
@@ -169,7 +170,7 @@ impl P2PNode {
                 // Add to registry if we have capacity
                 let mut registry = self.registry.lock().await;
                 if registry.can_accept() {
-                    let mut info = PeerInfo::new(PeerId::from_str(&msg.sender));
+                    let mut info = PeerInfo::new(PeerId::new_from_str(&msg.sender));
                     info.status = PeerStatus::Connected;
                     info.touch();
                     registry.upsert(info);
@@ -179,7 +180,7 @@ impl P2PNode {
             MessageType::Goodbye => {
                 // Remove peer
                 let mut registry = self.registry.lock().await;
-                registry.remove(&PeerId::from_str(&msg.sender));
+                registry.remove(&PeerId::new_from_str(&msg.sender));
                 Ok(None)
             }
             _ => {

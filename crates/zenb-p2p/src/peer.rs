@@ -4,7 +4,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Instant;
 
 /// Unique peer identifier
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -18,7 +17,7 @@ impl PeerId {
     }
 
     /// Create from string
-    pub fn from_str(s: impl Into<String>) -> Self {
+    pub fn new_from_str(s: impl Into<String>) -> Self {
         Self(s.into())
     }
 
@@ -205,7 +204,7 @@ mod tests {
     fn test_peer_registry() {
         let mut registry = PeerRegistry::new(10, 1000);
         
-        let id = PeerId::from_str("test-peer");
+        let id = PeerId::new_from_str("test-peer");
         let mut info = PeerInfo::new(id.clone());
         info.status = PeerStatus::Connected;
         info.touch();

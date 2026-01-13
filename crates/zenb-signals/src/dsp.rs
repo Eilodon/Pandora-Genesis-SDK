@@ -77,10 +77,7 @@ impl DspProcessor {
 
         // 3. Compute power spectrum (only positive frequencies)
         let half_n = n / 2;
-        let mut power_spectrum = Vec::with_capacity(half_n);
-        for i in 0..half_n {
-            power_spectrum.push(buffer[i].norm_sqr());
-        }
+        let power_spectrum: Vec<f32> = buffer.iter().take(half_n).map(|c| c.norm_sqr()).collect();
 
         // 4. Find peak in physiological range (40-180 BPM = 0.67-3.0 Hz)
         let bin_res = fs / n as f32;

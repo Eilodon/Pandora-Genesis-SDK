@@ -105,7 +105,6 @@ pub struct Observation {
 #[derive(Debug, Clone, Copy)]
 struct TargetState {
     arousal: f32,
-    attention: f32,
     rhythm: f32,
     valence: f32,
 }
@@ -114,7 +113,6 @@ impl Default for TargetState {
     fn default() -> Self {
         Self {
             arousal: 0.5,
-            attention: 0.6,
             rhythm: 0.7,
             valence: 0.5,
         }
@@ -164,11 +162,7 @@ pub struct UkfStateEstimator {
     /// Adaptive Q estimate (process noise covariance)
     q_adaptive: CovarianceMatrix,
 
-    /// Adaptive R estimates per measurement type
-    r_adaptive_hr: f32,
-    r_adaptive_hrv: f32,
-    r_adaptive_resp: f32,
-    r_adaptive_valence: f32,
+
 
     /// Residual statistics for Sage-Husa
     residual_mean: StateVector,
@@ -220,10 +214,6 @@ impl UkfStateEstimator {
             // AUKF initialization
             sample_count: 0,
             q_adaptive: CovarianceMatrix::identity() * cfg.q_scale,
-            r_adaptive_hr: cfg.r_hr,
-            r_adaptive_hrv: cfg.r_hrv,
-            r_adaptive_resp: cfg.r_resp,
-            r_adaptive_valence: cfg.r_valence,
 
             residual_mean: StateVector::zeros(),
             residual_cov: CovarianceMatrix::identity() * 0.2, // Initialize to match P to avoid cold-start drop
@@ -237,7 +227,6 @@ impl UkfStateEstimator {
             // Parasympathetic
             TargetState {
                 arousal: 0.2,
-                attention: 0.5,
                 rhythm: 0.8,
                 valence: 0.6,
             }
@@ -245,7 +234,6 @@ impl UkfStateEstimator {
             // Sympathetic
             TargetState {
                 arousal: 0.7,
-                attention: 0.8,
                 rhythm: 0.6,
                 valence: 0.7,
             }
@@ -253,7 +241,6 @@ impl UkfStateEstimator {
             // Balanced
             TargetState {
                 arousal: 0.4,
-                attention: 0.7,
                 rhythm: 0.9,
                 valence: 0.5,
             }

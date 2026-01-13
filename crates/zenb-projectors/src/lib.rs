@@ -1,3 +1,6 @@
+#![allow(clippy::single_component_path_imports)]
+#![allow(clippy::single_match)]
+
 use serde::{Deserialize, Serialize};
 use zenb_core::domain::{ControlDecision, Envelope, Event};
 

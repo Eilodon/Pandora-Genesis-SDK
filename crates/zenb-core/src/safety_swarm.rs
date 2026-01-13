@@ -289,8 +289,10 @@ impl Guard for ComfortGuard {
         _now_ts_us: i64,
     ) -> Vote {
         if belief.mode == crate::belief::BeliefBasis::Stress && patch.hold_sec > 30.0 {
-            let mut c = Clamp::default();
-            c.hold_max_sec = 30.0;
+            let c = Clamp {
+                hold_max_sec: 30.0,
+                ..Clamp::default()
+            };
             Vote::Allow(c, 0.5, 0x10)
         } else {
             Vote::Allow(Clamp::default(), 0.8, 0x10)
@@ -528,7 +530,7 @@ pub fn decide<'a>(
         return Err("guard_conflict_invalid_rate_limit");
     }
 
-    let mut applied = patch.clone();
+    let mut applied = *patch;
     applied.apply_clamp(&final_clamp);
     Ok((applied, reason_bits))
 }

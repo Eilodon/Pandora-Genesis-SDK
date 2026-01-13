@@ -146,7 +146,7 @@ impl MorletWavelet {
     }
 
     /// Compute frequency for a given scale
-    fn scale_to_frequency(&self, scale: f32) -> f32 {
+    pub fn scale_to_frequency(&self, scale: f32) -> f32 {
         self.config.omega0 * self.config.sample_rate / (2.0 * PI * scale)
     }
 
@@ -170,7 +170,7 @@ impl MorletWavelet {
         // Nyquist frequency
         let nyquist = fs / 2.0;
 
-        for k in 0..n {
+        for (k, wavelet_elem) in wavelet.iter_mut().enumerate().take(n) {
             // Compute normalized angular frequency for bin k
             // k=0 is DC, k=n/2 is Nyquist, k>n/2 are negative frequencies
             let freq_hz = if k <= n / 2 {
@@ -196,7 +196,7 @@ impl MorletWavelet {
             let amplitude = PI.powf(-0.25) * exponent.exp();
 
             // Scale normalization for energy preservation
-            wavelet[k] = Complex32::new(amplitude * scale.sqrt(), 0.0);
+            *wavelet_elem = Complex32::new(amplitude * scale.sqrt(), 0.0);
         }
 
         wavelet
@@ -275,9 +275,9 @@ impl MorletWavelet {
         }
 
         // Define frequency ranges for each band
-        let delta_freqs = vec![0.5, 1.0, 2.0, 4.0];
-        let theta_freqs = vec![4.0, 5.0, 6.0, 7.0, 8.0];
-        let alpha_freqs = vec![8.0, 9.0, 10.0, 11.0, 12.0];
+        let delta_freqs = [0.5, 1.0, 2.0, 4.0];
+        let theta_freqs = [4.0, 5.0, 6.0, 7.0, 8.0];
+        let alpha_freqs = [8.0, 9.0, 10.0, 11.0, 12.0];
 
         // Convert frequencies to scales
         let delta_scales: Vec<f32> = delta_freqs

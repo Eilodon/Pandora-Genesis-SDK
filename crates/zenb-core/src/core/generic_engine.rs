@@ -5,7 +5,7 @@
 //! abstraction while delegating domain-specific behavior to trait implementations.
 
 use crate::core::{
-    ActionKind, BeliefMode, Domain, GenericBeliefState, GenericCausalGraph, OscillatorConfig,
+    ActionKind, BeliefMode, Domain, GenericBeliefState, GenericCausalGraph,
     SignalVariable,
 };
 use std::marker::PhantomData;
@@ -145,7 +145,7 @@ impl<D: Domain> GenericEngine<D> {
     }
 
     /// Update belief state based on variable values.
-    fn update_belief(&mut self, vars: &[f32], quality: f32) {
+    fn update_belief(&mut self, _vars: &[f32], quality: f32) {
         // Simple belief update: adjust confidence based on observation quality
         self.belief_state.confidence = self.belief_state.confidence * 0.9 + quality * 0.1;
 
@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn test_generic_engine_trading() {
-        let mut engine: GenericEngine<TradingDomain> = GenericEngine::new();
+        let engine: GenericEngine<TradingDomain> = GenericEngine::new();
 
         assert_eq!(engine.domain_name(), "trading");
         assert_eq!(engine.current_mode(), MarketMode::Sideways);

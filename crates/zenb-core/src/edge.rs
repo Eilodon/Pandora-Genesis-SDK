@@ -23,9 +23,10 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 /// Target edge device type for optimization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum EdgeDeviceType {
     /// High-end smartphones with GPU (iPhone Pro, Samsung S series)
+    #[default]
     Mobile,
     /// Low-power IoT devices with limited resources
     IoT,
@@ -35,12 +36,6 @@ pub enum EdgeDeviceType {
     Microcontroller,
     /// Desktop/Server - no resource constraints
     Desktop,
-}
-
-impl Default for EdgeDeviceType {
-    fn default() -> Self {
-        EdgeDeviceType::Mobile
-    }
 }
 
 // ============================================================================

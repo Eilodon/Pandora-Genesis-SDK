@@ -519,17 +519,9 @@ pub mod zenb {
     use num_complex::Complex32;
 
     /// ZenbRupa: Wraps SheafPerception for sensor consensus
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     pub struct ZenbRupa {
         pub sheaf: SheafPerception,
-    }
-
-    impl Default for ZenbRupa {
-        fn default() -> Self {
-            Self {
-                sheaf: SheafPerception::default_for_zenb(),
-            }
-        }
     }
 
     impl ZenbRupa {
@@ -632,19 +624,10 @@ pub mod zenb {
     }
 
     /// ZenbSanna: Wraps HolographicMemory for pattern recall
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     pub struct ZenbSanna {
         pub memory: HolographicMemory,
         pub recall_count: u64,
-    }
-
-    impl Default for ZenbSanna {
-        fn default() -> Self {
-            Self {
-                memory: HolographicMemory::default_for_zenb(),
-                recall_count: 0,
-            }
-        }
     }
 
     impl SannaSkandha for ZenbSanna {
@@ -735,17 +718,9 @@ pub mod zenb {
     }
 
     /// ZenbSankhara: Wraps DharmaFilter for ethical intent filtering
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     pub struct ZenbSankhara {
         pub dharma: DharmaFilter,
-    }
-
-    impl Default for ZenbSankhara {
-        fn default() -> Self {
-            Self {
-                dharma: DharmaFilter::default(),
-            }
-        }
     }
 
     impl SankharaSkandha for ZenbSankhara {
@@ -795,21 +770,11 @@ pub mod zenb {
     }
 
     /// ZenbVinnana: Wraps BeliefEngine for Active Inference synthesis
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, Default)]
     pub struct ZenbVinnana {
         pub engine: BeliefEngine,
         pub state: BeliefState,
         pub fep: FepState,
-    }
-
-    impl Default for ZenbVinnana {
-        fn default() -> Self {
-            Self {
-                engine: BeliefEngine::default(),
-                state: BeliefState::default(),
-                fep: FepState::default(),
-            }
-        }
     }
 
     impl VinnanaSkandha for ZenbVinnana {
@@ -909,7 +874,7 @@ pub mod zenb {
                     // Decode recalled pattern
                     let recalled_arousal = recalled
                         .as_slice()
-                        .get(0)
+                        .first()
                         .map(|w| (w.count_ones() as f32 / 64.0))
                         .unwrap_or(0.5);
 

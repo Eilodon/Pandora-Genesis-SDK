@@ -169,7 +169,7 @@ pub fn create_zenb_pipeline() -> ControlFlowGraph {
                 } => {
                     // In real implementation, this would call Engine::ingest_sensor
                     ZenBProtocol::StateEstimate {
-                        hr_bpm: features.get(0).copied(),
+                        hr_bpm: features.first().copied(),
                         rr_bpm: features.get(2).copied(),
                         rmssd: features.get(1).copied(),
                         confidence: 0.8,

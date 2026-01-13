@@ -1,3 +1,6 @@
+#![allow(unused_variables)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+
 use clap::{Parser, Subcommand};
 use zenb_core::domain::SessionId;
 use zenb_store::EventStore;
@@ -40,7 +43,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             println!(
                 "Belief: mode={:?}, conf={:.3}, p={:?}",
-                eng.belief_state.mode, eng.belief_state.conf, eng.belief_state.p
+                eng.skandha_pipeline.vedana.mode(),
+                eng.skandha_pipeline.vedana.confidence(),
+                eng.skandha_pipeline.vedana.probabilities()
             );
             if let Some((m, bits, conf)) = policy {
                 println!("PolicyChosen: mode={}, bits={}, conf={}", m, bits, conf);

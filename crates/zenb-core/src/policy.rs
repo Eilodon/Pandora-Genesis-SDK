@@ -310,9 +310,10 @@ impl Default for EFECalculator {
 
 impl EFECalculator {
     pub fn new(precision: f32) -> Self {
-        let mut calc = Self::default();
-        calc.precision = precision;
-        calc
+        Self {
+            precision,
+            ..Default::default()
+        }
     }
 }
 
@@ -520,8 +521,8 @@ impl EFECalculator {
 /// Policy library: pre-defined policies for common scenarios.
 /// These serve as a "policy prior" in Active Inference - the system's
 /// innate repertoire of behaviors before learning.
-// ============================================================================
-// META-LEARNING: Adaptive Precision (Beta)
+///
+/// META-LEARNING: Adaptive Precision (Beta)
 // ============================================================================
 
 /// adaptive meta-learner for EFE precision (beta).

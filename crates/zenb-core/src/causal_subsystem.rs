@@ -40,10 +40,6 @@ pub struct CausalSubsystem {
 
     /// Latest observation for context queries
     pub last_observation: Option<Observation>,
-
-    /// Discovery interval tracking
-    last_discovery_ts: u64,
-    discovery_interval_us: u64,
 }
 
 impl Default for CausalSubsystem {
@@ -59,8 +55,6 @@ impl CausalSubsystem {
             graph: CausalGraph::with_priors(),
             scientist: AutomaticScientist::new(),
             last_observation: None,
-            last_discovery_ts: 0,
-            discovery_interval_us: 60_000_000, // 60 seconds
         }
     }
 

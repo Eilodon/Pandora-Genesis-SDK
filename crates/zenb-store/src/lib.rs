@@ -1,5 +1,9 @@
 //! Encrypted SQLite event store with session keys and batch append.
 
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::needless_borrows_for_generic_args)]
+#![allow(clippy::unnecessary_cast)]
+
 use blake3::Hasher;
 use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{Key, KeyInit, XChaCha20Poly1305, XNonce};
@@ -7,7 +11,6 @@ use hkdf::Hkdf;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde_json;
 use sha2::Sha256;
 use std::path::Path;
 use thiserror::Error;
@@ -509,7 +512,7 @@ impl EventStore {
         let aead = self.xchacha(&sk.0);
 
         // Start IMMEDIATE transaction to lock database and prevent TOCTOU
-        let mut tx = self
+        let tx = self
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 

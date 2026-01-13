@@ -67,10 +67,8 @@ impl AiTool for AdjustTempoTool {
         }
 
         // 3. Max delta: 0.2
-        if (scale - ctx.current_tempo).abs() > 0.2 {
-            if !ctx.user_confirmed {
-                return Err("Large change (>0.2) requires confirmation".into());
-            }
+        if (scale - ctx.current_tempo).abs() > 0.2 && !ctx.user_confirmed {
+            return Err("Large change (>0.2) requires confirmation".into());
         }
 
         Ok(())

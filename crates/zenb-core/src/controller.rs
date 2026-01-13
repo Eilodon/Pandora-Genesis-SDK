@@ -121,7 +121,7 @@ impl StabilizedPoller {
         let max_step = prev * 1.5;
         bounded = bounded.clamp(min_step, max_step).clamp(200.0, 30_000.0);
 
-        let rounded = bounded.round().max(200.0).min(30_000.0) as u64;
+        let rounded = bounded.round().clamp(200.0, 30_000.0) as u64;
         self.previous_free_energy = fe;
         self.previous_interval_ms = rounded;
         rounded

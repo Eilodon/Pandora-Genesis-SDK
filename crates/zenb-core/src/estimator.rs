@@ -12,25 +12,13 @@ pub struct Estimate {
 const MIN_UPDATE_INTERVAL_US: i64 = 10_000;
 
 /// Simple EMA estimator for HR, RR, RMSSD with dt-aware alpha.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Estimator {
     hr_ema: Option<f32>,
     rr_ema: Option<f32>,
     rmssd_ema: Option<f32>,
     last_ts_us: Option<i64>,
     last_estimate: Option<Estimate>,
-}
-
-impl Default for Estimator {
-    fn default() -> Self {
-        Self {
-            hr_ema: None,
-            rr_ema: None,
-            rmssd_ema: None,
-            last_ts_us: None,
-            last_estimate: None,
-        }
-    }
 }
 
 impl Estimator {
@@ -63,7 +51,7 @@ impl Estimator {
         }
 
         // extract inputs
-        let hr = features.get(0).cloned();
+        let hr = features.first().cloned();
         let rmssd = features.get(1).cloned();
         let rr = features.get(2).cloned();
 

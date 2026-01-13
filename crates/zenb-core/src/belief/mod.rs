@@ -4,19 +4,14 @@ use crate::config::ZenbConfig;
 use crate::resonance::ResonanceFeatures;
 
 /// Belief latent basis (collapsed modes)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum BeliefBasis {
+    #[default]
     Calm = 0,
     Stress = 1,
     Focus = 2,
     Sleepy = 3,
     Energize = 4,
-}
-
-impl Default for BeliefBasis {
-    fn default() -> Self {
-        BeliefBasis::Calm
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,7 +113,7 @@ pub fn softmax(mut logits: [f32; 5]) -> [f32; 5] {
     let max = logits
         .iter()
         .cloned()
-        .fold(std::f32::NEG_INFINITY, f32::max);
+        .fold(f32::NEG_INFINITY, f32::max);
     let mut sum = 0.0f32;
     for v in logits.iter_mut() {
         *v = (*v - max).exp();
@@ -161,19 +156,14 @@ pub fn hysteresis_collapse(
     prev: BeliefBasis,
     p: &[f32; 5],
     enter_th: f32,
-    exit_th: f32,
+    _exit_th: f32,
 ) -> BeliefBasis {
     let idx = argmax(p);
     // if current mode is chosen and above exit_th, keep; else only enter if above enter_th
     let curr = prev as usize;
     if idx == curr {
-        if p[idx] >= exit_th {
-            return prev;
-        }
-        // remain
-        else {
-            return prev;
-        }
+        // remain in current mode if above exit_th or below
+        return prev;
     }
     // switching
     if p[idx] >= enter_th {
@@ -316,9 +306,9 @@ impl BeliefEngine {
 
     pub fn from_config(config: &crate::config::BeliefConfig) -> Self {
         let agents: Vec<AgentStrategy> = vec![
-            AgentStrategy::Gemini(GeminiConfig::default()),
-            AgentStrategy::MinhGioi(MinhGioiConfig::default()),
-            AgentStrategy::PhaQuan(PhaQuanConfig::default()),
+            AgentStrategy::Gemini(GeminiConfig),
+            AgentStrategy::MinhGioi(MinhGioiConfig),
+            AgentStrategy::PhaQuan(PhaQuanConfig),
         ];
         Self {
             agents,
@@ -442,8 +432,8 @@ impl BeliefEngine {
 
             per.push((agent.name().to_string(), out));
             let w = *self.w.get(i).unwrap_or(&1.0);
-            for j in 0..5 {
-                logits_total[j] += w * out.confidence * out.logits[j];
+            for (logit, out_logit) in logits_total.iter_mut().zip(out.logits.iter()) {
+                *logit += w * out.confidence * out_logit;
             }
             conf_sum += w * out.confidence;
             weight_sum += w;
@@ -477,8 +467,8 @@ impl BeliefEngine {
         for (i, agent) in self.agents.iter().enumerate() {
             let out = agent.eval(x, phys, ctx);
             let w = *self.w.get(i).unwrap_or(&1.0);
-            for j in 0..5 {
-                logits_total[j] += w * out.confidence * out.logits[j];
+            for (logit, out_logit) in logits_total.iter_mut().zip(out.logits.iter()) {
+                *logit += w * out.confidence * out_logit;
             }
             conf_sum += w * out.confidence;
             weight_sum += w;

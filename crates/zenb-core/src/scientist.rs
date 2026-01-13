@@ -387,7 +387,7 @@ impl AutomaticScientist {
         // Determine action for this step
         let action = match step {
             0 => ExperimentAction::ObserveBaseline,
-            1 | 2 | 3 => ExperimentAction::InterveneCause,
+            1..=3 => ExperimentAction::InterveneCause,
             _ => ExperimentAction::ObserveEffect,
         };
 
