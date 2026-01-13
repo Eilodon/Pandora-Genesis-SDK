@@ -4,6 +4,7 @@
 //! - **Holographic Memory**: FFT-based, O(N log N), requires floating point
 //! - **Krylov Projector**: Subspace acceleration for iterative methods
 //! - **HDC Memory**: Binary hyperdimensional, integer-only, NPU-friendly
+//! - **Saccade Linker**: LTC-based predictive memory addressing
 //!
 //! # Mathematical Foundation
 //! Holographic Associative Memory (HAM) stores key-value pairs as interference patterns
@@ -13,6 +14,8 @@
 //! Binary HDC uses high-dimensional binary vectors with XOR binding and majority
 //! bundling, achieving similar content-addressable properties with integer-only ops.
 //!
+//! Saccade Linker uses LTC neurons to predict memory locations for O(1) lookup.
+//!
 //! # Invariants
 //! - Memory trace dimension is fixed at construction
 //! - FFT/IFFT operations preserve energy (Parseval's theorem)
@@ -21,7 +24,9 @@
 pub mod hdc; // Binary Hyperdimensional Computing (NPU-accelerated)
 pub mod hologram;
 pub mod krylov; // TIER 4b: Krylov Subspace Acceleration
+pub mod saccade; // VAJRA V5: Predictive memory addressing
 
 pub use hdc::{HdcConfig, HdcMemory, HdcVector};
 pub use hologram::HolographicMemory;
 pub use krylov::KrylovProjector;
+pub use saccade::{SaccadeConfig, SaccadeLinker, SaccadeStats};

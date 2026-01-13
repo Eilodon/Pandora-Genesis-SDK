@@ -70,6 +70,14 @@ pub struct FeatureConfig {
     #[serde(default)]
     pub thermo_temperature: Option<f32>,
 
+    /// VAJRA V5: Entropy threshold for Dissipative mode (high entropy → exploration)
+    #[serde(default)]
+    pub entropy_high_threshold: Option<f32>,
+
+    /// VAJRA V5: Entropy threshold for Conservative mode (low entropy → exploitation)
+    #[serde(default)]
+    pub entropy_low_threshold: Option<f32>,
+
     /// Psychoacoustic calibration profile
     pub audio_profile: AudioProfile,
 }
@@ -219,6 +227,8 @@ impl Default for FeatureConfig {
             policy_adapter_enabled: None, // Default: disabled for safe rollout
             thermo_enabled: None,         // Default: disabled for safe rollout
             thermo_temperature: None,     // Default: 1.0 if enabled
+            entropy_high_threshold: None, // Default: 1.5 (Dissipative mode trigger)
+            entropy_low_threshold: None,  // Default: 0.5 (Conservative mode trigger)
             audio_profile: AudioProfile::default(),
         }
     }

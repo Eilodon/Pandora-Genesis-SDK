@@ -26,6 +26,8 @@
 
 pub mod dsp;
 pub mod rppg;
+pub mod wavelet;
 
 pub use dsp::{DspProcessor, FilterConfig};
 pub use rppg::{RppgMethod, RppgProcessor, RppgResult};
+pub use wavelet::{BandType, MorletConfig, MorletWavelet, WaveletBands};

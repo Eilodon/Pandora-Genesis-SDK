@@ -2,8 +2,13 @@
 //!
 //! Uses graph diffusion to filter contradictory sensor inputs and achieve
 //! a globally consistent view of the user's state.
+//!
+//! # VAJRA V5: Complex32 Extension
+//! Added support for complex-valued sensor data (amplitude + phase) from
+//! wavelet transforms. Phase disagreement provides additional anomaly signal.
 
 use nalgebra::{DMatrix, DVector};
+use num_complex::Complex32;
 
 /// Context for adaptive threshold adjustment
 ///
@@ -394,6 +399,144 @@ impl SheafPerception {
     /// Check if adaptive alpha is enabled
     pub fn is_adaptive_alpha_enabled(&self) -> bool {
         self.use_adaptive_alpha
+    }
+
+    // ========================================================================
+    // VAJRA V5: Complex32 Extension Methods
+    // ========================================================================
+
+    /// Diffuse complex-valued sensor data (from wavelet transforms).
+    ///
+    /// This extends the standard diffusion to handle amplitude AND phase:
+    /// - Amplitude diffusion: same as f32 (consensus on magnitude)
+    /// - Phase disagreement: additional energy term from phase mismatch
+    ///
+    /// # Arguments
+    /// * `input` - Complex sensor values [amplitude, phase encoded]
+    /// * `steps` - Number of diffusion iterations
+    ///
+    /// # Returns
+    /// Diffused complex values with consensus amplitude and phase
+    pub fn diffuse_complex(&self, input: &[Complex32]) -> Vec<Complex32> {
+        assert_eq!(
+            input.len(),
+            self.n_sensors,
+            "Input dimension must match sensor count"
+        );
+
+        // Extract amplitude and phase separately
+        let amplitudes: Vec<f32> = input.iter().map(|c| c.norm()).collect();
+        let phases: Vec<f32> = input.iter().map(|c| c.arg()).collect();
+
+        // Diffuse amplitudes using standard Laplacian
+        let amp_vec = DVector::from_vec(amplitudes);
+        let diffused_amp = self.diffuse_adaptive(&amp_vec, 50);
+
+        // For phases: compute weighted average based on amplitude
+        // (stronger signals contribute more to phase consensus)
+        let total_amp: f32 = diffused_amp.iter().sum::<f32>().max(1e-6);
+        let mut phase_consensus = 0.0f32;
+        
+        // Use circular mean for phases (proper phase averaging)
+        let mut sin_sum = 0.0f32;
+        let mut cos_sum = 0.0f32;
+        for (i, &phase) in phases.iter().enumerate() {
+            let weight = diffused_amp[i] / total_amp;
+            sin_sum += weight * phase.sin();
+            cos_sum += weight * phase.cos();
+        }
+        phase_consensus = sin_sum.atan2(cos_sum);
+
+        // Reconstruct complex values with diffused amplitude and consensus phase
+        // Each sensor's phase is smoothed toward consensus
+        let alpha_phase = 0.3f32; // Phase smoothing factor
+        let result: Vec<Complex32> = (0..self.n_sensors)
+            .map(|i| {
+                let amp = diffused_amp[i];
+                let original_phase = phases[i];
+                // Blend original phase with consensus
+                let smoothed_phase = original_phase + alpha_phase * (phase_consensus - original_phase);
+                Complex32::from_polar(amp, smoothed_phase)
+            })
+            .collect();
+
+        result
+    }
+
+    /// Compute phase-based disagreement energy.
+    ///
+    /// Measures how much the phases of sensor signals disagree.
+    /// High phase disagreement indicates potential jitter or interference.
+    ///
+    /// # Returns
+    /// Phase energy in [0, π²] - higher means more phase disagreement
+    pub fn compute_phase_energy(&self, input: &[Complex32]) -> f32 {
+        if input.len() < 2 {
+            return 0.0;
+        }
+
+        // Extract phases
+        let phases: Vec<f32> = input.iter().map(|c| c.arg()).collect();
+
+        // Compute mean phase (circular)
+        let sin_sum: f32 = phases.iter().map(|p| p.sin()).sum();
+        let cos_sum: f32 = phases.iter().map(|p| p.cos()).sum();
+        let n = phases.len() as f32;
+        let mean_phase = (sin_sum / n).atan2(cos_sum / n);
+
+        // Compute variance from mean (handling circular nature)
+        let mut energy = 0.0f32;
+        for &phase in &phases {
+            let diff = (phase - mean_phase).sin().abs(); // Circular difference
+            energy += diff * diff;
+        }
+
+        energy
+    }
+
+    /// Process complex-valued sensor input (from wavelet).
+    ///
+    /// # Returns
+    /// (diffused_complex, is_anomalous, amplitude_energy, phase_energy)
+    pub fn process_complex(&self, input: &[Complex32]) -> (Vec<Complex32>, bool, f32, f32) {
+        // Extract amplitudes for standard processing
+        let amplitudes: Vec<f32> = input.iter().map(|c| c.norm()).collect();
+        let amp_vec = DVector::from_vec(amplitudes);
+
+        // Compute both amplitude and phase energies
+        let amp_energy = self.compute_energy(&amp_vec);
+        let phase_energy = self.compute_phase_energy(input);
+
+        // Combined anomaly detection: either amplitude OR phase disagreement
+        let threshold = self.context.anomaly_threshold();
+        let phase_threshold = 0.5; // π²/20 ≈ 0.5 is moderate phase disagreement
+        let is_anomalous = amp_energy > threshold || phase_energy > phase_threshold;
+
+        if is_anomalous {
+            log::warn!(
+                "SheafPerception: Anomaly detected (amp_E={:.3}, phase_E={:.3}, context={:?})",
+                amp_energy,
+                phase_energy,
+                self.context
+            );
+        }
+
+        // Diffuse complex values
+        let diffused = self.diffuse_complex(input);
+
+        (diffused, is_anomalous, amp_energy, phase_energy)
+    }
+
+    /// Convert f32 sensor values to Complex32 (zero phase).
+    ///
+    /// Convenience method for transitioning from f32 to Complex32 API.
+    pub fn to_complex(values: &[f32]) -> Vec<Complex32> {
+        values.iter().map(|&r| Complex32::new(r, 0.0)).collect()
+    }
+
+    /// Extract amplitudes from Complex32 values (back to f32).
+    pub fn from_complex(values: &[Complex32]) -> Vec<f32> {
+        values.iter().map(|c| c.norm()).collect()
     }
 }
 

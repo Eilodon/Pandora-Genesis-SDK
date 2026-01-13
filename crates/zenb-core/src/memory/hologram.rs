@@ -47,6 +47,12 @@ pub struct HolographicMemory {
     /// Timestamp of last entanglement (for temporal decay)
     last_entangle_ts_us: Option<i64>,
 
+    // === VAJRA V5: HOLO-RESIDUAL CONNECTION ===
+    /// Residual alpha: weight for direct value bypass [0, 1]
+    /// 0 = pure holographic (original), 1 = 50% direct + 50% holographic
+    /// This helps preserve exact values alongside distributed encoding
+    residual_alpha: f32,
+
     // === SCRATCH BUFFERS (Zero-allocation optimization) ===
     /// Scratch buffer 1: for key FFT
     scratch_a: Vec<Complex32>,
@@ -90,6 +96,7 @@ impl HolographicMemory {
             max_magnitude: 100.0, // Configurable threshold
             projector: KrylovProjector::default(),
             last_entangle_ts_us: None,
+            residual_alpha: 0.0, // Default: pure holographic (no residual)
             // Pre-allocate scratch buffers
             scratch_a: vec![Complex32::new(0.0, 0.0); dim],
             scratch_b: vec![Complex32::new(0.0, 0.0); dim],
@@ -165,9 +172,25 @@ impl HolographicMemory {
         self.ifft.process(&mut self.scratch_c);
 
         // 5. Normalize and superpose onto memory trace
+        // VAJRA V5: Holo-Residual formula:
+        // M_new = M_old + (1 - α) * IFFT(FFT(key) ⊙ FFT(value)) + α * value
+        // Where α is residual_alpha (0 = pure holographic, higher = more direct preservation)
         let norm = self.norm_factor;
-        for (m, c) in self.memory_trace.iter_mut().zip(self.scratch_c.iter()) {
-            *m = *m + (*c * norm);
+        let alpha = self.residual_alpha.clamp(0.0, 1.0);
+        let holo_weight = 1.0 - alpha * 0.5; // Reduce holographic part when residual active
+        
+        for (i, (m, c)) in self.memory_trace.iter_mut().zip(self.scratch_c.iter()).enumerate() {
+            // Holographic component (interference pattern)
+            let holo_component = *c * norm * holo_weight;
+            
+            // Residual component (direct value bypass, scaled by alpha)
+            let residual_component = if alpha > 0.0 {
+                value[i] * alpha * 0.5 // Weighted direct value
+            } else {
+                Complex32::new(0.0, 0.0)
+            };
+            
+            *m = *m + holo_component + residual_component;
         }
 
         self.item_count += 1;
@@ -336,6 +359,30 @@ impl HolographicMemory {
     /// Get direct access to memory trace (for diagnostics)
     pub fn trace(&self) -> &[Complex32] {
         &self.memory_trace
+    }
+
+    /// Get current residual alpha setting
+    pub fn residual_alpha(&self) -> f32 {
+        self.residual_alpha
+    }
+
+    /// Set residual alpha for Holo-Residual entanglement
+    ///
+    /// # Arguments
+    /// * `alpha` - Residual weight in [0, 1]. 0 = pure holographic, higher = more direct value preservation
+    ///
+    /// # VAJRA V5 Feature
+    /// The Holo-Residual formula adds a direct value bypass to the holographic encoding:
+    /// `M_new = M_old + (1-α)*IFFT(FFT(key)⊙FFT(value)) + α*value`
+    pub fn set_residual_alpha(&mut self, alpha: f32) {
+        self.residual_alpha = alpha.clamp(0.0, 1.0);
+    }
+
+    /// Create memory with residual connection enabled
+    pub fn with_residual(dim: usize, residual_alpha: f32) -> Self {
+        let mut mem = Self::new(dim);
+        mem.set_residual_alpha(residual_alpha);
+        mem
     }
 
     // --- FFT Helpers ---

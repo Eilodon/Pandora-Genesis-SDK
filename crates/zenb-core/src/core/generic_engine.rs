@@ -251,6 +251,7 @@ mod tests {
     use crate::domains::trading::{MarketMode, TradingAction, TradingDomain, TradingVariable};
 
     // Simple test observation
+    #[derive(Clone)]
     struct TestObs {
         values: Vec<f32>,
         ts: i64,

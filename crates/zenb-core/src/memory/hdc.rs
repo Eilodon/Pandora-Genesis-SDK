@@ -396,6 +396,34 @@ impl HdcMemory {
         self.successful_recalls = 0;
     }
 
+    /// Apply decay to memory (probabilistic pattern removal)
+    ///
+    /// For binary HDC, decay is implemented by probabilistically removing
+    /// older patterns based on the decay rate.
+    ///
+    /// # Arguments
+    /// * `rate` - Decay rate in [0, 1]. Higher values preserve more patterns.
+    ///            E.g., 0.95 means ~5% of patterns may be removed.
+    pub fn decay(&mut self, rate: f32) {
+        if rate >= 1.0 || self.keys.is_empty() {
+            return;
+        }
+
+        // Remove patterns probabilistically (oldest first)
+        // The probability of removal increases with age
+        let n = self.keys.len();
+        let remove_prob = 1.0 - rate.clamp(0.0, 1.0);
+
+        // Calculate how many to remove (probabilistic based on rate)
+        let expected_removal = (n as f32 * remove_prob).ceil() as usize;
+
+        if expected_removal > 0 && n > expected_removal {
+            // Remove oldest patterns (FIFO-like decay)
+            self.keys.drain(0..expected_removal);
+            self.values.drain(0..expected_removal);
+        }
+    }
+
     /// Get dimension
     #[inline]
     pub fn dim(&self) -> usize {

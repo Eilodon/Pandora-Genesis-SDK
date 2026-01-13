@@ -375,7 +375,7 @@ pub mod defaults {
             let mode = belief
                 .iter()
                 .enumerate()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(i, _)| i as u8)
                 .unwrap_or(0);
 
@@ -1010,7 +1010,7 @@ pub mod zenb {
             let mode = belief
                 .iter()
                 .enumerate()
-                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(i, _)| i as u8)
                 .unwrap_or(0);
 

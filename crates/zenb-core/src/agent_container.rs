@@ -41,7 +41,11 @@ impl AgentContainer {
 
         // Attempt evaluation with panic protection
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.inner.lock().unwrap().eval(x, phys, ctx)
+            // Handle mutex poisoning gracefully - recover from poison state
+            self.inner
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .eval(x, phys, ctx)
         }));
 
         let elapsed_ms = start.elapsed().as_millis() as u64;

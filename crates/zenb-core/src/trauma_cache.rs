@@ -8,8 +8,10 @@ pub struct TraumaCache {
 
 impl TraumaCache {
     pub fn new() -> Self {
+        // SAFETY: 1000 is guaranteed non-zero at compile time
+        let capacity = unsafe { NonZeroUsize::new_unchecked(1000) };
         Self {
-            cache: LruCache::new(NonZeroUsize::new(1000).unwrap()),
+            cache: LruCache::new(capacity),
         }
     }
 

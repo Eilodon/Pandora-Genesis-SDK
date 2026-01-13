@@ -1,7 +1,14 @@
-//! Liquid Time-Constant (LTC) Neural Networks for Breath Prediction
+//! Liquid Time-Constant (LTC) Neural Networks for Temporal Reasoning
 //!
 //! Implementation of "Liquid Time-Constant Networks" (Hasani et al., AAAI 2021)
 //! and "Closed-form Continuous-time Models" (Nature Machine Intelligence 2022).
+//!
+//! # VAJRA V5: Generalized LTC Architecture
+//! This module now supports multiple domains beyond breath prediction:
+//! - Breath rate prediction (original use case)
+//! - Memory coordinate prediction (SaccadeLinker)
+//! - Arousal/valence prediction (emotion)
+//! - Custom domains via GeneralLtcConfig
 //!
 //! # Key Innovation
 //! Time constants τ adapt based on input, allowing the network to:
@@ -31,13 +38,6 @@
 //! - **10-100x fewer parameters** than RNNs/LSTMs
 //! - **Interpretable dynamics**: τ has physical meaning
 //! - **Robust to irregular sampling**: no fixed dt assumption
-//!
-//! # Application to Breath Prediction
-//! Predicts user's actual breathing rate from noisy sensor data,
-//! adapting τ based on:
-//! - Motion level (faster adaptation during movement)
-//! - HRV (slower adaptation during calm states)
-//! - Session history (learns individual patterns)
 
 use serde::{Deserialize, Serialize};
 
@@ -81,6 +81,139 @@ impl LtcConfig {
             learning_rate: 0.02,
             hidden_size: 3,
             input_size: 3,
+        }
+    }
+}
+
+// =============================================================================
+// VAJRA V5: Generalized LTC Configuration
+// =============================================================================
+
+/// Domain-specific preset for LTC configuration
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LtcDomain {
+    /// Breath rate prediction (4-15 BPM range)
+    Breath,
+    /// Memory coordinate prediction (for SaccadeLinker)
+    MemoryCoord,
+    /// Arousal prediction (0-1 range)
+    Arousal,
+    /// Valence prediction (-1 to 1 range)
+    Valence,
+    /// Generic normalized output (0-1 range)
+    Normalized,
+}
+
+/// Generalized LTC configuration for any domain
+///
+/// # VAJRA V5 Feature
+/// This struct removes domain-specific hardcoding and allows LTC networks
+/// to be configured for any prediction task with custom output ranges.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneralLtcConfig {
+    /// Base LTC parameters
+    pub base: LtcConfig,
+    /// Domain identifier
+    pub domain: LtcDomain,
+    /// Output minimum value
+    pub output_min: f32,
+    /// Output maximum value
+    pub output_max: f32,
+    /// Output default value (initial prediction)
+    pub output_default: f32,
+    /// Label for this predictor (for diagnostics)
+    pub label: String,
+}
+
+impl Default for GeneralLtcConfig {
+    fn default() -> Self {
+        Self::for_domain(LtcDomain::Normalized)
+    }
+}
+
+impl GeneralLtcConfig {
+    /// Create configuration for a specific domain
+    pub fn for_domain(domain: LtcDomain) -> Self {
+        match domain {
+            LtcDomain::Breath => Self {
+                base: LtcConfig::for_breath_prediction(),
+                domain,
+                output_min: 4.0,
+                output_max: 15.0,
+                output_default: 6.0,
+                label: "BreathPredictor".to_string(),
+            },
+            LtcDomain::MemoryCoord => Self {
+                base: LtcConfig {
+                    tau_base: 1.0,
+                    tau_min: 0.1,
+                    tau_max: 5.0,
+                    learning_rate: 0.05,
+                    hidden_size: 4,
+                    input_size: 5,
+                },
+                domain,
+                output_min: 0.0,
+                output_max: 1.0,
+                output_default: 0.5,
+                label: "MemoryCoordPredictor".to_string(),
+            },
+            LtcDomain::Arousal => Self {
+                base: LtcConfig {
+                    tau_base: 2.0,
+                    tau_min: 0.5,
+                    tau_max: 10.0,
+                    learning_rate: 0.02,
+                    hidden_size: 3,
+                    input_size: 4,
+                },
+                domain,
+                output_min: 0.0,
+                output_max: 1.0,
+                output_default: 0.5,
+                label: "ArousalPredictor".to_string(),
+            },
+            LtcDomain::Valence => Self {
+                base: LtcConfig {
+                    tau_base: 3.0,
+                    tau_min: 0.5,
+                    tau_max: 15.0,
+                    learning_rate: 0.01,
+                    hidden_size: 3,
+                    input_size: 4,
+                },
+                domain,
+                output_min: -1.0,
+                output_max: 1.0,
+                output_default: 0.0,
+                label: "ValencePredictor".to_string(),
+            },
+            LtcDomain::Normalized => Self {
+                base: LtcConfig::default(),
+                domain,
+                output_min: 0.0,
+                output_max: 1.0,
+                output_default: 0.5,
+                label: "GenericPredictor".to_string(),
+            },
+        }
+    }
+
+    /// Create custom configuration
+    pub fn custom(
+        base: LtcConfig,
+        output_min: f32,
+        output_max: f32,
+        output_default: f32,
+        label: impl Into<String>,
+    ) -> Self {
+        Self {
+            base,
+            domain: LtcDomain::Normalized,
+            output_min,
+            output_max,
+            output_default,
+            label: label.into(),
         }
     }
 }
@@ -357,6 +490,156 @@ impl LtcBreathPredictor {
             neuron.reset();
         }
         self.last_prediction = 6.0;
+        self.error_ema = 0.0;
+    }
+
+    /// Get last prediction
+    pub fn last_prediction(&self) -> f32 {
+        self.last_prediction
+    }
+}
+
+// =============================================================================
+// VAJRA V5: Generalized LTC Predictor
+// =============================================================================
+
+/// Domain-agnostic LTC predictor using GeneralLtcConfig
+///
+/// # VAJRA V5 Feature
+/// This struct provides a unified predictor interface for any domain,
+/// with configurable output ranges and automatic scaling.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneralLtcPredictor {
+    config: GeneralLtcConfig,
+    /// Hidden layer neurons
+    hidden: Vec<LtcNeuron>,
+    /// Output weights
+    output_weights: Vec<f32>,
+    /// Output bias (in normalized space)
+    output_bias: f32,
+    /// Last prediction
+    last_prediction: f32,
+    /// Prediction error accumulator
+    error_ema: f32,
+    /// Total steps
+    step_count: u64,
+}
+
+impl GeneralLtcPredictor {
+    /// Create predictor for a specific domain
+    pub fn new(config: GeneralLtcConfig) -> Self {
+        let hidden: Vec<LtcNeuron> = (0..config.base.hidden_size)
+            .map(|i| {
+                let tau = config.base.tau_base * (1.0 + 0.2 * (i as f32));
+                LtcNeuron::new(config.base.input_size, tau)
+            })
+            .collect();
+
+        let output_weights: Vec<f32> = (0..config.base.hidden_size)
+            .map(|i| 0.3 / (config.base.hidden_size as f32) * (1.0 + 0.1 * (i as f32)))
+            .collect();
+
+        let last_pred = config.output_default;
+        
+        Self {
+            config,
+            hidden,
+            output_weights,
+            output_bias: 0.0, // Normalized space
+            last_prediction: last_pred,
+            error_ema: 0.0,
+            step_count: 0,
+        }
+    }
+
+    /// Create predictor for a domain preset
+    pub fn for_domain(domain: LtcDomain) -> Self {
+        Self::new(GeneralLtcConfig::for_domain(domain))
+    }
+
+    /// Predict output value given inputs
+    ///
+    /// # Arguments
+    /// * `inputs` - Input features (must match config.base.input_size)
+    /// * `dt` - Time delta in seconds since last call
+    ///
+    /// # Returns
+    /// Prediction in the configured output range
+    pub fn predict(&mut self, inputs: &[f32], dt: f32) -> f32 {
+        // Advance all hidden neurons
+        for neuron in &mut self.hidden {
+            neuron.step_cfc(inputs, dt, self.config.base.tau_min, self.config.base.tau_max);
+        }
+
+        // Compute output (weighted sum of hidden states)
+        let hidden_sum: f32 = self.hidden
+            .iter()
+            .zip(self.output_weights.iter())
+            .map(|(n, w)| n.state() * w)
+            .sum();
+
+        // Transform to output range: [min, max]
+        let normalized = (hidden_sum + self.output_bias).tanh() * 0.5 + 0.5; // [0, 1]
+        let range = self.config.output_max - self.config.output_min;
+        let raw_output = self.config.output_min + normalized * range;
+        let prediction = raw_output.clamp(self.config.output_min, self.config.output_max);
+
+        // Smooth output
+        let alpha = (dt / (dt + 0.5)).clamp(0.0, 1.0);
+        self.last_prediction = self.last_prediction * (1.0 - alpha) + prediction * alpha;
+
+        self.step_count += 1;
+        self.last_prediction
+    }
+
+    /// Update predictor based on actual measurement
+    pub fn learn(&mut self, actual: f32, _inputs: &[f32]) {
+        if actual < self.config.output_min || actual > self.config.output_max {
+            return; // Invalid measurement
+        }
+
+        let error = actual - self.last_prediction;
+        
+        // Update error EMA
+        self.error_ema = 0.9 * self.error_ema + 0.1 * error.abs();
+
+        // Normalize error to output range for learning
+        let range = self.config.output_max - self.config.output_min;
+        let normalized_error = error / range.max(1e-6);
+        let lr = self.config.base.learning_rate;
+
+        // Update output bias
+        self.output_bias += lr * normalized_error;
+
+        // Update output weights
+        for (i, neuron) in self.hidden.iter().enumerate() {
+            let state = neuron.state();
+            self.output_weights[i] += lr * normalized_error * state * 0.1;
+            self.output_weights[i] = self.output_weights[i].clamp(-2.0, 2.0);
+        }
+    }
+
+    /// Get domain label
+    pub fn label(&self) -> &str {
+        &self.config.label
+    }
+
+    /// Get diagnostics
+    pub fn diagnostics(&self, inputs: &[f32]) -> (f32, f32, f32, u64) {
+        let avg_tau: f32 = self.hidden
+            .iter()
+            .map(|n| n.current_tau(inputs, self.config.base.tau_min, self.config.base.tau_max))
+            .sum::<f32>() / self.hidden.len() as f32;
+
+        (self.last_prediction, avg_tau, self.error_ema, self.step_count)
+    }
+
+    /// Reset predictor state
+    pub fn reset(&mut self) {
+        for neuron in &mut self.hidden {
+            neuron.reset();
+        }
+        self.last_prediction = self.config.output_default;
         self.error_ema = 0.0;
     }
 

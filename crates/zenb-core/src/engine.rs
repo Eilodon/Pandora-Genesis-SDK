@@ -1142,7 +1142,11 @@ impl Engine {
         result
     }
 
-    // Helper: Integrate Thermodynamics
+    // Helper: Integrate Thermodynamics with Entropy-Based Mode Switching
+    //
+    // VAJRA V5: Life Systems Integration
+    // - Dissipative mode (high entropy): Exploration, memory decay
+    // - Conservative mode (low entropy): Deep learning, stability
     fn integrate_thermodynamics(&mut self) {
         // VAJRA-001: Thermodynamic Evolution (GENERIC)
         // Apply thermodynamic laws for smooth belief state evolution
@@ -1163,6 +1167,60 @@ impl Engine {
             // Apply thermodynamic step - system smoothly evolves toward target
             // This provides temporal smoothing and prevents abrupt state transitions
             self.thermo_step(&target, 1);
+
+            // === VAJRA V5: Entropy-Based Mode Switching ===
+            let state =
+                nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
+            let entropy = self.thermo_engine.entropy(&state);
+            
+            // Get entropy thresholds from config or use defaults
+            let entropy_high = self.config.features.entropy_high_threshold.unwrap_or(1.5);
+            let entropy_low = self.config.features.entropy_low_threshold.unwrap_or(0.5);
+
+            // High entropy (>1.5): Dissipative mode - trigger memory decay for forgetting
+            if entropy > entropy_high {
+                // Apply memory decay to prevent memory overload
+                // Decay rate scales with entropy excess
+                let decay_rate = 0.99 - (entropy - entropy_high) * 0.01;
+                let decay_rate = decay_rate.clamp(0.95, 0.999);
+                self.skandha_pipeline.sanna.memory.decay(decay_rate);
+                
+                // Increase temperature for more exploration
+                let current_temp = self.thermo_engine.config().temperature;
+                if current_temp < 2.0 {
+                    self.thermo_engine.set_temperature((current_temp * 1.1).min(2.0));
+                }
+                
+                log::debug!(
+                    "Thermo: DISSIPATIVE mode (entropy={:.3}), decay_rate={:.4}",
+                    entropy, decay_rate
+                );
+            }
+            // Low entropy (<0.5): Conservative mode - deep learning
+            else if entropy < entropy_low {
+                // Decrease temperature for more exploitation
+                let current_temp = self.thermo_engine.config().temperature;
+                if current_temp > 0.1 {
+                    self.thermo_engine.set_temperature((current_temp * 0.9).max(0.1));
+                }
+                
+                // Boost learning rate for belief updates (done via EFE precision)
+                // Higher precision = more exploitation of known good states
+                self.efe_precision_beta = (self.efe_precision_beta * 1.05).min(10.0);
+                
+                log::debug!(
+                    "Thermo: CONSERVATIVE mode (entropy={:.3}), beta={:.2}",
+                    entropy, self.efe_precision_beta
+                );
+            }
+            // Normal entropy: Balanced mode
+            else {
+                // Gradually restore temperature to default
+                let default_temp = self.config.features.thermo_temperature.unwrap_or(1.0);
+                let current_temp = self.thermo_engine.config().temperature;
+                let new_temp = current_temp + (default_temp - current_temp) * 0.1;
+                self.thermo_engine.set_temperature(new_temp);
+            }
         }
     }
 }

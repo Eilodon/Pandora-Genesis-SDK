@@ -267,7 +267,7 @@ impl CausalBeliefState {
             .bio_state
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(idx, _)| idx)
             .unwrap_or(0);
 
@@ -284,7 +284,7 @@ impl CausalBeliefState {
             .cognitive_state
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(idx, _)| idx)
             .unwrap_or(0);
 
@@ -301,7 +301,7 @@ impl CausalBeliefState {
             .social_state
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(idx, _)| idx)
             .unwrap_or(0);
 
