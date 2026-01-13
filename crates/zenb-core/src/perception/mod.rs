@@ -15,4 +15,4 @@
 
 pub mod sheaf;
 
-pub use sheaf::SheafPerception;
+pub use sheaf::{PhysiologicalContext, SheafPerception};

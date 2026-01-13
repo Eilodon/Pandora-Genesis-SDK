@@ -489,7 +489,7 @@ pub fn default_pipeline() -> SkandhaPipeline<
 /// to the Skandha pipeline traits.
 pub mod zenb {
     use super::*;
-    use crate::perception::SheafPerception;
+    use crate::perception::{SheafPerception, PhysiologicalContext};
     use crate::memory::HolographicMemory;
     use crate::safety::DharmaFilter;
     use nalgebra::DVector;
@@ -509,8 +509,71 @@ pub mod zenb {
         }
     }
 
-    impl RupaSkandha for ZenbRupa {
-        fn process_form(&self, input: &SensorInput) -> ProcessedForm {
+    impl ZenbRupa {
+        /// Detect physiological context from sensor values
+        /// 
+        /// Uses HR, HRV, and motion to infer user's current state.
+        /// 
+        /// # Arguments
+        /// * `hr_norm` - Normalized heart rate (0-1, where 0.3 = 60bpm, 0.5 = 100bpm)
+        /// * `hrv_norm` - Normalized HRV (0-1, where 0.5 = 50ms RMSSD)
+        /// * `motion` - Motion level (0 = still, 1 = high movement)
+        pub fn detect_context(hr_norm: f32, hrv_norm: f32, motion: f32) -> PhysiologicalContext {
+            // Motion-based detection (highest priority)
+            if motion > 0.7 {
+                return PhysiologicalContext::IntenseExercise;
+            }
+            if motion > 0.4 {
+                return PhysiologicalContext::ModerateExercise;
+            }
+            
+            // HR-based detection (normalized: 60bpm=0.3, 100bpm=0.5, 130bpm=0.65)
+            if hr_norm > 0.65 {
+                return PhysiologicalContext::ModerateExercise;
+            }
+            if hr_norm > 0.55 && hrv_norm < 0.3 {
+                // High HR + low HRV = stress
+                return PhysiologicalContext::Stress;
+            }
+            
+            // Low arousal states
+            if hr_norm < 0.25 && motion < 0.1 {
+                // Very low HR + still = sleep
+                return PhysiologicalContext::Sleep;
+            }
+            if hr_norm < 0.35 && motion < 0.2 {
+                return PhysiologicalContext::LightActivity;
+            }
+            
+            PhysiologicalContext::Rest
+        }
+        
+        /// Set physiological context on sheaf perception
+        pub fn set_context(&mut self, context: PhysiologicalContext) {
+            self.sheaf.set_context(context);
+        }
+        
+        /// Get current physiological context
+        pub fn context(&self) -> PhysiologicalContext {
+            self.sheaf.context()
+        }
+        
+        /// Process form with auto-context detection
+        pub fn process_form_adaptive(&mut self, input: &SensorInput) -> ProcessedForm {
+            // Normalize values
+            let hr_norm = input.hr_bpm.unwrap_or(60.0) / 200.0;
+            let hrv_norm = input.hrv_rmssd.unwrap_or(50.0) / 100.0;
+            
+            // Auto-detect and update context
+            let context = Self::detect_context(hr_norm, hrv_norm, input.motion);
+            self.sheaf.set_context(context);
+            
+            // Process with updated context
+            self.process_form_internal(input)
+        }
+        
+        /// Internal processing (shared between trait impl and adaptive method)
+        fn process_form_internal(&self, input: &SensorInput) -> ProcessedForm {
             // Convert to DVector for sheaf processing
             let raw = DVector::from_vec(vec![
                 input.hr_bpm.unwrap_or(60.0) / 200.0,
@@ -535,6 +598,12 @@ pub mod zenb {
                 energy,
                 is_reliable: !is_anomalous,
             }
+        }
+    }
+
+    impl RupaSkandha for ZenbRupa {
+        fn process_form(&self, input: &SensorInput) -> ProcessedForm {
+            self.process_form_internal(input)
         }
     }
 
@@ -768,5 +837,69 @@ mod tests {
         // With sankhara disabled, intent defaults to Observe
         // So no control decision should be made
         assert!(result.decision.is_none());
+    }
+    
+    #[test]
+    fn test_zenb_rupa_context_detection() {
+        use super::zenb::ZenbRupa;
+        use crate::perception::PhysiologicalContext;
+        
+        // Test intense exercise detection (high motion)
+        let context = ZenbRupa::detect_context(0.5, 0.5, 0.8);
+        assert_eq!(context, PhysiologicalContext::IntenseExercise);
+        
+        // Test moderate exercise detection (moderate motion)
+        let context = ZenbRupa::detect_context(0.5, 0.5, 0.5);
+        assert_eq!(context, PhysiologicalContext::ModerateExercise);
+        
+        // Test moderate exercise from HR (high HR, low motion)
+        let context = ZenbRupa::detect_context(0.7, 0.5, 0.1); // 140 bpm
+        assert_eq!(context, PhysiologicalContext::ModerateExercise);
+        
+        // Test stress detection (high HR + low HRV)
+        let context = ZenbRupa::detect_context(0.6, 0.2, 0.1); // 120 bpm, 20ms HRV
+        assert_eq!(context, PhysiologicalContext::Stress);
+        
+        // Test sleep detection (very low HR + still)
+        let context = ZenbRupa::detect_context(0.2, 0.6, 0.05); // 40 bpm
+        assert_eq!(context, PhysiologicalContext::Sleep);
+        
+        // Test light activity (low HR + minimal motion)
+        let context = ZenbRupa::detect_context(0.3, 0.5, 0.1); // 60 bpm
+        assert_eq!(context, PhysiologicalContext::LightActivity);
+        
+        // Test rest (default)
+        let context = ZenbRupa::detect_context(0.4, 0.5, 0.25); // 80 bpm, normal
+        assert_eq!(context, PhysiologicalContext::Rest);
+    }
+    
+    #[test]
+    fn test_zenb_rupa_adaptive_processing() {
+        use super::zenb::ZenbRupa;
+        use crate::perception::PhysiologicalContext;
+        
+        let mut rupa = ZenbRupa::default();
+        
+        // Initial context should be Rest
+        assert_eq!(rupa.context(), PhysiologicalContext::Rest);
+        
+        // Process high-motion input
+        let input = SensorInput {
+            hr_bpm: Some(100.0),
+            hrv_rmssd: Some(50.0),
+            rr_bpm: Some(15.0),
+            quality: 0.9,
+            motion: 0.8, // High motion → IntenseExercise
+            timestamp_us: 0,
+        };
+        
+        let _ = rupa.process_form_adaptive(&input);
+        
+        // Context should be updated to IntenseExercise
+        assert_eq!(rupa.context(), PhysiologicalContext::IntenseExercise);
+        
+        // Manual override
+        rupa.set_context(PhysiologicalContext::Sleep);
+        assert_eq!(rupa.context(), PhysiologicalContext::Sleep);
     }
 }

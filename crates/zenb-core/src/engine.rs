@@ -339,6 +339,17 @@ impl Engine {
 
             // RESILIENCE: Circuit breaker protection for sheaf perception
             if !self.circuit_breaker.is_open("sheaf_perception") {
+                // AUTO-CONTEXT: Detect physiological context before processing
+                // This allows the sheaf to adapt its thresholds and alpha
+                let hr_norm = sensor_input.hr_bpm.unwrap_or(60.0) / 200.0;
+                let hrv_norm = sensor_input.hrv_rmssd.unwrap_or(50.0) / 100.0;
+                let detected_context = crate::skandha::zenb::ZenbRupa::detect_context(
+                    hr_norm, 
+                    hrv_norm, 
+                    sensor_input.motion
+                );
+                self.skandha_pipeline.rupa.set_context(detected_context);
+                
                 // Try sheaf processing with panic catch (Laplacian can fail on degenerate graphs)
                 let sheaf_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     // Use ZenbRupa which properly normalizes sensors before Sheaf
@@ -355,8 +366,9 @@ impl Engine {
 
                         if !processed_form.is_reliable {
                             log::warn!(
-                                "SheafPerception: Anomalous sensor data detected (energy={:.3})",
-                                processed_form.energy
+                                "SheafPerception: Anomalous sensor data detected (energy={:.3}, context={:?})",
+                                processed_form.energy,
+                                detected_context
                             );
                         }
 
@@ -781,6 +793,37 @@ impl Engine {
             self.belief_enter_threshold.get(),
             self.belief_enter_threshold.base(),
             self.decision_confidence.success_rate(),
+        )
+    }
+
+    /// Get current physiological context from Sheaf perception.
+    /// 
+    /// Returns the auto-detected or manually set context that determines
+    /// the sheaf's anomaly threshold and diffusion rate.
+    pub fn sheaf_context(&self) -> crate::perception::PhysiologicalContext {
+        self.skandha_pipeline.rupa.context()
+    }
+    
+    /// Manually override physiological context.
+    /// 
+    /// Use this to set a specific context instead of auto-detection.
+    /// Note: Context will be overwritten on next `ingest_sensor` call
+    /// unless auto-detection is disabled.
+    /// 
+    /// # Example
+    /// ```ignore
+    /// engine.set_sheaf_context(PhysiologicalContext::ModerateExercise);
+    /// ```
+    pub fn set_sheaf_context(&mut self, context: crate::perception::PhysiologicalContext) {
+        self.skandha_pipeline.rupa.set_context(context);
+    }
+    
+    /// Get sheaf diagnostics: (energy, context, is_adaptive_alpha_enabled)
+    pub fn sheaf_diagnostics(&self) -> (f32, crate::perception::PhysiologicalContext, bool) {
+        (
+            self.last_sheaf_energy,
+            self.skandha_pipeline.rupa.context(),
+            self.skandha_pipeline.rupa.sheaf.is_adaptive_alpha_enabled(),
         )
     }
 

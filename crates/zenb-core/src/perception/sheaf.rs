@@ -5,6 +5,59 @@
 
 use nalgebra::{DMatrix, DVector};
 
+/// Context for adaptive threshold adjustment
+///
+/// Different physiological contexts have different acceptable levels of
+/// sensor disagreement and require different filtering strategies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PhysiologicalContext {
+    /// Sleep state (very low noise, preserve subtle signals)
+    Sleep,
+    /// Resting state (low noise, high precision needed)
+    #[default]
+    Rest,
+    /// Light activity (moderate noise tolerance)
+    LightActivity,
+    /// Stress/anxiety (moderate noise, careful consensus)
+    Stress,
+    /// Moderate exercise (higher noise tolerance)
+    ModerateExercise,
+    /// Intense exercise (high noise, aggressive filtering)
+    IntenseExercise,
+}
+
+impl PhysiologicalContext {
+    /// Get adaptive anomaly threshold for this context
+    ///
+    /// # Returns
+    /// Threshold value - higher means more tolerant of sensor disagreement
+    pub fn anomaly_threshold(&self) -> f32 {
+        match self {
+            Self::Sleep => 0.2,              // Very sensitive - detect small anomalies
+            Self::Rest => 0.3,               // Sensitive - current default
+            Self::LightActivity => 0.5,      // Moderate tolerance
+            Self::Stress => 0.6,             // Higher tolerance for stress-induced variation
+            Self::ModerateExercise => 0.8,   // High tolerance for exercise variation
+            Self::IntenseExercise => 1.2,    // Very high tolerance
+        }
+    }
+
+    /// Get base alpha for this context
+    ///
+    /// # Returns
+    /// Base diffusion rate - higher means faster consensus
+    pub fn base_alpha(&self) -> f32 {
+        match self {
+            Self::Sleep => 0.01,             // Very gentle diffusion, preserve signals
+            Self::Rest => 0.02,              // Current default
+            Self::LightActivity => 0.025,    // Slightly more aggressive
+            Self::Stress => 0.03,            // More consensus needed
+            Self::ModerateExercise => 0.04,  // Strong consensus for noisy data
+            Self::IntenseExercise => 0.05,   // Very aggressive filtering
+        }
+    }
+}
+
 /// Sheaf Laplacian for sensor consensus
 ///
 /// # Mathematical Model (Sắc Uẩn - Coherent Perception)
@@ -30,10 +83,14 @@ pub struct SheafPerception {
     laplacian: DMatrix<f32>,
     /// Number of sensor channels
     n_sensors: usize,
-    /// Diffusion coefficient (step size for consensus)
+    /// Base diffusion coefficient (adjusted by energy and context)
     alpha: f32,
-    /// Energy threshold for anomaly detection
+    /// Base energy threshold for anomaly detection (adjusted by context)
     anomaly_threshold: f32,
+    /// Current physiological context (for adaptive thresholds)
+    context: PhysiologicalContext,
+    /// Whether to use adaptive alpha based on energy
+    use_adaptive_alpha: bool,
 }
 
 impl SheafPerception {
@@ -68,6 +125,8 @@ impl SheafPerception {
             n_sensors: n,
             alpha,
             anomaly_threshold: 1.0, // Default threshold
+            context: PhysiologicalContext::Rest, // Default context
+            use_adaptive_alpha: true, // Enable adaptive alpha by default
         }
     }
 
@@ -112,9 +171,43 @@ impl SheafPerception {
         adj[(3, 0)] = 0.2;
         adj[(0, 3)] = 0.2;
 
-        let mut perception = Self::new(&adj, 0.02);  // Reduced from 0.05 to reduce sensor modification
-        perception.anomaly_threshold = 0.3;  // Reduced from 0.5 for earlier anomaly detection
+        let mut perception = Self::new(&adj, 0.02);  // Base alpha (will be adjusted by context/energy)
+        perception.context = PhysiologicalContext::Rest;  // Default to resting state
+        perception.anomaly_threshold = perception.context.anomaly_threshold();
+        perception.use_adaptive_alpha = true;  // Enable energy-based adaptation
         perception
+    }
+
+    /// Compute effective alpha based on energy and context
+    ///
+    /// # Adaptive Alpha Strategy
+    /// - High energy (contradictory sensors) → larger alpha (faster, more aggressive consensus)
+    /// - Low energy (clean sensors) → smaller alpha (preserve accuracy)
+    /// - Context modulates base alpha (exercise vs sleep have different noise levels)
+    ///
+    /// # Formula
+    /// `effective_alpha = base_alpha * (1.0 + sqrt(energy))`
+    ///
+    /// This gives:
+    /// - Energy = 0.1 → 1.32x base alpha (gentle boost)
+    /// - Energy = 0.5 → 1.71x base alpha (moderate boost)
+    /// - Energy = 1.0 → 2.0x base alpha (strong boost)
+    /// - Energy = 4.0 → 3.0x base alpha (aggressive consensus)
+    fn compute_adaptive_alpha(&self, energy: f32) -> f32 {
+        if !self.use_adaptive_alpha {
+            return self.alpha;
+        }
+
+        // Get context-specific base alpha
+        let context_alpha = self.context.base_alpha();
+
+        // Energy-based multiplier: sqrt provides smooth scaling
+        // High energy → more aggressive consensus needed
+        let energy_multiplier = 1.0 + energy.sqrt();
+
+        // Cap at 3x base alpha to prevent over-aggressive diffusion
+        let effective_alpha = context_alpha * energy_multiplier;
+        effective_alpha.min(context_alpha * 3.0)
     }
 
     /// Run diffusion to achieve sensor consensus.
@@ -142,12 +235,16 @@ impl SheafPerception {
 
         let mut state = input.clone();
 
+        // Compute initial energy for adaptive alpha
+        let energy = self.compute_energy(&state);
+        let effective_alpha = self.compute_adaptive_alpha(energy);
+
         for _ in 0..steps {
             // Compute disagreement gradient: delta = L * x
             let delta = &self.laplacian * &state;
 
-            // Update: reduce disagreement proportionally
-            state = state - self.alpha * delta;
+            // Update: reduce disagreement proportionally with adaptive alpha
+            state = state - effective_alpha * delta;
         }
 
         state
@@ -155,17 +252,34 @@ impl SheafPerception {
 
     /// Diffuse with adaptive step count based on initial energy.
     ///
-    /// High disagreement states need more iterations to converge.
+    /// With energy-based adaptive alpha, we can afford more steps since
+    /// high-energy states will use larger alpha (faster convergence).
     pub fn diffuse_adaptive(&self, input: &DVector<f32>, max_steps: usize) -> DVector<f32> {
         let initial_energy = self.compute_energy(input);
 
-        // More steps for higher disagreement
-        let steps = if initial_energy < 0.1 {
-            5 // Already agree
-        } else if initial_energy < 0.5 {
-            15
+        // Adaptive step count based on energy
+        // With adaptive alpha enabled, high energy → larger alpha → fewer steps needed
+        // But we still need sufficient steps for proper convergence
+        let steps = if self.use_adaptive_alpha {
+            // Adaptive alpha mode: energy determines both alpha and steps
+            if initial_energy < 0.1 {
+                10 // Clean sensors, gentle diffusion
+            } else if initial_energy < 0.3 {
+                20 // Moderate disagreement
+            } else if initial_energy < 0.8 {
+                40 // High disagreement, but adaptive alpha will accelerate
+            } else {
+                max_steps.min(100) // Very high disagreement, use max steps
+            }
         } else {
-            max_steps.min(50)
+            // Fixed alpha mode: use original logic
+            if initial_energy < 0.1 {
+                5
+            } else if initial_energy < 0.5 {
+                15
+            } else {
+                max_steps.min(50)
+            }
         };
 
         self.diffuse(input, steps)
@@ -193,10 +307,15 @@ impl SheafPerception {
     /// - Adversarial attack
     /// - Unusual physiological state
     ///
+    /// Uses context-aware threshold: different contexts have different
+    /// acceptable levels of sensor disagreement.
+    ///
     /// # Returns
     /// `true` if energy exceeds threshold (anomalous input)
     pub fn is_anomalous(&self, state: &DVector<f32>) -> bool {
-        self.compute_energy(state) > self.anomaly_threshold
+        let energy = self.compute_energy(state);
+        let threshold = self.context.anomaly_threshold();
+        energy > threshold
     }
 
     /// Validate and filter sensor input.
@@ -206,21 +325,27 @@ impl SheafPerception {
     /// 2. If anomalous, log warning but still diffuse
     /// 3. Return diffused (consensus) values
     ///
+    /// Uses context-aware thresholds and adaptive alpha for optimal
+    /// filtering based on physiological state and sensor disagreement.
+    ///
     /// # Returns
     /// (diffused_values, is_anomalous, energy)
     pub fn process(&self, raw_input: &DVector<f32>) -> (DVector<f32>, bool, f32) {
         let energy = self.compute_energy(raw_input);
-        let anomalous = energy > self.anomaly_threshold;
+        let threshold = self.context.anomaly_threshold();
+        let anomalous = energy > threshold;
 
         if anomalous {
             log::warn!(
-                "SheafPerception: High disagreement detected (E={:.3} > {:.3})",
+                "SheafPerception: High disagreement detected (E={:.3} > {:.3}, context={:?})",
                 energy,
-                self.anomaly_threshold
+                threshold,
+                self.context
             );
         }
 
-        let diffused = self.diffuse_adaptive(raw_input, 30);
+        // Increased max_steps from 30 to 100 for better convergence
+        let diffused = self.diffuse_adaptive(raw_input, 100);
 
         (diffused, anomalous, energy)
     }
@@ -238,6 +363,37 @@ impl SheafPerception {
     /// Get the Laplacian matrix (for diagnostics).
     pub fn laplacian(&self) -> &DMatrix<f32> {
         &self.laplacian
+    }
+
+    /// Set the physiological context for adaptive thresholds
+    ///
+    /// Different contexts have different acceptable levels of sensor
+    /// disagreement and require different filtering strategies.
+    ///
+    /// # Example
+    /// ```ignore
+    /// sheaf.set_context(PhysiologicalContext::ModerateExercise);
+    /// // Now anomaly threshold = 0.8, base alpha = 0.04
+    /// ```
+    pub fn set_context(&mut self, context: PhysiologicalContext) {
+        self.context = context;
+        // Update anomaly threshold to match context
+        self.anomaly_threshold = context.anomaly_threshold();
+    }
+
+    /// Get current physiological context
+    pub fn context(&self) -> PhysiologicalContext {
+        self.context
+    }
+
+    /// Enable or disable adaptive alpha
+    pub fn set_adaptive_alpha(&mut self, enabled: bool) {
+        self.use_adaptive_alpha = enabled;
+    }
+
+    /// Check if adaptive alpha is enabled
+    pub fn is_adaptive_alpha_enabled(&self) -> bool {
+        self.use_adaptive_alpha
     }
 }
 
