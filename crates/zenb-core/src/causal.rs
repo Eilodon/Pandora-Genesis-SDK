@@ -325,10 +325,12 @@ impl CausalGraph {
     pub fn predict_outcome(
         &self,
         current_state: &crate::belief::BeliefState,
+        observation: Option<&crate::domain::Observation>,
+        context: Option<&crate::belief::Context>,
         proposed_action: &ActionPolicy,
     ) -> PredictedState {
         // Extract current variable values from belief state
-        let mut state_values = self.extract_state_values(current_state);
+        let mut state_values = self.extract_state_values(current_state, observation, context);
 
         // Apply action effect
         let action_strength = proposed_action.intensity;
@@ -363,35 +365,100 @@ impl CausalGraph {
         }
     }
 
-    /// Extract normalized variable values from canonical belief state.
-    /// Converts the 5-mode belief::BeliefState to causal variable space.
+    /// Extract normalized variable values from canonical belief state and observation.
+    /// Converts the 5-mode belief::BeliefState and Observation to causal variable space.
     /// Returns a vector of size Variable::COUNT with values in [0, 1].
-    pub fn extract_state_values(&self, belief_state: &crate::belief::BeliefState) -> Vec<f32> {
+    pub fn extract_state_values(
+        &self,
+        belief_state: &crate::belief::BeliefState,
+        observation: Option<&crate::domain::Observation>,
+        context: Option<&crate::belief::Context>,
+    ) -> Vec<f32> {
         let mut values = vec![0.0; Variable::COUNT];
 
-        // Map canonical belief state (5-mode) to causal variables (normalized to [0, 1])
-        // belief_state.p = [Calm, Stress, Focus, Sleepy, Energize]
-        // These mappings are heuristic and will be refined with learning
-
-        // Bio state: Stress mode -> high HR, low HRV
-        let stress_level = belief_state.p[1]; // Stress probability
+        // 1. Bio state (Prioritize sensor data, fallback to belief state)
+        // Default from belief state
+        let stress_level = belief_state.p[1]; // Stress mode probability
         values[Variable::HeartRate.index()] = stress_level;
         values[Variable::HeartRateVariability.index()] = 1.0 - stress_level;
 
-        // Cognitive state: Focus mode affects notification pressure inversely
-        let focus_level = belief_state.p[2]; // Focus probability
-        values[Variable::NotificationPressure.index()] = 1.0 - focus_level;
-        values[Variable::InteractionIntensity.index()] = 1.0 - focus_level;
+        // Overlay sensor data if available
+        if let Some(obs) = observation {
+            if let Some(bio) = &obs.bio_metrics {
+                // Normalize: 40-180 BPM -> 0-1 (approx)
+                if let Some(hr) = bio.hr_bpm {
+                    values[Variable::HeartRate.index()] = ((hr - 40.0) / 140.0).clamp(0.0, 1.0);
+                }
+                // Normalize: 10-100 ms -> 0-1
+                if let Some(hrv) = bio.hrv_rmssd {
+                    values[Variable::HeartRateVariability.index()] = ((hrv - 10.0) / 90.0).clamp(0.0, 1.0);
+                }
+                // Normalize: 6-30 BPM -> 0-1
+                if let Some(rr) = bio.respiratory_rate {
+                    values[Variable::RespiratoryRate.index()] = ((rr - 6.0) / 24.0).clamp(0.0, 1.0);
+                }
+            }
 
-        // Placeholder for other variables (will be populated from Observation)
-        values[Variable::Location.index()] = 0.5;
-        values[Variable::TimeOfDay.index()] = 0.5;
-        values[Variable::RespiratoryRate.index()] = 0.5;
-        values[Variable::NoiseLevel.index()] = 0.5;
+            if let Some(env) = &obs.environmental_context {
+                if let Some(loc) = env.location_type {
+                    values[Variable::Location.index()] = match loc {
+                        crate::domain::LocationType::Home => 0.1,
+                        crate::domain::LocationType::Work => 0.6,
+                        crate::domain::LocationType::Transit => 0.9,
+                    };
+                }
+                if let Some(noise) = env.noise_level {
+                    // Assume noise is already normalized or in sensible range (0-100dB -> 0-1 ?)
+                    // If raw dB, normalize 30-90dB -> 0-1
+                    values[Variable::NoiseLevel.index()] = ((noise - 30.0) / 60.0).clamp(0.0, 1.0);
+                }
+            }
+
+            if let Some(dig) = &obs.digital_context {
+                if let Some(pressure) = dig.notification_pressure {
+                     // 0-10 notifs/hr -> 0-1
+                    values[Variable::NotificationPressure.index()] = (pressure / 10.0).clamp(0.0, 1.0);
+                }
+                if let Some(intensity) = dig.interaction_intensity {
+                    values[Variable::InteractionIntensity.index()] = intensity.clamp(0.0, 1.0);
+                }
+            }
+            
+            if let Some(cog) = &obs.cognitive_context {
+                if let Some(load) = cog.cognitive_load {
+                     values[Variable::CognitiveLoad.index()] = load.clamp(0.0, 1.0);
+                }
+                if let Some(valence) = cog.voice_valence {
+                    // -1.0 to 1.0 -> 0.0 to 1.0
+                    values[Variable::EmotionalValence.index()] = ((valence + 1.0) / 2.0).clamp(0.0, 1.0);
+                }
+                if let Some(arousal) = cog.voice_arousal {
+                    values[Variable::VoiceArousal.index()] = arousal.clamp(0.0, 1.0);
+                }
+            }
+        }
+
+        // 2. Cognitive State Fallback
+        // If cognitive load not measured, infer from Focus mode
+        if values[Variable::CognitiveLoad.index()] == 0.0 {
+            let focus_level = belief_state.p[2]; // Focus mode
+            values[Variable::CognitiveLoad.index()] = focus_level;
+            
+            // Interaction intensity often correlates with focus (or distraction)
+            // If we are in 'Focus' mode, assume high productive interaction? Or low distraction?
+            // Actually, distraction mode (p[?]) isn't explicit in 5-mode, it's mixed.
+            // Let's leave InteractionIntensity as is (default 0 from initialization).
+        }
+
+        // 3. Context Variables
+        if let Some(ctx) = context {
+            values[Variable::TimeOfDay.index()] = (ctx.local_hour as f32 / 24.0).clamp(0.0, 1.0);
+        } else {
+            values[Variable::TimeOfDay.index()] = 0.5; // Midday default
+        }
+
+        // Action is always input separately or 0.0 for state extraction
         values[Variable::UserAction.index()] = 0.0;
-        values[Variable::CognitiveLoad.index()] = 0.5;
-        values[Variable::EmotionalValence.index()] = 0.5;
-        values[Variable::VoiceArousal.index()] = 0.5;
 
         values
     }
@@ -518,7 +585,7 @@ impl CausalGraph {
         context_state: &[f32],
         _action: &ActionPolicy,
         success: bool,
-        learning_rate: f32,
+        _learning_rate: f32,
     ) -> Result<(), String> {
         let target_idx = Variable::UserAction.index();
         let reward: f32 = if success { 1.0 } else { -1.0 };
@@ -696,7 +763,7 @@ impl CausalGraph {
             ))
             .map(|intervened_state| {
                 // Predict outcome with intervened state
-                self.predict_outcome(&intervened_state, action)
+                self.predict_outcome(&intervened_state, None, None, action)
             })
             .log("Counterfactual outcome predicted")
     }
@@ -755,7 +822,7 @@ impl PCAlgorithm {
         data: &[Vec<f32>],
     ) -> [[bool; Variable::COUNT]; Variable::COUNT] {
         let n_samples = data.len();
-        let n_vars = Variable::COUNT;
+        let _n_vars = Variable::COUNT;
 
         if n_samples < self.config.min_samples {
             log::warn!(
@@ -1429,7 +1496,7 @@ mod tests {
             intensity: 0.8,
         };
 
-        let prediction = graph.predict_outcome(&belief_state, &action);
+        let prediction = graph.predict_outcome(&belief_state, None, None, &action);
         assert!(prediction.confidence > 0.0);
         assert!(prediction.predicted_hr >= 0.0);
     }

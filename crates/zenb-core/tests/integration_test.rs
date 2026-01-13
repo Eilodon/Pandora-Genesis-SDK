@@ -55,7 +55,7 @@ fn long_session_fixed_to_dynamic_hash() {
     }
 
     // deterministic hash check
-    let st = &eng.belief_state; // use belief_state as representative
+    let st = &eng.belief.state(); // use belief_state as representative
     let mut bstate1 = BreathState::default();
     bstate1.apply(&zenb_core::domain::Envelope {
         session_id: zenb_core::domain::SessionId::new(),
@@ -65,8 +65,8 @@ fn long_session_fixed_to_dynamic_hash() {
             p: st.p,
             conf: st.conf,
             mode: st.mode as u8,
-            free_energy_ema: eng.fep_state.free_energy_ema,
-            lr: eng.fep_state.lr,
+            free_energy_ema: eng.belief.fep_state().free_energy_ema,
+            lr: eng.belief.fep_state().lr,
             resonance_score: eng.resonance_score_ema,
         },
         meta: serde_json::json!({}),
@@ -110,7 +110,7 @@ fn long_session_fixed_to_dynamic_hash() {
         ts2 += 1_000_000;
     }
     let mut bstate2 = BreathState::default();
-    let st2 = &eng2.belief_state;
+    let st2 = &eng2.belief.state();
     bstate2.apply(&zenb_core::domain::Envelope {
         session_id: zenb_core::domain::SessionId::new(),
         seq: 0,
@@ -119,8 +119,8 @@ fn long_session_fixed_to_dynamic_hash() {
             p: st2.p,
             conf: st2.conf,
             mode: st2.mode as u8,
-            free_energy_ema: eng2.fep_state.free_energy_ema,
-            lr: eng2.fep_state.lr,
+            free_energy_ema: eng2.belief.fep_state().free_energy_ema,
+            lr: eng2.belief.fep_state().lr,
             resonance_score: eng2.resonance_score_ema,
         },
         meta: serde_json::json!({}),

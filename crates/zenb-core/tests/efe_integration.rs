@@ -1,7 +1,5 @@
-use zenb_core::config::{FeatureConfig, ZenbConfig};
-use zenb_core::domain::ControlDecision;
+use zenb_core::config::ZenbConfig;
 use zenb_core::engine::Engine;
-use zenb_core::policy::ActionPolicy; // Import ActionPolicy for checks
 
 #[test]
 fn test_efe_policy_selection_flow() {
@@ -22,7 +20,7 @@ fn test_efe_policy_selection_flow() {
     let est = engine.ingest_sensor(&[100.0, 20.0, 18.0, 0.2, 0.0], 0);
 
     // 3. Make control decision
-    let (decision, _, policy_info, deny_reason) = engine.make_control(&est, 1_000_000);
+    let (decision, _, _policy_info, _deny_reason) = engine.make_control(&est, 1_000_000);
 
     // 4. Verification
 
@@ -51,7 +49,7 @@ fn test_efe_policy_selection_flow() {
 
     // C. Verify Beta Adaptation Logic (triggered via learn_from_outcome)
     // Simulate Success
-    let old_beta = engine.efe_precision_beta;
+    let _old_beta = engine.efe_precision_beta;
     engine.learn_from_outcome(true, "test_action".to_string(), 2_000_000, 0.0);
 
     // Beta should change (logic: success rate high -> slight increase? or if exploration low...)

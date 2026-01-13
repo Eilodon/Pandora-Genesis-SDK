@@ -50,12 +50,12 @@ fn debug_vajra_energize_bias() {
     );
 
     let _ = baseline.make_control(&est_baseline, 0);
-    println!("3. Belief State: {:?}", baseline.belief_state.p);
+    println!("3. Belief State: {:?}", baseline.belief.probabilities());
     println!(
         "   Mode: {:?} (idx={})",
-        baseline.belief_state.mode,
+        baseline.belief.state().mode,
         baseline
-            .belief_state
+            .belief.state()
             .p
             .iter()
             .enumerate()
@@ -100,12 +100,12 @@ fn debug_vajra_energize_bias() {
     }
 
     let _ = vajra.make_control(&est_vajra, 0);
-    println!("3. Belief State: {:?}", vajra.belief_state.p);
+    println!("3. Belief State: {:?}", vajra.belief.probabilities());
     println!(
         "   Mode: {:?} (idx={})",
-        vajra.belief_state.mode,
+        vajra.belief.state().mode,
         vajra
-            .belief_state
+            .belief.state()
             .p
             .iter()
             .enumerate()
@@ -115,7 +115,7 @@ fn debug_vajra_energize_bias() {
     );
     println!(
         "   FEP State: mu={:?}, sigma={:?}, FE_ema={:.3}",
-        vajra.fep_state.mu, vajra.fep_state.sigma, vajra.fep_state.free_energy_ema
+        vajra.belief.fep_state().mu, vajra.belief.fep_state().sigma, vajra.belief.fep_state().free_energy_ema
     );
     println!();
 
@@ -133,7 +133,7 @@ fn debug_vajra_energize_bias() {
         let _ = vajra.make_control(&est_v, ts);
 
         let baseline_mode_idx = baseline
-            .belief_state
+            .belief.state()
             .p
             .iter()
             .enumerate()
@@ -141,7 +141,7 @@ fn debug_vajra_energize_bias() {
             .unwrap()
             .0;
         let vajra_mode_idx = vajra
-            .belief_state
+            .belief.state()
             .p
             .iter()
             .enumerate()
@@ -153,15 +153,15 @@ fn debug_vajra_energize_bias() {
             "Iter {}: Baseline mode={} (p={:.3}), Vajra mode={} (p={:.3})",
             i,
             baseline_mode_idx,
-            baseline.belief_state.p[baseline_mode_idx],
+            baseline.belief.probabilities()[baseline_mode_idx],
             vajra_mode_idx,
-            vajra.belief_state.p[vajra_mode_idx]
+            vajra.belief.probabilities()[vajra_mode_idx]
         );
     }
 
     println!("\n--- FINAL ANALYSIS ---");
     let baseline_mode_idx = baseline
-        .belief_state
+        .belief.state()
         .p
         .iter()
         .enumerate()
@@ -169,7 +169,7 @@ fn debug_vajra_energize_bias() {
         .unwrap()
         .0;
     let vajra_mode_idx = vajra
-        .belief_state
+        .belief.state()
         .p
         .iter()
         .enumerate()
@@ -179,11 +179,11 @@ fn debug_vajra_energize_bias() {
 
     println!(
         "Baseline final: mode={}, belief={:?}",
-        baseline_mode_idx, baseline.belief_state.p
+        baseline_mode_idx, baseline.belief.probabilities()
     );
     println!(
         "Vajra final: mode={}, belief={:?}",
-        vajra_mode_idx, vajra.belief_state.p
+        vajra_mode_idx, vajra.belief.probabilities()
     );
 
     if vajra_mode_idx == 4 {
@@ -207,8 +207,8 @@ fn debug_vajra_energize_bias() {
 
         // H2: FEP state has Energize bias in initialization
         println!("\nH2 (FEP initialization bias toward Energize):");
-        println!("    Vajra FEP mu: {:?}", vajra.fep_state.mu);
-        if vajra.fep_state.mu[4] > 0.5 {
+        println!("    Vajra FEP mu: {:?}", vajra.belief.fep_state().mu);
+        if vajra.belief.fep_state().mu[4] > 0.5 {
             println!("    → Likely cause! mu[4] (Energize) is already high at start.");
         } else {
             println!("    → FEP initialization looks balanced.");
@@ -216,8 +216,8 @@ fn debug_vajra_energize_bias() {
 
         // H3: BeliefEngine has different behavior with Vajra-processed data
         println!("\nH3 (BeliefEngine reacts differently to Vajra data):");
-        println!("    Baseline belief: {:?}", baseline.belief_state.p);
-        println!("    Vajra belief: {:?}", vajra.belief_state.p);
+        println!("    Baseline belief: {:?}", baseline.belief.probabilities());
+        println!("    Vajra belief: {:?}", vajra.belief.probabilities());
         println!("    → Need to inspect BeliefEngine.update_fep_with_config() internals.");
     } else {
         println!(

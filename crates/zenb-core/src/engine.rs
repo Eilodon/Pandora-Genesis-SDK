@@ -25,9 +25,11 @@ use crate::circuit_breaker::{CircuitBreakerConfig, CircuitBreakerManager};
 pub struct Engine {
     pub controller: AdaptiveController,
     pub breath: BreathEngine,
-    pub belief_engine: crate::belief::BeliefEngine,
-    pub belief_state: crate::belief::BeliefState,
-    pub fep_state: crate::belief::FepState,
+    
+    // === Phase 2: Belief Subsystem (extracted from god-object) ===
+    /// Encapsulates: belief_engine, belief_state, fep_state, belief_enter_threshold
+    pub belief: crate::belief_subsystem::BeliefSubsystem,
+    
     pub context: crate::belief::Context,
     pub config: ZenbConfig,
     pub last_sf: Option<crate::belief::SensorFeatures>,
@@ -67,11 +69,6 @@ pub struct Engine {
     pub last_sheaf_energy: f32,
 
     // === Phase 2: Extracted Subsystems ===
-
-
-    /// Belief subsystem - encapsulates belief engine, state, FEP, and hysteresis
-    /// Replaces belief_engine, belief_state, fep_state, belief_enter_threshold fields
-
     /// Safety subsystem - encapsulates safety monitor, trauma registry, and dharma filter
     pub safety: SafetySubsystem,
 
@@ -80,9 +77,6 @@ pub struct Engine {
     pub circuit_breaker: CircuitBreakerManager,
 
     // === PANDORA PORT: Adaptive Thresholds ===
-    /// Adaptive threshold for belief state transitions
-    pub belief_enter_threshold: AdaptiveThreshold,
-
     /// Adaptive lower bound for respiration rate (bpm)
     /// Auto-calibrates to individual physiology and sensor quality
     pub rr_min_threshold: AdaptiveThreshold,
@@ -124,13 +118,13 @@ impl Engine {
 
     /// Test-only constructor: allows zero/negative timestamps for guards that enforce time sanity.
     pub fn new_for_test(default_bpm: f32) -> Self {
-        let mut cfg = ZenbConfig::default();
+        let cfg = ZenbConfig::default();
 
         Self::new_with_config(default_bpm, Some(cfg))
     }
 
     pub fn new_with_config(starting_arousal: f32, config: Option<ZenbConfig>) -> Self {
-        let mut cfg = config.unwrap_or_default();
+        let cfg = config.unwrap_or_default();
 
         let controller = AdaptiveController::new(Default::default());
 
@@ -145,9 +139,10 @@ impl Engine {
         Self {
             controller,
             breath,
-            belief_engine: crate::belief::BeliefEngine::from_config(&cfg.belief),
-            belief_state: crate::belief::BeliefState::default(),
-            fep_state: crate::belief::FepState::default(),
+            
+            // Phase 2: Belief Subsystem
+            belief: crate::belief_subsystem::BeliefSubsystem::from_zenb_config(&cfg),
+            
             context: crate::belief::Context {
                 local_hour: 0,
                 is_charging: false,
@@ -192,12 +187,6 @@ impl Engine {
             }),
 
             // PANDORA PORT: Adaptive Thresholds
-            belief_enter_threshold: AdaptiveThreshold::new(
-                cfg.belief.enter_threshold,
-                0.2,  // min
-                0.8,  // max
-                0.05, // learning rate
-            ),
             rr_min_threshold: AdaptiveThreshold::new(
                 4.0, // base: 4.0 bpm (typical minimum)
                 3.0, // min: allow down to 3.0 for deep meditation/athletes
@@ -414,14 +403,15 @@ impl Engine {
         severity: f32,
     ) {
         // Update belief engine (Active Inference learning)
-        crate::belief::BeliefEngine::process_feedback(
-            &mut self.fep_state,
-            &mut self.config.fep,
-            success,
-        );
+        // Update belief engine (Active Inference learning)
+        self.belief.process_feedback(success, &mut self.config.fep);
 
         // Update causal graph weights based on outcome
-        let context_state = self.causal_graph.extract_state_values(&self.belief_state);
+        let context_state = self.causal_graph.extract_state_values(
+            self.belief.state(),
+            self.last_observation.as_ref(),
+            Some(&self.context),
+        );
         let action = crate::causal::ActionPolicy {
             action_type: crate::causal::ActionType::BreathGuidance,
             intensity: 0.8,
@@ -439,7 +429,7 @@ impl Engine {
             // Compute context hash for trauma registry
             let context_hash = crate::safety_swarm::trauma_sig_hash(
                 self.last_goal,
-                self.belief_state.mode as u8,
+                self.belief.mode() as u8,
                 self.last_pattern_id,
                 &self.context,
             );
@@ -488,7 +478,7 @@ impl Engine {
         // PANDORA PORT: Adapt belief threshold based on performance
         // Compute performance delta: positive if success, negative if failure
         let performance_delta = if success { 0.1 } else { -0.1 };
-        self.belief_enter_threshold.adapt(performance_delta);
+        self.belief.adapt_threshold(performance_delta);
 
         // === POLICY ADAPTER: Learning from Outcomes ===
         // Update PolicyAdapter if enabled and we have a last executed policy
@@ -498,7 +488,7 @@ impl Engine {
                 let reward = if success { 1.0 } else { -severity };
 
                 // Generate state hash from belief mode
-                let state_hash = format!("{:?}", self.belief_state.mode);
+                let state_hash = format!("{:?}", self.belief.mode());
 
                 // Update adapter and get exploration boost
                 let exploration_boost =
@@ -541,8 +531,8 @@ impl Engine {
     /// Get current adaptive threshold values for diagnostics.
     pub fn adaptive_thresholds_info(&self) -> (f32, f32, f32) {
         (
-            self.belief_enter_threshold.get(),
-            self.belief_enter_threshold.base(),
+            self.belief.enter_threshold(),
+            self.belief.enter_threshold_base(),
             self.decision_confidence.success_rate(),
         )
     }
@@ -593,11 +583,11 @@ impl Engine {
     /// Updated belief state probabilities
     pub fn thermo_step(&mut self, target: &[f32; 5], steps: usize) -> [f32; 5] {
         if !self.config.features.thermo_enabled.unwrap_or(false) {
-            return self.belief_state.p;
+            return *self.belief.probabilities();
         }
 
         // Convert belief state to DVector
-        let state = nalgebra::DVector::from_vec(self.belief_state.p.to_vec());
+        let state = nalgebra::DVector::from_vec(self.belief.probabilities().to_vec());
         let target_vec = nalgebra::DVector::from_vec(target.to_vec());
 
         // Integrate using GENERIC dynamics
@@ -608,17 +598,16 @@ impl Engine {
         for i in 0..5 {
             p[i] = new_state[i];
         }
-        self.belief_state.p = p;
-
         // Normalize (ensure sum = 1 for probability interpretation)
         let sum: f32 = p.iter().sum();
         if sum > 0.0 {
             for i in 0..5 {
-                self.belief_state.p[i] /= sum;
+                p[i] /= sum;
             }
         }
+        self.belief.set_probabilities(p);
 
-        self.belief_state.p
+        *self.belief.probabilities()
     }
 
     /// Get thermodynamic diagnostics.
@@ -626,7 +615,7 @@ impl Engine {
     /// # Returns
     /// (free_energy, entropy, temperature, enabled)
     pub fn thermo_info(&self) -> (f32, f32, f32, bool) {
-        let state = nalgebra::DVector::from_vec(self.belief_state.p.to_vec());
+        let state = nalgebra::DVector::from_vec(self.belief.probabilities().to_vec());
         let target = nalgebra::DVector::from_vec([0.5f32; 5].to_vec()); // Neutral target for diagnostics
 
         let free_energy = self.thermo_engine.free_energy(&state, &target);
@@ -697,9 +686,7 @@ impl Engine {
                 + res.resonance_score * alpha)
                 .clamp(0.0, 1.0);
 
-            let out = self.belief_engine.update_fep_with_config(
-                self.belief_state.mode,
-                &self.fep_state,
+            let _out = self.belief.update_fep(
                 &sf,
                 &phys,
                 &self.context,
@@ -707,15 +694,16 @@ impl Engine {
                 res,
                 &self.config,
             );
-            self.belief_state = out.belief;
-            self.fep_state = out.fep;
-            if self.fep_state.free_energy_ema > self.free_energy_peak {
-                self.free_energy_peak = self.fep_state.free_energy_ema;
+            // State update is handled internally
+            
+            let current_fep = self.belief.free_energy_ema();
+            if current_fep > self.free_energy_peak {
+                self.free_energy_peak = current_fep;
             }
         }
 
         // propose base target from belief mode
-        let base = match self.belief_state.mode {
+        let base = match self.belief.mode() {
             crate::belief::BeliefBasis::Calm => 6.0,
             crate::belief::BeliefBasis::Stress => 8.0,
             crate::belief::BeliefBasis::Focus => 5.0,
@@ -745,8 +733,8 @@ impl Engine {
             // 3. Predict future state (from Causal Graph)
             // For now, we use current belief as proxy for immediate prediction
             // In future, CausalGraph::predict_state() would be called here
-            let predicted_state = self.belief_state.to_5mode_array();
-            let predicted_uncertainty = self.belief_state.conf;
+            let predicted_state = self.belief.to_5mode_array();
+            let predicted_uncertainty = self.belief.confidence();
 
             // 4. Compute EFE for each policy
             let mut evaluations: Vec<crate::policy::PolicyEvaluation> = policies
@@ -754,8 +742,8 @@ impl Engine {
                 .map(|policy| {
                     efe_calc.compute_efe(
                         &policy,
-                        &self.belief_state.to_5mode_array(),
-                        self.belief_state.uncertainty(),
+                        &self.belief.to_5mode_array(),
+                        self.belief.uncertainty(),
                         &predicted_state,
                         crate::belief::uncertainty_from_confidence(predicted_uncertainty),
                     )
@@ -904,7 +892,7 @@ impl Engine {
             crate::safety_swarm::decide(
                 guards.as_slice(),
                 &patch,
-                &self.belief_state,
+                &self.belief.state(),
                 &crate::belief::PhysioState {
                     hr_bpm: est.hr_bpm,
                     rr_bpm: est.rr_bpm,
@@ -929,7 +917,7 @@ impl Engine {
             tempo_scale: proposed / 6.0, // Normalize to baseline 6 BPM
             status: "RUNNING".to_string(),
             session_duration,
-            prediction_error: self.fep_state.free_energy_ema,
+            prediction_error: self.belief.free_energy_ema(),
             last_update_timestamp: ts_us as u64,
         };
 
@@ -939,8 +927,8 @@ impl Engine {
 
             let poll_interval = crate::controller::compute_poll_interval(
                 &mut self.controller.poller,
-                self.fep_state.free_energy_ema,
-                self.belief_state.conf,
+                self.belief.free_energy_ema(),
+                self.belief.confidence(),
                 false,
                 &self.context,
             );
@@ -955,12 +943,16 @@ impl Engine {
                     recommended_poll_interval_ms: poll_interval,
                 },
                 false,
-                Some((self.belief_state.mode as u8, 0, self.belief_state.conf)),
+                Some((self.belief.mode() as u8, 0, self.belief.confidence())),
                 Some(reason),
             );
         }
 
-        let context_state = self.causal_graph.extract_state_values(&self.belief_state);
+        let context_state = self.causal_graph.extract_state_values(
+            self.belief.state(),
+            self.last_observation.as_ref(), // Use cached latest observation
+            Some(&self.context),
+        );
         let breath_action = crate::causal::ActionPolicy {
             action_type: crate::causal::ActionType::BreathGuidance,
             intensity: 0.8,
@@ -976,8 +968,8 @@ impl Engine {
                 eprintln!("ENGINE_DENY: safety_guard reason={}", reason);
                 let poll_interval = crate::controller::compute_poll_interval(
                     &mut self.controller.poller,
-                    self.fep_state.free_energy_ema,
-                    self.belief_state.conf,
+                    self.belief.free_energy_ema(),
+                    self.belief.confidence(),
                     false,
                     &self.context,
                 );
@@ -988,7 +980,7 @@ impl Engine {
                         recommended_poll_interval_ms: poll_interval,
                     },
                     false,
-                    Some((self.belief_state.mode as u8, 0, self.belief_state.conf)),
+                    Some((self.belief.mode() as u8, 0, self.belief.confidence())),
                     Some(reason),
                 )
             }
@@ -1002,15 +994,15 @@ impl Engine {
                     );
                     eprintln!(
                         "ENGINE_DENY: causal_veto_low_prob prob={:.3} conf={:.3} mode={:?}",
-                        success_prob.value, success_prob.confidence, self.belief_state.mode
+                        success_prob.value, success_prob.confidence, self.belief.mode()
                     );
 
                     // Fallback to safe default: maintain last decision or use gentle baseline
                     let fallback_bpm = self.controller.last_decision_bpm.unwrap_or(6.0);
                     let poll_interval = crate::controller::compute_poll_interval(
                         &mut self.controller.poller,
-                        self.fep_state.free_energy_ema,
-                        self.belief_state.conf,
+                        self.belief.free_energy_ema(),
+                        self.belief.confidence(),
                         false,
                         &self.context,
                     );
@@ -1022,7 +1014,7 @@ impl Engine {
                             recommended_poll_interval_ms: poll_interval,
                         },
                         false,
-                        Some((self.belief_state.mode as u8, 0, self.belief_state.conf)),
+                        Some((self.belief.mode() as u8, 0, self.belief.confidence())),
                         Some(format!("causal_veto_low_prob_{:.2}", success_prob.value)),
                     );
                 }
@@ -1054,8 +1046,8 @@ impl Engine {
 
                 let poll_interval = crate::controller::compute_poll_interval(
                     &mut self.controller.poller,
-                    self.fep_state.free_energy_ema,
-                    self.belief_state.conf,
+                    self.belief.free_energy_ema(),
+                    self.belief.confidence(),
                     changed,
                     &self.context,
                 );
@@ -1067,7 +1059,7 @@ impl Engine {
                         recommended_poll_interval_ms: poll_interval,
                     },
                     changed,
-                    Some((self.belief_state.mode as u8, bits, self.belief_state.conf)),
+                    Some((self.belief.mode() as u8, bits, self.belief.confidence())),
                     None,
                 )
             }
@@ -1130,13 +1122,13 @@ impl Engine {
                 belief_state: Some(crate::domain::CausalBeliefState {
                     // Map 5-mode belief to 3-factor causal representation
                     bio_state: [
-                        self.belief_state.p[0], // Calm
-                        self.belief_state.p[1], // Stress (Aroused)
-                        self.belief_state.p[3], // Sleepy (Fatigue)
+                        self.belief.probabilities()[0], // Calm
+                        self.belief.probabilities()[1], // Stress (Aroused)
+                        self.belief.probabilities()[3], // Sleepy (Fatigue)
                     ],
                     cognitive_state: [
-                        self.belief_state.p[2],       // Focus
-                        1.0 - self.belief_state.p[2], // Distracted (inverse of Focus)
+                        self.belief.probabilities()[2],       // Focus
+                        1.0 - self.belief.probabilities()[2], // Distracted (inverse of Focus)
                         0.0,                          // Flow (not directly mapped)
                     ],
                     social_state: [
@@ -1144,7 +1136,7 @@ impl Engine {
                         0.33, // Interactive
                         0.33, // Overwhelmed
                     ],
-                    confidence: self.belief_state.conf,
+                    confidence: self.belief.confidence(),
                     last_update_us: obs.timestamp_us,
                     cognitive_context: obs.cognitive_context.clone(),
                 }),
@@ -1155,7 +1147,7 @@ impl Engine {
             if self.config.features.vajra_enabled {
                 // Create context key from belief state
                 let key = crate::memory::hologram::encode_context_key(
-                    &self.belief_state.p[..],
+                    &self.belief.probabilities()[..],
                     self.skandha_pipeline.sanna.memory.dim(),
                 );
 
@@ -1165,7 +1157,7 @@ impl Engine {
                     bio.and_then(|b| b.hr_bpm).unwrap_or(0.0) / 200.0, // Normalize
                     bio.and_then(|b| b.hrv_rmssd).unwrap_or(0.0) / 100.0,
                     bio.and_then(|b| b.respiratory_rate).unwrap_or(0.0) / 20.0,
-                    self.belief_state.conf,
+                    self.belief.confidence(),
                     self.last_resonance_score,
                 ];
                 let value = crate::memory::hologram::encode_state_value(
@@ -1192,7 +1184,7 @@ impl Engine {
                     bio.and_then(|b| b.hr_bpm).unwrap_or(60.0) / 200.0, // Normalize to [0,1]
                     bio.and_then(|b| b.hrv_rmssd).unwrap_or(50.0) / 100.0,
                     bio.and_then(|b| b.respiratory_rate).unwrap_or(6.0) / 20.0,
-                    self.belief_state.conf,
+                    self.belief.confidence(),
                     self.last_resonance_score,
                 ];
                 self.scientist.observe(scientist_obs);
@@ -1268,7 +1260,7 @@ impl Engine {
                 skandha_state.belief
             } else {
                 // Fallback: use current belief state (no drift)
-                self.belief_state.p
+                *self.belief.probabilities()
             };
             
             // Apply thermodynamic step - system smoothly evolves toward target

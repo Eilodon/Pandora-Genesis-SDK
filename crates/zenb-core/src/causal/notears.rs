@@ -171,7 +171,7 @@ impl Notears {
 
         for _ in 0..self.config.max_inner_iter {
             // Compute gradient of squared loss
-            let residual = data * &w - data;
+            let _residual = data * &w - data;
             let grad_loss = (2.0 / n_samples) * (xtx * &w - data.transpose() * data);
 
             // Compute gradient of acyclicity constraint
@@ -258,7 +258,7 @@ impl Notears {
     }
 
     /// Compute squared loss: ||X - XW||²_F
-    fn compute_loss(&self, w: &DMatrix<f32>, xtx: &DMatrix<f32>, data: &DMatrix<f32>) -> f32 {
+    fn compute_loss(&self, w: &DMatrix<f32>, _xtx: &DMatrix<f32>, data: &DMatrix<f32>) -> f32 {
         let residual = data * w - data;
         let n_samples = data.nrows() as f32;
         residual.norm_squared() / n_samples

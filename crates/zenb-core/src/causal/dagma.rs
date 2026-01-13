@@ -271,7 +271,7 @@ impl Dagma {
     }
 
     /// Squared loss: ||X - XW||_F^2
-    fn squared_loss(&self, w: &DMatrix<f32>, xtx: &DMatrix<f32>, data: &DMatrix<f32>) -> f32 {
+    fn squared_loss(&self, w: &DMatrix<f32>, _xtx: &DMatrix<f32>, data: &DMatrix<f32>) -> f32 {
         let residual = data * w - data;
         let n_samples = data.nrows() as f32;
         residual.norm_squared() / n_samples

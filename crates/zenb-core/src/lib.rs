@@ -9,6 +9,7 @@ pub mod adaptive; // PANDORA PORT: Adaptive thresholds and anomaly detection
 pub mod agent_container;
 pub mod ai; // NEW: AI Tools
 pub mod belief;
+pub mod belief_subsystem; // Phase 2: Extracted from Engine god-object
 pub mod breath_engine;
 pub mod causal;
 pub mod circuit_breaker; // PANDORA PORT: Resilient operation execution
@@ -132,6 +133,9 @@ pub use belief::{
     PhysioState,    // Physiological state
     SensorFeatures, // Sensor input
 };
+
+// Belief Subsystem (Phase 2: Extracted from Engine)
+pub use belief_subsystem::{BeliefDiagnostics, BeliefSubsystem};
 
 // Resonance tracker
 pub use resonance::{ResonanceFeatures, ResonanceTracker};

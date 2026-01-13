@@ -507,7 +507,7 @@ pub fn default_pipeline() -> SkandhaPipeline<
 /// to the Skandha pipeline traits.
 pub mod zenb {
     use super::*;
-    use crate::belief::{BeliefEngine, BeliefState, Context, FepState};
+    use crate::belief::{BeliefEngine, BeliefState, FepState};
     use crate::memory::HolographicMemory;
     use crate::perception::{PhysiologicalContext, SheafPerception};
     use crate::safety::DharmaFilter;

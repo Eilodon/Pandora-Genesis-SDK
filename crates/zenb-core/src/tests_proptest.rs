@@ -8,7 +8,7 @@ mod tests {
     use super::*;
     use crate::causal::Variable;
     use crate::memory::hologram::HolographicMemory;
-    use crate::{Engine, ZenbConfig};
+    use crate::Engine;
     use num_complex::Complex32;
 
     // =========================================================================
@@ -157,8 +157,8 @@ mod tests {
 
             // Initialize belief state to uniform distribution before testing
             // (Engine starts with [0.0; 5] which is not normalized)
-            engine.belief_state.p = [0.2; 5];
-            engine.belief_state.conf = 0.5;
+            engine.belief.set_probabilities([0.2; 5]);
+            engine.belief.state_mut().conf = 0.5;
 
             // Feed sensor data
             let features = [hr, hrv, rr, 0.9, 0.1]; // Add quality and motion
@@ -169,7 +169,7 @@ mod tests {
             engine.tick(100_000); // 100ms delta
 
             // Get belief state
-            let belief = &engine.belief_state;
+            let belief = engine.belief.state();
 
             // Check probability sum (should be ~1.0 or 0.0 if not updated yet)
             let sum: f32 = belief.p.iter().sum();
@@ -260,7 +260,7 @@ mod tests {
             }
             
             // Check stability - no NaNs in belief state
-            let p = engine.belief_state.p;
+            let p = *engine.belief.probabilities();
             for &val in &p {
                 prop_assert!(val.is_finite(), "Belief state became NaN/Inf: {:?}", p);
                 prop_assert!(val >= 0.0, "Belief state became negative: {:?}", p);

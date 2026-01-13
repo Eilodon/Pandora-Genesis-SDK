@@ -109,7 +109,7 @@ fn test_sheaf_consensus_benefit() {
         let _ = baseline_engine.make_control(&est, obs.timestamp_us);
     }
 
-    let baseline_belief = baseline_engine.belief_state.clone();
+    let baseline_belief = baseline_engine.belief.state().clone();
     let baseline_entropy = belief_entropy(&baseline_belief.p);
     let baseline_mode = dominant_mode(&baseline_belief.p);
 
@@ -140,7 +140,7 @@ fn test_sheaf_consensus_benefit() {
         let _ = vajra_engine.make_control(&est, obs.timestamp_us);
     }
 
-    let vajra_belief = vajra_engine.belief_state.clone();
+    let vajra_belief = vajra_engine.belief.state().clone();
     let vajra_entropy = belief_entropy(&vajra_belief.p);
     let vajra_mode = dominant_mode(&vajra_belief.p);
 
@@ -195,8 +195,8 @@ fn test_convergence_speed() {
 
         // Check convergence (Calm mode, confidence > 0.5)
         if baseline_converged_at.is_none()
-            && dominant_mode(&baseline_engine.belief_state.p) == 0  // Calm
-            && baseline_engine.belief_state.p[0] > 0.5
+            && dominant_mode(&baseline_engine.belief.probabilities()) == 0  // Calm
+            && baseline_engine.belief.probabilities()[0] > 0.5
         {
             baseline_converged_at = Some(i);
         }
@@ -220,8 +220,8 @@ fn test_convergence_speed() {
         let _ = vajra_engine.make_control(&est, obs.timestamp_us);
 
         if vajra_converged_at.is_none()
-            && dominant_mode(&vajra_engine.belief_state.p) == 0
-            && vajra_engine.belief_state.p[0] > 0.5
+            && dominant_mode(&vajra_engine.belief.probabilities()) == 0
+            && vajra_engine.belief.probabilities()[0] > 0.5
         {
             vajra_converged_at = Some(i);
         }
@@ -232,14 +232,14 @@ fn test_convergence_speed() {
         "  Converged at: {} observations",
         baseline_converged_at.unwrap_or(999)
     );
-    println!("  Final belief: {:?}", baseline_engine.belief_state.p);
+    println!("  Final belief: {:?}", baseline_engine.belief.probabilities());
 
     println!("\nVajra:");
     println!(
         "  Converged at: {} observations",
         vajra_converged_at.unwrap_or(999)
     );
-    println!("  Final belief: {:?}", vajra_engine.belief_state.p);
+    println!("  Final belief: {:?}", vajra_engine.belief.probabilities());
 
     if let (Some(b), Some(v)) = (baseline_converged_at, vajra_converged_at) {
         let speedup = (b as f32 - v as f32) / b as f32 * 100.0;
@@ -287,7 +287,7 @@ fn test_pattern_memory_benefit() {
     let est = baseline_engine.ingest_sensor(&features, test_obs.timestamp_us);
     let _ = baseline_engine.make_control(&est, test_obs.timestamp_us);
 
-    let baseline_stress_conf = baseline_engine.belief_state.p[1]; // Stress mode
+    let baseline_stress_conf = baseline_engine.belief.probabilities()[1]; // Stress mode
 
     println!("Baseline (no memory):");
     println!(
@@ -324,7 +324,7 @@ fn test_pattern_memory_benefit() {
     let est = vajra_engine.ingest_sensor(&features, test_obs.timestamp_us);
     let _ = vajra_engine.make_control(&est, test_obs.timestamp_us);
 
-    let vajra_stress_conf = vajra_engine.belief_state.p[1];
+    let vajra_stress_conf = vajra_engine.belief.probabilities()[1];
 
     println!("\nVajra (with Holographic memory):");
     println!(

@@ -3,7 +3,7 @@ mod tests {
     use crate::config::*;
     use std::env;
     use std::fs;
-    use std::path::Path;
+
     use tempfile::NamedTempFile;
 
     #[test]
@@ -229,7 +229,7 @@ mod tests {
         let engine = Engine::new_with_config(0.0, Some(config.clone()));
 
         assert_eq!(engine.config.breath.default_target_bpm, 5.0);
-        assert_eq!(engine.belief_engine.smooth_tau_sec, 3.0);
+        assert_eq!(engine.belief.belief_engine().smooth_tau_sec, 3.0);
     }
 
     #[test]
