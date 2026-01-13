@@ -534,6 +534,11 @@ impl CausalGraph {
                 continue; // Skip if context variable is not active
             }
 
+            // Skip self-loops
+            if var_idx == target_idx {
+                continue;
+            }
+
             // Gradient update: weight += lr * context_value * reward
             let updated = if let Some(existing) = &self.weights[var_idx][target_idx] {
                 let mut edge = existing.clone();

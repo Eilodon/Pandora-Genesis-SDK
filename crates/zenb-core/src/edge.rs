@@ -7,7 +7,7 @@
 //! ```rust
 //! use zenb_core::edge::{EdgeDeviceSpecs, EdgeDeviceType, EdgeOptimizer};
 //!
-//! let specs = EdgeDeviceSpecs::detect_current(); // Auto-detect
+//! let specs = EdgeDeviceSpecs::default(); // Use default
 //! let optimizer = EdgeOptimizer::new(specs);
 //!
 //! // Get optimized config for this device

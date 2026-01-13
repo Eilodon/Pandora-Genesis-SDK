@@ -18,7 +18,7 @@ fn benchmark_engine_ingest(c: &mut Criterion) {
 
 fn benchmark_skandha_pipeline_process(c: &mut Criterion) {
     let config = ZenbConfig::default();
-    let pipeline = zenb::zenb_pipeline(&config);
+    let mut pipeline = zenb::zenb_pipeline(&config);
     let input = SensorInput {
         hr_bpm: Some(70.0),
         hrv_rmssd: Some(50.0),

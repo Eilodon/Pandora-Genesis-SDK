@@ -12,7 +12,8 @@
 //! use zenb_core::scientist::{AutomaticScientist, ScientistState};
 //!
 //! let mut scientist = AutomaticScientist::new();
-//! scientist.observe(&observations);
+//! let observations = [60.0, 50.0, 12.0, 1.0, 0.0];
+//! scientist.observe(observations);
 //! scientist.tick(); // Advances state machine
 //! ```
 
@@ -181,6 +182,8 @@ pub struct AutomaticScientist {
     config: ScientistConfig,
     /// Crystallized hypotheses (confirmed)
     pub crystallized: Vec<CausalHypothesis>,
+    /// Pending wiring to CausalGraph
+    pub pending_crystallized: Vec<CausalHypothesis>,
     /// Rejected hypotheses
     pub rejected: Vec<CausalHypothesis>,
     /// Total cycles run
@@ -199,9 +202,17 @@ impl AutomaticScientist {
             state: ScientistState::default(),
             config,
             crystallized: Vec::new(),
+            pending_crystallized: Vec::new(),
             rejected: Vec::new(),
             total_cycles: 0,
         }
+    }
+
+    /// Get and clear any newly crystallized hypotheses.
+    pub fn drain_pending_discoveries(&mut self) -> Vec<CausalHypothesis> {
+        let pending = self.pending_crystallized.clone();
+        self.pending_crystallized.clear();
+        pending
     }
 
     /// Get current state.
@@ -376,8 +387,7 @@ impl AutomaticScientist {
         // Determine action for this step
         let action = match step {
             0 => ExperimentAction::ObserveBaseline,
-            1 | 2 => ExperimentAction::InterveneCause,
-            3 => ExperimentAction::Wait,
+            1 | 2 | 3 => ExperimentAction::InterveneCause,
             _ => ExperimentAction::ObserveEffect,
         };
 
@@ -501,7 +511,8 @@ impl AutomaticScientist {
 
             let mut confirmed = hypothesis.clone();
             confirmed.confidence = confirmation_rate;
-            self.crystallized.push(confirmed);
+            self.crystallized.push(confirmed.clone());
+            self.pending_crystallized.push(confirmed);
         } else {
             // Hypothesis rejected
             log::info!(

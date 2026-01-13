@@ -207,6 +207,12 @@ impl ActionPolicy {
     }
 }
 
+impl Default for ActionPolicy {
+    fn default() -> Self {
+        Self::NoAction
+    }
+}
+
 // ============================================================================
 // Policy Evaluation and Selection Utilities
 // ============================================================================

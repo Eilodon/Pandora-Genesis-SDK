@@ -9,7 +9,6 @@ pub mod adaptive; // PANDORA PORT: Adaptive thresholds and anomaly detection
 pub mod agent_container;
 pub mod ai; // NEW: AI Tools
 pub mod belief;
-pub mod belief_subsystem; // Phase 2: Extracted from Engine god-object
 pub mod breath_engine;
 pub mod causal;
 pub mod circuit_breaker; // PANDORA PORT: Resilient operation execution
@@ -26,7 +25,7 @@ pub mod estimator;
 pub mod estimators; // NEW: UKF and advanced estimators
 pub mod memory; // VAJRA-001: Holographic Memory
 pub mod perception; // VAJRA-001: Sheaf Perception
-pub mod perception_subsystem; // Phase 2: Extracted from Engine god-object
+
 pub mod phase_machine;
 pub mod policy;
 pub mod replay;
@@ -45,6 +44,8 @@ pub mod validation; // Phase 2.4: Consolidated timestamp tracking
 
 #[cfg(test)]
 pub mod tests_config;
+#[cfg(test)]
+pub mod tests_scientist_integration;
 #[cfg(test)]
 pub mod tests_determinism;
 #[cfg(test)]

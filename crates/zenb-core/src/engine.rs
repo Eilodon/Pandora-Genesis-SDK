@@ -1,22 +1,14 @@
 use crate::breath_engine::BreathEngine;
-use crate::causal::{CausalBuffer, CausalGraph, ObservationSnapshot};
+use crate::causal::{CausalBuffer, CausalGraph};
 use crate::config::ZenbConfig;
 use crate::controller::AdaptiveController;
 use crate::domain::ControlDecision;
 use crate::estimator::Estimate;
-use crate::estimator::Estimator;
-use crate::estimators::{Observation as UkfObservation, UkfStateEstimator};
 use crate::resonance::ResonanceTracker;
-use crate::safety::{RuntimeState, SafetyMonitor};
-use crate::safety_swarm::TraumaRegistry;
-use crate::trauma_cache::TraumaCache;
-
-// VAJRA-001: Skandha cognitive pipeline (still needed for HolographicMemory access in tick())
-use crate::skandha::RupaSkandha;
+use crate::safety::RuntimeState;
 
 // Phase 2 Decomposition: Extracted subsystems
-use crate::belief_subsystem::BeliefSubsystem;
-use crate::perception_subsystem::PerceptionSubsystem;
+
 use crate::safety_subsystem::SafetySubsystem;
 
 // PANDORA PORT: Resilience and adaptive features
@@ -71,13 +63,11 @@ pub struct Engine {
     // === Timestamp Tracking ===
     pub timestamp: crate::timestamp::TimestampLog,
 
-    /// Last sheaf energy (for diagnostics) - now delegated to PerceptionSubsystem
+    /// Last sheaf energy (for diagnostics)
     pub last_sheaf_energy: f32,
 
     // === Phase 2: Extracted Subsystems ===
-    /// Perception subsystem - encapsulates sensor processing, sheaf consensus, anomaly detection
-    /// Replaces inline sheaf processing logic in ingest_sensor()
-    pub perception: PerceptionSubsystem,
+
 
     /// Belief subsystem - encapsulates belief engine, state, FEP, and hysteresis
     /// Replaces belief_engine, belief_state, fep_state, belief_enter_threshold fields
@@ -189,7 +179,7 @@ impl Engine {
             last_sheaf_energy: 0.0,
 
             // Phase 2: Extracted Subsystems
-            perception: PerceptionSubsystem::with_config(&cfg),
+
             safety: SafetySubsystem::with_config(&cfg),
 
             // PANDORA PORT: Resilience
@@ -285,51 +275,78 @@ impl Engine {
             timestamp_us: ts_us,
         };
 
+        // SAFETY: Circuit Breaker Check
+        if self.circuit_breaker.is_open("skandha_pipeline") {
+            log::warn!("Skandha pipeline circuit open - using raw fallback");
+            return Estimate {
+                ts_us,
+                hr_bpm: input.hr_bpm,
+                rmssd: input.hrv_rmssd,
+                rr_bpm: input.rr_bpm,
+                confidence: 0.1, // Fallback low confidence
+            };
+        }
+
         // CORE PIPELINE EXECUTION (The Skandha Loop)
-        // 1. Rupa (Form): Sensor consensus
-        // 2. Vedana (Feeling): Affect extraction
-        // 3. Sanna (Perception): Memory recall
-        // 4. Sankhara (Formation): Ethical filtering
-        // 5. Vinnana (Consciousness): Synthesis
-        let synthesized = self.skandha_pipeline.process(&input);
+        // Wrapped in catch_unwind for resilience
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.skandha_pipeline.process(&input)
+        }));
 
-        // Store state for decision loop
-        self.skandha_state = Some(synthesized.clone());
+        match result {
+            Ok(synthesized) => {
+                self.circuit_breaker.record_success("skandha_pipeline");
 
-        // Extract values from trusted Rupa form
-        // Rupa has already performed consensus and filtering
-        let form_values = &synthesized.form.values;
-        let estimate = Estimate {
-            ts_us,
-            hr_bpm: Some(form_values[0] * 200.0), // Denormalize
-            rmssd: Some(form_values[1] * 100.0),
-            rr_bpm: Some(form_values[2] * 20.0),
-            confidence: synthesized.confidence,
-        };
+                // Store state for decision loop
+                self.skandha_state = Some(synthesized.clone());
 
-        // Sync legacy fields for compatibility
-        self.last_sf = Some(crate::belief::SensorFeatures {
-            hr_bpm: estimate.hr_bpm,
-            rmssd: estimate.rmssd,
-            rr_bpm: estimate.rr_bpm,
-            quality: input.quality,
-            motion: input.motion,
-        });
+                // Extract values from trusted Rupa form
+                let form_values = &synthesized.form.values;
+                let estimate = Estimate {
+                    ts_us,
+                    hr_bpm: Some(form_values[0] * 200.0), // Denormalize
+                    rmssd: Some(form_values[1] * 100.0),
+                    rr_bpm: Some(form_values[2] * 20.0),
+                    confidence: synthesized.confidence,
+                };
 
-        self.last_phys = Some(crate::belief::PhysioState {
-            hr_bpm: estimate.hr_bpm,
-            rr_bpm: estimate.rr_bpm,
-            rmssd: estimate.rmssd,
-            confidence: estimate.confidence,
-        });
+                // Sync legacy fields for compatibility
+                self.last_sf = Some(crate::belief::SensorFeatures {
+                    hr_bpm: estimate.hr_bpm,
+                    rmssd: estimate.rmssd,
+                    rr_bpm: estimate.rr_bpm,
+                    quality: input.quality,
+                    motion: input.motion,
+                });
 
-        // Store energy for diagnostics
-        self.last_sheaf_energy = synthesized.form.energy;
+                self.last_phys = Some(crate::belief::PhysioState {
+                    hr_bpm: estimate.hr_bpm,
+                    rr_bpm: estimate.rr_bpm,
+                    rmssd: estimate.rmssd,
+                    confidence: estimate.confidence,
+                });
 
-        // Update timestamp log for dt calculation
-        let _ = self.timestamp.update_ingest(ts_us);
+                // Store energy for diagnostics
+                self.last_sheaf_energy = synthesized.form.energy;
 
-        estimate
+                // Update timestamp log for dt calculation
+                let _ = self.timestamp.update_ingest(ts_us);
+
+                estimate
+            },
+            Err(_) => {
+                self.circuit_breaker.record_failure("skandha_pipeline");
+                log::error!("Skandha pipeline panic recovered - using raw fallback");
+                
+                Estimate {
+                    ts_us,
+                    hr_bpm: input.hr_bpm,
+                    rmssd: input.hrv_rmssd,
+                    rr_bpm: input.rr_bpm,
+                    confidence: 0.0, // Zero confidence on panic
+                }
+            }
+        }
     }
 
     /// Advance engine time and compute any cycles (returns cycle count)
@@ -1188,55 +1205,48 @@ impl Engine {
                     );
                 }
 
-                // Check for crystallized discoveries
-                use crate::scientist::ScientistState;
-                if let ScientistState::Verifying {
-                    hypothesis,
-                    confirmation_rate,
-                    ..
-                } = self.scientist.state()
-                {
-                    if *confirmation_rate > 0.7 {
-                        log::info!(
-                            "Scientist discovered causal edge: {} -> {} (strength={:.2}, confidence={:.2})",
-                            hypothesis.from_variable,
-                            hypothesis.to_variable,
-                            hypothesis.strength,
-                            confirmation_rate
-                        );
+                // Check for crystallized discoveries (using pending queue)
+                let discoveries = self.scientist.drain_pending_discoveries();
+                for hypothesis in discoveries {
+                    log::info!(
+                        "Scientist discovered causal edge: {} -> {} (strength={:.2}, confidence={:.2})",
+                        hypothesis.from_variable,
+                        hypothesis.to_variable,
+                        hypothesis.strength,
+                        hypothesis.confidence
+                    );
 
-                        // WIRE DISCOVERY to CausalGraph
-                        let map_var = |idx: u8| -> Option<crate::causal::Variable> {
-                            match idx {
-                                0 => Some(crate::causal::Variable::HeartRate),
-                                1 => Some(crate::causal::Variable::HeartRateVariability),
-                                2 => Some(crate::causal::Variable::RespiratoryRate),
-                                // 3 (Confidence) and 4 (Resonance) are internal metrics not yet in CausalGraph
-                                _ => None,
-                            }
-                        };
-
-                        if let (Some(cause), Some(effect)) = (
-                            map_var(hypothesis.from_variable),
-                            map_var(hypothesis.to_variable),
-                        ) {
-                            let edge = crate::causal::CausalEdge {
-                                successes: (confirmation_rate * 100.0) as u32,
-                                failures: ((1.0 - confirmation_rate) * 100.0) as u32,
-                                source: crate::causal::CausalSource::Learned {
-                                    observation_count: 50, // Minimum for confidence
-                                    confidence_score: *confirmation_rate,
-                                },
-                            };
-                            self.causal_graph.set_link(cause, effect, edge);
-                            log::info!("Scientist Wired Link: {:?} -> {:?}", cause, effect);
-                        } else {
-                            log::debug!(
-                                "Skipping wiring for internal variables {}->{}",
-                                hypothesis.from_variable,
-                                hypothesis.to_variable
-                            );
+                    // WIRE DISCOVERY to CausalGraph
+                    let map_var = |idx: u8| -> Option<crate::causal::Variable> {
+                        match idx {
+                            0 => Some(crate::causal::Variable::HeartRate),
+                            1 => Some(crate::causal::Variable::HeartRateVariability),
+                            2 => Some(crate::causal::Variable::RespiratoryRate),
+                            // 3 (Confidence) and 4 (Resonance) are internal metrics not yet in CausalGraph
+                            _ => None,
                         }
+                    };
+
+                    if let (Some(cause), Some(effect)) = (
+                        map_var(hypothesis.from_variable),
+                        map_var(hypothesis.to_variable),
+                    ) {
+                        let edge = crate::causal::CausalEdge {
+                            successes: (hypothesis.confidence * 100.0) as u32,
+                            failures: ((1.0 - hypothesis.confidence) * 100.0) as u32,
+                            source: crate::causal::CausalSource::Learned {
+                                observation_count: 50, // Minimum for confidence
+                                confidence_score: hypothesis.confidence,
+                            },
+                        };
+                        self.causal_graph.set_link(cause, effect, edge);
+                        log::info!("Scientist Wired Link: {:?} -> {:?}", cause, effect);
+                    } else {
+                        log::debug!(
+                            "Skipping wiring for internal variables {}->{}",
+                            hypothesis.from_variable,
+                            hypothesis.to_variable
+                        );
                     }
                 }
             }
@@ -1246,12 +1256,23 @@ impl Engine {
     // Helper: Integrate Thermodynamics
     fn integrate_thermodynamics(&mut self) {
         // VAJRA-001: Thermodynamic Evolution (GENERIC)
-        // Apply thermodynamic laws: System naturally drifts towards maximum entropy (uniform)
-        // unless constrained by free energy minimization (decisions).
+        // Apply thermodynamic laws for smooth belief state evolution
         if self.config.features.vajra_enabled
             && self.config.features.thermo_enabled.unwrap_or(false)
         {
-            let target = [0.2, 0.2, 0.2, 0.2, 0.2]; // Max entropy target
+            // Use Skandha pipeline belief output as the TARGET
+            // This makes the system evolve toward the inferred belief state
+            // rather than arbitrarily toward max entropy
+            let target = if let Some(ref skandha_state) = self.skandha_state {
+                // Use Skandha's synthesized belief as thermodynamic attractor
+                skandha_state.belief
+            } else {
+                // Fallback: use current belief state (no drift)
+                self.belief_state.p
+            };
+            
+            // Apply thermodynamic step - system smoothly evolves toward target
+            // This provides temporal smoothing and prevents abrupt state transitions
             self.thermo_step(&target, 1);
         }
     }

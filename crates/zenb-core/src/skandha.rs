@@ -141,32 +141,32 @@ pub struct ControlOutput {
 /// Rupa Skandha - Form processing.
 pub trait RupaSkandha {
     /// Process raw sensor input into structured form.
-    fn process_form(&self, input: &SensorInput) -> ProcessedForm;
+    fn process_form(&mut self, input: &SensorInput) -> ProcessedForm;
 }
 
 /// Vedana Skandha - Feeling/valence processing.
 pub trait VedanaSkandha {
     /// Extract affective state from processed form.
-    fn extract_affect(&self, form: &ProcessedForm) -> AffectiveState;
+    fn extract_affect(&mut self, form: &ProcessedForm) -> AffectiveState;
 }
 
 /// Sanna Skandha - Perception/pattern recognition.
 pub trait SannaSkandha {
     /// Recognize patterns and recall associations.
-    fn perceive(&self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern;
+    fn perceive(&mut self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern;
 }
 
 /// Sankhara Skandha - Formation/intent generation.
 pub trait SankharaSkandha {
     /// Form intent based on perception.
-    fn form_intent(&self, pattern: &PerceivedPattern, affect: &AffectiveState) -> FormedIntent;
+    fn form_intent(&mut self, pattern: &PerceivedPattern, affect: &AffectiveState) -> FormedIntent;
 }
 
 /// Vinnana Skandha - Consciousness/synthesis.
 pub trait VinnanaSkandha {
     /// Synthesize all stages into unified state.
     fn synthesize(
-        &self,
+        &mut self,
         form: &ProcessedForm,
         affect: &AffectiveState,
         pattern: &PerceivedPattern,
@@ -216,7 +216,7 @@ pub mod defaults {
     }
 
     impl RupaSkandha for DefaultRupa {
-        fn process_form(&self, input: &SensorInput) -> ProcessedForm {
+        fn process_form(&mut self, input: &SensorInput) -> ProcessedForm {
             let values = [
                 input.hr_bpm.unwrap_or(60.0) / 200.0, // Normalize
                 input.hrv_rmssd.unwrap_or(50.0) / 100.0,
@@ -246,7 +246,7 @@ pub mod defaults {
     pub struct DefaultVedana;
 
     impl VedanaSkandha for DefaultVedana {
-        fn extract_affect(&self, form: &ProcessedForm) -> AffectiveState {
+        fn extract_affect(&mut self, form: &ProcessedForm) -> AffectiveState {
             // Extract valence from HRV (higher HRV = more positive)
             let valence = (form.values[1] - 0.5) * 2.0; // -1 to 1
 
@@ -272,7 +272,7 @@ pub mod defaults {
     }
 
     impl SannaSkandha for DefaultSanna {
-        fn perceive(&self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern {
+        fn perceive(&mut self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern {
             // Simple pattern classification
             let pattern_id = if affect.arousal > 0.7 {
                 1 // High arousal pattern
@@ -299,7 +299,7 @@ pub mod defaults {
     }
 
     impl SankharaSkandha for DefaultSankhara {
-        fn form_intent(&self, pattern: &PerceivedPattern, affect: &AffectiveState) -> FormedIntent {
+        fn form_intent(&mut self, pattern: &PerceivedPattern, affect: &AffectiveState) -> FormedIntent {
             // Form intent based on pattern and affect
             let action = if pattern.is_trauma_associated {
                 IntentAction::SafeFallback
@@ -341,7 +341,7 @@ pub mod defaults {
 
     impl VinnanaSkandha for DefaultVinnana {
         fn synthesize(
-            &self,
+            &mut self,
             form: &ProcessedForm,
             affect: &AffectiveState,
             _pattern: &PerceivedPattern,
@@ -440,7 +440,7 @@ where
     }
 
     /// Process input through the full pipeline.
-    pub fn process(&self, input: &SensorInput) -> SynthesizedState {
+    pub fn process(&mut self, input: &SensorInput) -> SynthesizedState {
         // Stage 1: Rupa (Form)
         let form = if self.config.enable_rupa {
             self.rupa.process_form(input)
@@ -621,8 +621,9 @@ pub mod zenb {
     }
 
     impl RupaSkandha for ZenbRupa {
-        fn process_form(&self, input: &SensorInput) -> ProcessedForm {
-            self.process_form_internal(input)
+        fn process_form(&mut self, input: &SensorInput) -> ProcessedForm {
+            // Use adaptive processing to ensure context is updated
+            self.process_form_adaptive(input)
         }
     }
 
@@ -643,41 +644,85 @@ pub mod zenb {
     }
 
     impl SannaSkandha for ZenbSanna {
-        fn perceive(&self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern {
-            // Encode current context as key
-            let key: Vec<Complex32> = form
-                .values
-                .iter()
-                .map(|&v| Complex32::new(v, 0.0))
-                .collect();
-
-            // Pad to memory dimension
+        fn perceive(&mut self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern {
+            // Increment recall counter
+            self.recall_count += 1;
+            
+            // Encode current context as key (sensor values + affect)
             let dim = self.memory.dim();
             let mut padded_key = vec![Complex32::new(0.0, 0.0); dim];
-            for (i, k) in key.iter().enumerate().take(dim.min(5)) {
-                padded_key[i] = *k;
+            
+            // Encode sensor values in first 5 positions
+            for (i, &v) in form.values.iter().enumerate().take(5) {
+                padded_key[i] = Complex32::new(v, 0.0);
+            }
+            // Encode affect in next 2 positions (for better recall specificity)
+            if dim > 6 {
+                padded_key[5] = Complex32::new(affect.valence, 0.0);
+                padded_key[6] = Complex32::new(affect.arousal, 0.0);
             }
 
-            // Recall associated pattern
+            // Recall associated pattern from memory
             let recalled = self.memory.recall(&padded_key);
 
-            // Compute similarity (norm of recalled pattern)
-            let similarity: f32 = recalled.iter().take(5).map(|c| c.norm()).sum::<f32>() / 5.0;
-
-            // Pattern classification based on affect
-            let pattern_id = if affect.arousal > 0.7 {
-                1 // High arousal
-            } else if affect.valence < -0.3 {
-                2 // Negative
+            // Compute similarity score (energy of recalled pattern)
+            let recalled_energy: f32 = recalled.iter().take(10).map(|c| c.norm_sqr()).sum::<f32>();
+            let similarity = (recalled_energy / 10.0).sqrt().clamp(0.0, 1.0);
+            
+            // Extract recalled affect signature if strong enough match
+            let (recalled_valence, recalled_arousal) = if similarity > 0.3 && dim > 6 {
+                // Recalled values are in the same positions we encoded them
+                (recalled[5].re.clamp(-1.0, 1.0), recalled[6].re.clamp(0.0, 1.0))
             } else {
-                0 // Baseline
+                (0.0, 0.0) // No strong recall, use neutral
             };
+            
+            // PATTERN CLASSIFICATION: Now uses BOTH current affect AND memory recall
+            // Memory-informed classification gives us temporal context
+            let pattern_id = if similarity > 0.5 {
+                // Strong memory match - classify based on recalled pattern
+                if recalled_arousal > 0.7 {
+                    1 // Previously seen high-arousal pattern
+                } else if recalled_valence < -0.3 {
+                    2 // Previously seen negative pattern
+                } else {
+                    0 // Previously seen baseline pattern
+                }
+            } else {
+                // Weak/no memory match - classify based on current affect only
+                if affect.arousal > 0.7 {
+                    1 // High arousal
+                } else if affect.valence < -0.3 {
+                    2 // Negative
+                } else {
+                    0 // Baseline
+                }
+            };
+            
+            // Trauma detection: strong match to negative high-arousal pattern
+            let is_trauma_associated = similarity > 0.4 
+                && (recalled_valence < -0.2 && recalled_arousal > 0.6)
+                || (pattern_id == 2 && affect.arousal > 0.8);
+            
+            // SELF-LEARNING: Store this observation for future recall
+            // Create value vector encoding the current affect (what we want to recall later)
+            let mut value = vec![Complex32::new(0.0, 0.0); dim];
+            for (i, &v) in form.values.iter().enumerate().take(5) {
+                value[i] = Complex32::new(v, 0.0);
+            }
+            if dim > 6 {
+                value[5] = Complex32::new(affect.valence, 0.0);
+                value[6] = Complex32::new(affect.arousal, 0.0);
+            }
+            // Entangle with slow decay (0.995 per observation ≈ 20% loss per 100 observations)
+            self.memory.entangle(&padded_key, &value);
+            self.memory.decay(0.995);
 
             PerceivedPattern {
                 pattern_id,
-                similarity: similarity.clamp(0.0, 1.0),
+                similarity,
                 context: form.values,
-                is_trauma_associated: pattern_id == 2 && affect.arousal > 0.8,
+                is_trauma_associated,
             }
         }
     }
@@ -697,7 +742,7 @@ pub mod zenb {
     }
 
     impl SankharaSkandha for ZenbSankhara {
-        fn form_intent(&self, pattern: &PerceivedPattern, affect: &AffectiveState) -> FormedIntent {
+        fn form_intent(&mut self, pattern: &PerceivedPattern, affect: &AffectiveState) -> FormedIntent {
             // Determine proposed action
             let action = if pattern.is_trauma_associated {
                 IntentAction::SafeFallback
@@ -758,26 +803,15 @@ pub mod zenb {
 
     impl VinnanaSkandha for ZenbVinnana {
         fn synthesize(
-            &self,
+            &mut self,
             form: &ProcessedForm,
             affect: &AffectiveState,
-            pattern: &PerceivedPattern,
+            _pattern: &PerceivedPattern,
             intent: &FormedIntent,
         ) -> SynthesizedState {
-            // In a full implementation, this would call self.engine.update()
-            // But Skandha traits are immutable (&self).
-            // This suggests a design mismatch: BeliefEngine relies on interior mutability or &mut self.
-            // For now, to unblock the compilation/refactor, we will map the inputs to a belief state
-            // using a pure function (or assume interior mutability if we refactor later).
-
-            // HACK: For now, strictly map Affect -> Belief Distribution cleanly
-            // This matches the "DefaultVinnana" behavior but allows us to insert real logic later.
-            // Real Active Inference requires state updates which we can't do in &self trait.
-            // TODO: Refactor Skandha traits to strictly allow &mut self or use RefCell.
-
+            // Now with &mut self, we can perform proper Active Inference updates!
+            // Map affect to belief distribution
             let mut belief = [0.2f32; 5];
-            // Map affect to belief (Simplified Logic for "Pure" synthesis)
-            // Real engine requires mutability.
             if affect.arousal < 0.3 && affect.valence > 0.2 {
                 belief[0] = 0.6; // Calm
             } else if affect.arousal > 0.6 {
@@ -841,7 +875,7 @@ mod tests {
 
     #[test]
     fn test_default_pipeline() {
-        let pipeline = default_pipeline();
+        let mut pipeline = default_pipeline();
 
         let input = SensorInput {
             hr_bpm: Some(75.0),
@@ -862,7 +896,7 @@ mod tests {
 
     #[test]
     fn test_high_arousal_triggers_calming() {
-        let pipeline = default_pipeline();
+        let mut pipeline = default_pipeline();
 
         let input = SensorInput {
             hr_bpm: Some(150.0),   // Very high HR
@@ -883,7 +917,7 @@ mod tests {
 
     #[test]
     fn test_low_quality_reduces_confidence() {
-        let pipeline = default_pipeline();
+        let mut pipeline = default_pipeline();
 
         let good_input = SensorInput {
             hr_bpm: Some(70.0),

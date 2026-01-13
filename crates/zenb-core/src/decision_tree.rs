@@ -9,7 +9,7 @@
 //! use zenb_core::decision_tree::{DecisionTree, DecisionContext, RouteAction};
 //!
 //! let tree = DecisionTree::default_for_zenb();
-//! let context = DecisionContext::from_engine_state(...);
+//! let context = DecisionContext::default();
 //! let action = tree.decide(&context);
 //! ```
 

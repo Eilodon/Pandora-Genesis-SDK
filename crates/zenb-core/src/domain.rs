@@ -142,7 +142,7 @@ pub struct CognitiveContext {
 /// Root observation structure representing the complete sensory input to the AI kernel.
 /// This is the "generative model's sensory layer" in Active Inference terminology.
 /// The system uses these observations to update beliefs about hidden states and select actions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Observation {
     /// Timestamp of the observation in microseconds since epoch.
     /// Critical for temporal inference and time-series analysis.

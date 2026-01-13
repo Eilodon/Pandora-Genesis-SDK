@@ -14,6 +14,10 @@
 //! let config = CircuitBreakerConfig::default();
 //! let manager = CircuitBreakerManager::new(config);
 //!
+//!
+//! // Mock function for doctest
+//! fn do_sensor_ingest() -> Result<(), ()> { Ok(()) }
+//!
 //! // Check before calling external service
 //! if !manager.is_open("sensor_ingest") {
 //!     match do_sensor_ingest() {
