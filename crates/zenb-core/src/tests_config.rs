@@ -229,7 +229,7 @@ mod tests {
         let engine = Engine::new_with_config(0.0, Some(config.clone()));
 
         assert_eq!(engine.config.breath.default_target_bpm, 5.0);
-        assert_eq!(engine.belief.belief_engine().smooth_tau_sec, 3.0);
+        assert_eq!(engine.skandha_pipeline.vedana.belief_engine().smooth_tau_sec, 3.0);
     }
 
     #[test]

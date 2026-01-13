@@ -15,6 +15,8 @@ pub struct ResonanceTracker {
     rr_prev: Option<f32>,
     rr_sign_pos: bool,
     rr_phase_norm: f32,
+    /// Pre-allocated buffer for resampling (avoids allocation in hot path)
+    resample_buffer: Vec<f32>,
 }
 
 impl Default for ResonanceTracker {
@@ -24,6 +26,7 @@ impl Default for ResonanceTracker {
             rr_prev: None,
             rr_sign_pos: true,
             rr_phase_norm: 0.0,
+            resample_buffer: Vec::with_capacity(128), // Typical max for 8s window @ 4Hz
         }
     }
 }
@@ -76,7 +79,7 @@ impl ResonanceTracker {
     }
 
     fn compute_v2(
-        &self,
+        &mut self,
         guide_phase_norm: f32,
         guide_bpm: f32,
         cfg: &ZenbConfig,
@@ -84,18 +87,21 @@ impl ResonanceTracker {
         let target_freq_hz = (guide_bpm / 60.0).max(0.001);
         let fs_hz = 4.0f32;
         let dt_us = (1_000_000f32 / fs_hz).round() as i64;
-        let x = self.window.resample_interp(dt_us)?;
-        if x.len() < 8 {
+        
+        // Use pre-allocated buffer instead of allocating new Vec
+        self.window.resample_into(dt_us, &mut self.resample_buffer)?;
+        
+        if self.resample_buffer.len() < 8 {
             return None;
         }
 
         let min_cycles = 1.0f32;
         let min_n = ((min_cycles * fs_hz / target_freq_hz).ceil() as usize).max(8);
-        if x.len() < min_n {
+        if self.resample_buffer.len() < min_n {
             return None;
         }
 
-        let (mag, phase_rad, coh) = goertzel_mag_phase_coherence(&x, fs_hz, target_freq_hz);
+        let (mag, phase_rad, coh) = goertzel_mag_phase_coherence(&self.resample_buffer, fs_hz, target_freq_hz);
 
         let coherence_threshold = cfg.resonance.coherence_threshold.clamp(0.0, 1.0);
         if coh < coherence_threshold {
@@ -151,6 +157,7 @@ impl SignalWindow {
         }
     }
 
+    #[allow(dead_code)] // Kept for testing/debugging, hot path uses resample_into
     fn resample_interp(&self, dt_us: i64) -> Option<Vec<f32>> {
         if self.buf.len() < 2 {
             return None;
@@ -193,6 +200,57 @@ impl SignalWindow {
             None
         } else {
             Some(out)
+        }
+    }
+
+    /// Resample into a pre-allocated buffer (zero-allocation hot path)
+    /// Returns the number of samples written, or None if insufficient data
+    fn resample_into(&self, dt_us: i64, out: &mut Vec<f32>) -> Option<usize> {
+        out.clear();
+        
+        let buf_len = self.buf.len();
+        if buf_len < 2 {
+            return None;
+        }
+        let dt_us = dt_us.max(50_000);
+
+        let (t_first, _) = self.buf[0];
+        let (t_last, _) = self.buf[buf_len - 1];
+        if t_last <= t_first {
+            return None;
+        }
+
+        let n = (((t_last - t_first) as f32) / (dt_us as f32)).floor() as usize + 1;
+        if n < 2 {
+            return None;
+        }
+        
+        out.reserve(n);
+
+        let mut i = 0usize;
+        // Iterate using VecDeque indexing (O(1) access) to avoid allocation
+        for j in 0..n {
+            let t = t_first + (j as i64) * dt_us;
+            while i + 1 < buf_len && self.buf[i + 1].0 < t {
+                i += 1;
+            }
+            if i + 1 >= buf_len {
+                break;
+            }
+            let (t0, x0) = self.buf[i];
+            let (t1, x1) = self.buf[i + 1];
+            if t1 == t0 {
+                out.push(x1);
+                continue;
+            }
+            let a = ((t - t0) as f32) / ((t1 - t0) as f32);
+            out.push(x0 + (x1 - x0) * a.clamp(0.0, 1.0));
+        }
+        
+        if out.len() < 2 {
+            None
+        } else {
+            Some(out.len())
         }
     }
 }

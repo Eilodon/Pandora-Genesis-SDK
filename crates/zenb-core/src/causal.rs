@@ -6,11 +6,9 @@ pub mod dagma; // DAGMA: 5-20x faster than NOTEARS (NeurIPS 2022)
 mod graph_change_detector;
 pub mod hypergraph;
 pub mod intervenable; // NEW: Pearl's do-calculus interventions
-pub mod notears;
 pub mod propagating_effect; // NEW: Monadic causal effects // NEW: Higher-order causal relationships
 
 pub use graph_change_detector::GraphChangeDetector;
-pub use notears::{Notears, NotearsConfig};
 
 /// Causal variable nodes representing observable and latent factors in the system.
 /// These form the vertices of the Directed Acyclic Graph (DAG).

@@ -27,9 +27,12 @@
 //! - `belief_enter_threshold`
 
 use crate::adaptive::AdaptiveThreshold;
-use crate::belief::{BeliefBasis, BeliefDebug, BeliefEngine, BeliefState, Context, FepState, FepUpdateOut, PhysioState, SensorFeatures};
+use crate::belief::{BeliefBasis, BeliefDebug, BeliefEngine, BeliefState, Context, FepState, FepUpdateOut, SensorFeatures, PhysioState};
 use crate::config::{BeliefConfig, ZenbConfig};
 use crate::resonance::ResonanceFeatures;
+use crate::skandha::{AffectiveState, ProcessedForm, VedanaSkandha};
+
+
 
 /// Encapsulated belief management subsystem.
 ///
@@ -265,6 +268,50 @@ pub struct BeliefDiagnostics {
     pub free_energy: f32,
     pub enter_threshold: f32,
     pub threshold_drift: f32,
+}
+
+// ============================================================================
+// SKANDHA INTEGRATION: VedanaSkandha for BeliefSubsystem
+// ============================================================================
+
+/// Implements VedanaSkandha for BeliefSubsystem.
+///
+/// This enables the BeliefSubsystem to be used as the Vedana (feeling) stage
+/// in the Skandha pipeline, extracting valence and arousal from sensor data.
+///
+/// # Mapping from Belief to Affect
+/// - **Valence** = (Calm + Focus) - Stress + 0.5*(Energize - Sleepy)
+/// - **Arousal** = Stress + Energize - 0.5*(Calm + Sleepy)
+/// - **Confidence** = belief state confidence
+impl VedanaSkandha for BeliefSubsystem {
+    fn extract_affect(&mut self, form: &ProcessedForm) -> AffectiveState {
+        // Get current belief probabilities [Calm, Stress, Focus, Sleepy, Energize]
+        let p = self.state.p;
+        
+        // Map belief to valence: positive states contribute positively
+        // valence = (Calm + Focus + 0.5*Energize) - (Stress + 0.5*Sleepy)
+        let valence = (p[0] + p[2] + 0.5 * p[4]) - (p[1] + 0.5 * p[3]);
+        let valence = valence.clamp(-1.0, 1.0);
+
+        // Map belief to arousal: activated states contribute positively
+        // arousal = (Stress + Energize + 0.3*Focus) - (Calm + Sleepy)
+        let arousal = (p[1] + p[4] + 0.3 * p[2]) - (p[0] + p[3]);
+        let arousal = (arousal + 1.0) / 2.0; // Normalize to 0-1
+        let arousal = arousal.clamp(0.0, 1.0);
+
+        // Use reliability from form and belief confidence
+        let confidence = if form.is_reliable {
+            self.state.conf * 0.8 + 0.2 * form.values[3]
+        } else {
+            self.state.conf * 0.5
+        };
+
+        AffectiveState {
+            valence,
+            arousal,
+            confidence: confidence.clamp(0.1, 0.95),
+        }
+    }
 }
 
 // ============================================================================

@@ -26,10 +26,8 @@ pub struct Engine {
     pub controller: AdaptiveController,
     pub breath: BreathEngine,
     
-    // === Phase 2: Belief Subsystem (extracted from god-object) ===
-    /// Encapsulates: belief_engine, belief_state, fep_state, belief_enter_threshold
-    pub belief: crate::belief_subsystem::BeliefSubsystem,
     
+
     pub context: crate::belief::Context,
     pub config: ZenbConfig,
     pub last_sf: Option<crate::belief::SensorFeatures>,
@@ -40,9 +38,11 @@ pub struct Engine {
     pub free_energy_peak: f32,
     pub last_pattern_id: i64,
     pub last_goal: i64,
-    pub causal_graph: CausalGraph,
-    pub observation_buffer: CausalBuffer,
-    pub last_observation: Option<crate::domain::Observation>,
+
+    
+    // === Causal Subsystem (Phase 6) ===
+    pub causal: crate::causal_subsystem::CausalSubsystem,
+
 
     // --- EFE / META-LEARNING ---
     /// Current EFE precision (beta) for policy selection
@@ -57,10 +57,12 @@ pub struct Engine {
     // === SOTA Features ===
     // === SKANDHA CORE (The Brain) ===
     /// Unified Skandha Pipeline (Sắc-Thọ-Tưởng-Hành-Thức)
-    pub skandha_pipeline: crate::skandha::zenb::ZenbPipeline,
+    /// Now uses BeliefSubsystem as Vedana stage (Single Source of Truth)
+    pub skandha_pipeline: crate::skandha::zenb::ZenbPipelineUnified,
 
     /// Last synthesized state from Skandha pipeline
     pub skandha_state: Option<crate::skandha::SynthesizedState>,
+
 
     // === Timestamp Tracking ===
     pub timestamp: crate::timestamp::TimestampLog,
@@ -93,11 +95,11 @@ pub struct Engine {
 
     // === Enhanced Observation Buffer ===
     /// Minimum samples before triggering PC algorithm
-    pub observation_buffer_min_samples: usize,
+
 
     // === WEEK 2: Automatic Scientist Integration ===
     /// Automatic Scientist for causal hypothesis discovery
-    pub scientist: crate::scientist::AutomaticScientist,
+
 
     // === POLICY ADAPTER: Learning from Outcomes ===
     /// Policy adapter for catastrophe detection and stagnation escape
@@ -140,8 +142,6 @@ impl Engine {
             controller,
             breath,
             
-            // Phase 2: Belief Subsystem
-            belief: crate::belief_subsystem::BeliefSubsystem::from_zenb_config(&cfg),
             
             context: crate::belief::Context {
                 local_hour: 0,
@@ -154,20 +154,22 @@ impl Engine {
             resonance_tracker: ResonanceTracker::default(),
             last_resonance_score: 1.0,
             resonance_score_ema: 1.0,
+
             free_energy_peak: 0.0,
             last_pattern_id: 0,
             last_goal: 0,
-            causal_graph: CausalGraph::with_priors(),
-            observation_buffer: CausalBuffer::default_capacity(),
-            last_observation: None,
+
+            // Causal Subsystem
+            causal: crate::causal_subsystem::CausalSubsystem::new(&cfg),
+
             // EFE Initialization
             efe_precision_beta: cfg.features.efe_precision_beta.unwrap_or(4.0),
             efe_meta_learner: crate::policy::BetaMetaLearner::default(),
 
             last_selected_policy: None,
 
-            // SKANDHA CORE
-            skandha_pipeline: crate::skandha::zenb::zenb_pipeline(&cfg),
+            // SKANDHA CORE (Unified)
+            skandha_pipeline: crate::skandha::zenb::zenb_pipeline_unified(&cfg),
             skandha_state: None,
             timestamp: crate::timestamp::TimestampLog::new(),
 
@@ -203,10 +205,10 @@ impl Engine {
             decision_confidence: ConfidenceTracker::new(100),
 
             // Enhanced Observation Buffer
-            observation_buffer_min_samples: 30, // Minimum samples before PC algorithm runs
+
 
             // WEEK 2: Automatic Scientist
-            scientist: crate::scientist::AutomaticScientist::new(),
+
 
             // POLICY ADAPTER: Learning from Outcomes
             policy_adapter: crate::policy::PolicyAdapter::new(1.0),
@@ -318,6 +320,16 @@ impl Engine {
                 // Store energy for diagnostics
                 self.last_sheaf_energy = synthesized.form.energy;
 
+                // Feed Causal Scientist
+                let causal_feats = [
+                     form_values[0],
+                     form_values[1],
+                     form_values[2],
+                     synthesized.confidence,
+                     self.last_resonance_score,
+                ];
+                self.causal.observe(causal_feats, None);
+
                 // Update timestamp log for dt calculation
                 let _ = self.timestamp.update_ingest(ts_us);
 
@@ -346,13 +358,17 @@ impl Engine {
     pub fn tick(&mut self, dt_us: u64) -> u64 {
         let (_trans, cycles) = self.breath.tick(dt_us);
 
-        // Push current observation into causal buffer if available
-        // Map canonical belief::BeliefState (5-mode) to CausalBeliefState (3-factor)
-        // Process Causal Memory & Holographic Encoding
-        self.process_causal_memory();
-
-        // Process Automatic Scientist
-        self.process_scientist();
+        // Update Causal Subsystem
+        if self.causal.tick() {
+            // Log any new discoveries
+            let discoveries = self.causal.drain_discoveries();
+            for hypo in discoveries {
+                log::info!(
+                    "Agolos Discovery: {} -> {} (strength={:.2})", 
+                    hypo.from_variable, hypo.to_variable, hypo.strength
+                );
+            }
+        }
 
         // Process Thermodynamic Evolution
         self.integrate_thermodynamics();
@@ -362,7 +378,18 @@ impl Engine {
 
     /// Ingest a full observation (for causal reasoning layer)
     pub fn ingest_observation(&mut self, observation: crate::domain::Observation) {
-        self.last_observation = Some(observation);
+        // Extract features for Causal Scientist
+        let bio = observation.bio_metrics.as_ref();
+        let features = [
+            bio.and_then(|b| b.hr_bpm).unwrap_or(0.0) / 200.0,
+            bio.and_then(|b| b.hrv_rmssd).unwrap_or(0.0) / 100.0,
+            bio.and_then(|b| b.respiratory_rate).unwrap_or(0.0) / 20.0,
+            self.skandha_pipeline.vedana.confidence(),
+            self.last_resonance_score,
+        ];
+
+        // Feed to Causal Subsystem
+        self.causal.observe(features, Some(observation));
     }
 
     /// Sync trauma hits from persistent storage into the in-memory cache.
@@ -404,12 +431,12 @@ impl Engine {
     ) {
         // Update belief engine (Active Inference learning)
         // Update belief engine (Active Inference learning)
-        self.belief.process_feedback(success, &mut self.config.fep);
+        self.skandha_pipeline.vedana.process_feedback(success, &mut self.config.fep);
 
         // Update causal graph weights based on outcome
-        let context_state = self.causal_graph.extract_state_values(
-            self.belief.state(),
-            self.last_observation.as_ref(),
+        let context_state = self.causal.graph.extract_state_values(
+            self.skandha_pipeline.vedana.state(),
+            self.causal.last_observation.as_ref(),
             Some(&self.context),
         );
         let action = crate::causal::ActionPolicy {
@@ -418,7 +445,7 @@ impl Engine {
         };
         const CAUSAL_LEARNING_RATE: f32 = 0.05;
         if let Err(e) =
-            self.causal_graph
+            self.causal.graph
                 .update_weights(&context_state, &action, success, CAUSAL_LEARNING_RATE)
         {
             log::warn!("Causal Update Failed: {}", e);
@@ -429,7 +456,7 @@ impl Engine {
             // Compute context hash for trauma registry
             let context_hash = crate::safety_swarm::trauma_sig_hash(
                 self.last_goal,
-                self.belief.mode() as u8,
+                self.skandha_pipeline.vedana.mode() as u8,
                 self.last_pattern_id,
                 &self.context,
             );
@@ -478,7 +505,7 @@ impl Engine {
         // PANDORA PORT: Adapt belief threshold based on performance
         // Compute performance delta: positive if success, negative if failure
         let performance_delta = if success { 0.1 } else { -0.1 };
-        self.belief.adapt_threshold(performance_delta);
+        self.skandha_pipeline.vedana.adapt_threshold(performance_delta);
 
         // === POLICY ADAPTER: Learning from Outcomes ===
         // Update PolicyAdapter if enabled and we have a last executed policy
@@ -488,7 +515,7 @@ impl Engine {
                 let reward = if success { 1.0 } else { -severity };
 
                 // Generate state hash from belief mode
-                let state_hash = format!("{:?}", self.belief.mode());
+                let state_hash = format!("{:?}", self.skandha_pipeline.vedana.mode());
 
                 // Update adapter and get exploration boost
                 let exploration_boost =
@@ -509,19 +536,7 @@ impl Engine {
         }
     }
 
-    /// Check if observation buffer has enough samples for PC algorithm.
-    ///
-    /// Returns true if buffer length >= observation_buffer_min_samples.
-    #[inline]
-    pub fn is_ready_for_discovery(&self) -> bool {
-        self.observation_buffer.len() >= self.observation_buffer_min_samples
-    }
 
-    /// Get current observation buffer size.
-    #[inline]
-    pub fn observation_buffer_len(&self) -> usize {
-        self.observation_buffer.len()
-    }
 
     /// Get circuit breaker statistics for monitoring.
     pub fn circuit_breaker_stats(&self) -> crate::circuit_breaker::CircuitStats {
@@ -531,8 +546,8 @@ impl Engine {
     /// Get current adaptive threshold values for diagnostics.
     pub fn adaptive_thresholds_info(&self) -> (f32, f32, f32) {
         (
-            self.belief.enter_threshold(),
-            self.belief.enter_threshold_base(),
+            self.skandha_pipeline.vedana.enter_threshold(),
+            self.skandha_pipeline.vedana.enter_threshold_base(),
             self.decision_confidence.success_rate(),
         )
     }
@@ -583,11 +598,11 @@ impl Engine {
     /// Updated belief state probabilities
     pub fn thermo_step(&mut self, target: &[f32; 5], steps: usize) -> [f32; 5] {
         if !self.config.features.thermo_enabled.unwrap_or(false) {
-            return *self.belief.probabilities();
+            return *self.skandha_pipeline.vedana.probabilities();
         }
 
         // Convert belief state to DVector
-        let state = nalgebra::DVector::from_vec(self.belief.probabilities().to_vec());
+        let state = nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
         let target_vec = nalgebra::DVector::from_vec(target.to_vec());
 
         // Integrate using GENERIC dynamics
@@ -605,9 +620,9 @@ impl Engine {
                 p[i] /= sum;
             }
         }
-        self.belief.set_probabilities(p);
+        self.skandha_pipeline.vedana.set_probabilities(p);
 
-        *self.belief.probabilities()
+        *self.skandha_pipeline.vedana.probabilities()
     }
 
     /// Get thermodynamic diagnostics.
@@ -615,7 +630,7 @@ impl Engine {
     /// # Returns
     /// (free_energy, entropy, temperature, enabled)
     pub fn thermo_info(&self) -> (f32, f32, f32, bool) {
-        let state = nalgebra::DVector::from_vec(self.belief.probabilities().to_vec());
+        let state = nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
         let target = nalgebra::DVector::from_vec([0.5f32; 5].to_vec()); // Neutral target for diagnostics
 
         let free_energy = self.thermo_engine.free_energy(&state, &target);
@@ -686,7 +701,7 @@ impl Engine {
                 + res.resonance_score * alpha)
                 .clamp(0.0, 1.0);
 
-            let _out = self.belief.update_fep(
+            let _out = self.skandha_pipeline.vedana.update_fep(
                 &sf,
                 &phys,
                 &self.context,
@@ -696,14 +711,14 @@ impl Engine {
             );
             // State update is handled internally
             
-            let current_fep = self.belief.free_energy_ema();
+            let current_fep = self.skandha_pipeline.vedana.free_energy_ema();
             if current_fep > self.free_energy_peak {
                 self.free_energy_peak = current_fep;
             }
         }
 
         // propose base target from belief mode
-        let base = match self.belief.mode() {
+        let base = match self.skandha_pipeline.vedana.mode() {
             crate::belief::BeliefBasis::Calm => 6.0,
             crate::belief::BeliefBasis::Stress => 8.0,
             crate::belief::BeliefBasis::Focus => 5.0,
@@ -733,8 +748,8 @@ impl Engine {
             // 3. Predict future state (from Causal Graph)
             // For now, we use current belief as proxy for immediate prediction
             // In future, CausalGraph::predict_state() would be called here
-            let predicted_state = self.belief.to_5mode_array();
-            let predicted_uncertainty = self.belief.confidence();
+            let predicted_state = self.skandha_pipeline.vedana.to_5mode_array();
+            let predicted_uncertainty = self.skandha_pipeline.vedana.confidence();
 
             // 4. Compute EFE for each policy
             let mut evaluations: Vec<crate::policy::PolicyEvaluation> = policies
@@ -742,8 +757,8 @@ impl Engine {
                 .map(|policy| {
                     efe_calc.compute_efe(
                         &policy,
-                        &self.belief.to_5mode_array(),
-                        self.belief.uncertainty(),
+                        &self.skandha_pipeline.vedana.to_5mode_array(),
+                        self.skandha_pipeline.vedana.uncertainty(),
                         &predicted_state,
                         crate::belief::uncertainty_from_confidence(predicted_uncertainty),
                     )
@@ -892,7 +907,7 @@ impl Engine {
             crate::safety_swarm::decide(
                 guards.as_slice(),
                 &patch,
-                &self.belief.state(),
+                &self.skandha_pipeline.vedana.state(),
                 &crate::belief::PhysioState {
                     hr_bpm: est.hr_bpm,
                     rr_bpm: est.rr_bpm,
@@ -917,7 +932,7 @@ impl Engine {
             tempo_scale: proposed / 6.0, // Normalize to baseline 6 BPM
             status: "RUNNING".to_string(),
             session_duration,
-            prediction_error: self.belief.free_energy_ema(),
+            prediction_error: self.skandha_pipeline.vedana.free_energy_ema(),
             last_update_timestamp: ts_us as u64,
         };
 
@@ -927,8 +942,8 @@ impl Engine {
 
             let poll_interval = crate::controller::compute_poll_interval(
                 &mut self.controller.poller,
-                self.belief.free_energy_ema(),
-                self.belief.confidence(),
+                self.skandha_pipeline.vedana.free_energy_ema(),
+                self.skandha_pipeline.vedana.confidence(),
                 false,
                 &self.context,
             );
@@ -943,14 +958,14 @@ impl Engine {
                     recommended_poll_interval_ms: poll_interval,
                 },
                 false,
-                Some((self.belief.mode() as u8, 0, self.belief.confidence())),
+                Some((self.skandha_pipeline.vedana.mode() as u8, 0, self.skandha_pipeline.vedana.confidence())),
                 Some(reason),
             );
         }
 
-        let context_state = self.causal_graph.extract_state_values(
-            self.belief.state(),
-            self.last_observation.as_ref(), // Use cached latest observation
+        let context_state = self.causal.graph.extract_state_values(
+            self.skandha_pipeline.vedana.state(),
+            self.causal.last_observation.as_ref(), // Use cached latest observation
             Some(&self.context),
         );
         let breath_action = crate::causal::ActionPolicy {
@@ -958,7 +973,7 @@ impl Engine {
             intensity: 0.8,
         };
         let success_prob = self
-            .causal_graph
+            .causal.graph
             .predict_success_probability(&context_state, &breath_action);
 
         match decide {
@@ -968,8 +983,8 @@ impl Engine {
                 eprintln!("ENGINE_DENY: safety_guard reason={}", reason);
                 let poll_interval = crate::controller::compute_poll_interval(
                     &mut self.controller.poller,
-                    self.belief.free_energy_ema(),
-                    self.belief.confidence(),
+                    self.skandha_pipeline.vedana.free_energy_ema(),
+                    self.skandha_pipeline.vedana.confidence(),
                     false,
                     &self.context,
                 );
@@ -980,7 +995,7 @@ impl Engine {
                         recommended_poll_interval_ms: poll_interval,
                     },
                     false,
-                    Some((self.belief.mode() as u8, 0, self.belief.confidence())),
+                    Some((self.skandha_pipeline.vedana.mode() as u8, 0, self.skandha_pipeline.vedana.confidence())),
                     Some(reason),
                 )
             }
@@ -994,15 +1009,15 @@ impl Engine {
                     );
                     eprintln!(
                         "ENGINE_DENY: causal_veto_low_prob prob={:.3} conf={:.3} mode={:?}",
-                        success_prob.value, success_prob.confidence, self.belief.mode()
+                        success_prob.value, success_prob.confidence, self.skandha_pipeline.vedana.mode()
                     );
 
                     // Fallback to safe default: maintain last decision or use gentle baseline
                     let fallback_bpm = self.controller.last_decision_bpm.unwrap_or(6.0);
                     let poll_interval = crate::controller::compute_poll_interval(
                         &mut self.controller.poller,
-                        self.belief.free_energy_ema(),
-                        self.belief.confidence(),
+                        self.skandha_pipeline.vedana.free_energy_ema(),
+                        self.skandha_pipeline.vedana.confidence(),
                         false,
                         &self.context,
                     );
@@ -1014,7 +1029,7 @@ impl Engine {
                             recommended_poll_interval_ms: poll_interval,
                         },
                         false,
-                        Some((self.belief.mode() as u8, 0, self.belief.confidence())),
+                        Some((self.skandha_pipeline.vedana.mode() as u8, 0, self.skandha_pipeline.vedana.confidence())),
                         Some(format!("causal_veto_low_prob_{:.2}", success_prob.value)),
                     );
                 }
@@ -1046,8 +1061,8 @@ impl Engine {
 
                 let poll_interval = crate::controller::compute_poll_interval(
                     &mut self.controller.poller,
-                    self.belief.free_energy_ema(),
-                    self.belief.confidence(),
+                    self.skandha_pipeline.vedana.free_energy_ema(),
+                    self.skandha_pipeline.vedana.confidence(),
                     changed,
                     &self.context,
                 );
@@ -1059,7 +1074,7 @@ impl Engine {
                         recommended_poll_interval_ms: poll_interval,
                     },
                     changed,
-                    Some((self.belief.mode() as u8, bits, self.belief.confidence())),
+                    Some((self.skandha_pipeline.vedana.mode() as u8, bits, self.skandha_pipeline.vedana.confidence())),
                     None,
                 )
             }
@@ -1112,138 +1127,7 @@ impl Engine {
 
         result
     }
-    // Helper: Process Causal Memory & Holographic Encoding
-    fn process_causal_memory(&mut self) {
-        if let Some(ref obs) = self.last_observation {
-            let snapshot = crate::causal::ObservationSnapshot {
-                timestamp_us: obs.timestamp_us,
-                observation: obs.clone(),
-                action: None,
-                belief_state: Some(crate::domain::CausalBeliefState {
-                    // Map 5-mode belief to 3-factor causal representation
-                    bio_state: [
-                        self.belief.probabilities()[0], // Calm
-                        self.belief.probabilities()[1], // Stress (Aroused)
-                        self.belief.probabilities()[3], // Sleepy (Fatigue)
-                    ],
-                    cognitive_state: [
-                        self.belief.probabilities()[2],       // Focus
-                        1.0 - self.belief.probabilities()[2], // Distracted (inverse of Focus)
-                        0.0,                          // Flow (not directly mapped)
-                    ],
-                    social_state: [
-                        0.33, // Solitary (uniform prior - not tracked in 5-mode)
-                        0.33, // Interactive
-                        0.33, // Overwhelmed
-                    ],
-                    confidence: self.belief.confidence(),
-                    last_update_us: obs.timestamp_us,
-                    cognitive_context: obs.cognitive_context.clone(),
-                }),
-            };
-            self.observation_buffer.push(snapshot);
 
-            // VAJRA-001: Encode into Holographic Memory
-            if self.config.features.vajra_enabled {
-                // Create context key from belief state
-                let key = crate::memory::hologram::encode_context_key(
-                    &self.belief.probabilities()[..],
-                    self.skandha_pipeline.sanna.memory.dim(),
-                );
-
-                // Create value from observation features
-                let bio = obs.bio_metrics.as_ref();
-                let obs_features = vec![
-                    bio.and_then(|b| b.hr_bpm).unwrap_or(0.0) / 200.0, // Normalize
-                    bio.and_then(|b| b.hrv_rmssd).unwrap_or(0.0) / 100.0,
-                    bio.and_then(|b| b.respiratory_rate).unwrap_or(0.0) / 20.0,
-                    self.belief.confidence(),
-                    self.last_resonance_score,
-                ];
-                let value = crate::memory::hologram::encode_state_value(
-                    &obs_features,
-                    self.skandha_pipeline.sanna.memory.dim(),
-                );
-
-                // Entangle (store) the association
-                self.skandha_pipeline.sanna.memory.entangle(&key, &value);
-
-                // Apply decay (forgetting) - 0.999 = very slow decay
-                self.skandha_pipeline.sanna.memory.decay(0.999);
-            }
-        }
-    }
-
-    // Helper: Process Automatic Scientist Logic
-    fn process_scientist(&mut self) {
-        if self.config.features.scientist_enabled.unwrap_or(false) {
-            // Feed current belief state as observation [hr, hrv, rr, conf, resonance]
-            if let Some(ref obs) = self.last_observation {
-                let bio = obs.bio_metrics.as_ref();
-                let scientist_obs = [
-                    bio.and_then(|b| b.hr_bpm).unwrap_or(60.0) / 200.0, // Normalize to [0,1]
-                    bio.and_then(|b| b.hrv_rmssd).unwrap_or(50.0) / 100.0,
-                    bio.and_then(|b| b.respiratory_rate).unwrap_or(6.0) / 20.0,
-                    self.belief.confidence(),
-                    self.last_resonance_score,
-                ];
-                self.scientist.observe(scientist_obs);
-
-                // Tick scientist state machine
-                if self.scientist.tick() {
-                    log::debug!(
-                        "Scientist state transition: {}",
-                        self.scientist.state_name()
-                    );
-                }
-
-                // Check for crystallized discoveries (using pending queue)
-                let discoveries = self.scientist.drain_pending_discoveries();
-                for hypothesis in discoveries {
-                    log::info!(
-                        "Scientist discovered causal edge: {} -> {} (strength={:.2}, confidence={:.2})",
-                        hypothesis.from_variable,
-                        hypothesis.to_variable,
-                        hypothesis.strength,
-                        hypothesis.confidence
-                    );
-
-                    // WIRE DISCOVERY to CausalGraph
-                    let map_var = |idx: u8| -> Option<crate::causal::Variable> {
-                        match idx {
-                            0 => Some(crate::causal::Variable::HeartRate),
-                            1 => Some(crate::causal::Variable::HeartRateVariability),
-                            2 => Some(crate::causal::Variable::RespiratoryRate),
-                            // 3 (Confidence) and 4 (Resonance) are internal metrics not yet in CausalGraph
-                            _ => None,
-                        }
-                    };
-
-                    if let (Some(cause), Some(effect)) = (
-                        map_var(hypothesis.from_variable),
-                        map_var(hypothesis.to_variable),
-                    ) {
-                        let edge = crate::causal::CausalEdge {
-                            successes: (hypothesis.confidence * 100.0) as u32,
-                            failures: ((1.0 - hypothesis.confidence) * 100.0) as u32,
-                            source: crate::causal::CausalSource::Learned {
-                                observation_count: 50, // Minimum for confidence
-                                confidence_score: hypothesis.confidence,
-                            },
-                        };
-                        self.causal_graph.set_link(cause, effect, edge);
-                        log::info!("Scientist Wired Link: {:?} -> {:?}", cause, effect);
-                    } else {
-                        log::debug!(
-                            "Skipping wiring for internal variables {}->{}",
-                            hypothesis.from_variable,
-                            hypothesis.to_variable
-                        );
-                    }
-                }
-            }
-        }
-    }
 
     // Helper: Integrate Thermodynamics
     fn integrate_thermodynamics(&mut self) {
@@ -1260,7 +1144,7 @@ impl Engine {
                 skandha_state.belief
             } else {
                 // Fallback: use current belief state (no drift)
-                *self.belief.probabilities()
+                *self.skandha_pipeline.vedana.probabilities()
             };
             
             // Apply thermodynamic step - system smoothly evolves toward target

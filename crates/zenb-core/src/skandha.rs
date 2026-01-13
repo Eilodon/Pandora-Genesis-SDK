@@ -850,8 +850,218 @@ pub mod zenb {
         }
     }
 
+    // ========================================================================
+    // SOTA IMPLEMENTATIONS: HDC + LTC
+    // ========================================================================
+
+    /// ZenbSannaHdc: HDC-based pattern recognition (NPU-accelerated)
+    /// 
+    /// Uses Binary Hyperdimensional Computing for:
+    /// - Integer-only operations (runs on Apple Neural Engine, Qualcomm Hexagon)
+    /// - 10x memory efficiency vs floating-point
+    /// - Fast similarity via XOR + popcount
+    #[derive(Debug)]
+    pub struct ZenbSannaHdc {
+        pub memory: crate::memory::HdcMemory,
+        pub recall_count: u64,
+    }
+
+    impl Default for ZenbSannaHdc {
+        fn default() -> Self {
+            Self {
+                memory: crate::memory::HdcMemory::for_zenb(),
+                recall_count: 0,
+            }
+        }
+    }
+
+    impl SannaSkandha for ZenbSannaHdc {
+        fn perceive(&mut self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern {
+            self.recall_count += 1;
+
+            // Encode features: [sensor_values..., valence, arousal]
+            let features = [
+                form.values[0],
+                form.values[1],
+                form.values[2],
+                form.values[3],
+                form.values[4],
+                (affect.valence + 1.0) / 2.0, // Normalize to 0-1
+                affect.arousal,
+            ];
+
+            let query = self.memory.encode_features(&features);
+            
+            // Retrieve similar pattern
+            let (pattern_id, similarity, is_trauma_associated) = 
+                if let Some((recalled, sim)) = self.memory.retrieve(&query) {
+                    // Decode recalled pattern
+                    let recalled_arousal = recalled.as_slice().get(0)
+                        .map(|w| (w.count_ones() as f32 / 64.0))
+                        .unwrap_or(0.5);
+                    
+                    let pattern_id = if recalled_arousal > 0.6 {
+                        1 // High arousal pattern
+                    } else if sim < 0.5 {
+                        2 // Negative/novel pattern
+                    } else {
+                        0 // Baseline
+                    };
+                    
+                    let is_trauma = sim > 0.5 && recalled_arousal > 0.7 && affect.arousal > 0.6;
+                    (pattern_id, sim, is_trauma)
+                } else {
+                    // No strong match - classify from current affect
+                    let pattern_id = if affect.arousal > 0.7 {
+                        1
+                    } else if affect.valence < -0.3 {
+                        2
+                    } else {
+                        0
+                    };
+                    (pattern_id, 0.0, false)
+                };
+
+            // Store current observation for future recall
+            let value = self.memory.encode_features(&features);
+            self.memory.store(query, value);
+
+            PerceivedPattern {
+                pattern_id,
+                similarity,
+                context: form.values,
+                is_trauma_associated,
+            }
+        }
+    }
+
+    /// ZenbVinnanaLtc: LTC-enhanced consciousness synthesis
+    /// 
+    /// Uses Liquid Time-Constant networks for:
+    /// - Adaptive breath rate prediction
+    /// - Input-dependent dynamics (τ adapts to context)
+    /// - Online learning from measured respiration
+    #[derive(Debug)]
+    pub struct ZenbVinnanaLtc {
+        pub engine: BeliefEngine,
+        pub state: BeliefState,
+        pub fep: FepState,
+        pub breath_predictor: crate::ltc::LtcBreathPredictor,
+        pub last_dt: f32,
+    }
+
+    impl Default for ZenbVinnanaLtc {
+        fn default() -> Self {
+            Self {
+                engine: BeliefEngine::default(),
+                state: BeliefState::default(),
+                fep: FepState::default(),
+                breath_predictor: crate::ltc::LtcBreathPredictor::default_for_breath(),
+                last_dt: 0.5,
+            }
+        }
+    }
+
+    impl VinnanaSkandha for ZenbVinnanaLtc {
+        fn synthesize(
+            &mut self,
+            form: &ProcessedForm,
+            affect: &AffectiveState,
+            _pattern: &PerceivedPattern,
+            intent: &FormedIntent,
+        ) -> SynthesizedState {
+            // Extract input features for LTC: [hr_norm, hrv_norm, motion]
+            let ltc_inputs = [form.values[0], form.values[1], form.values[4]];
+            
+            // Predict optimal breath rate using LTC
+            let predicted_bpm = self.breath_predictor.predict(&ltc_inputs, self.last_dt);
+            
+            // Map affect to belief distribution
+            let mut belief = [0.2f32; 5];
+            if affect.arousal < 0.3 && affect.valence > 0.2 {
+                belief[0] = 0.6; // Calm
+            } else if affect.arousal > 0.6 {
+                belief[1] = 0.5; // Stress
+            } else if affect.valence > 0.3 {
+                belief[2] = 0.5; // Focus
+            }
+
+            // Normalize
+            let sum: f32 = belief.iter().sum();
+            if sum > 0.0 {
+                for b in &mut belief {
+                    *b /= sum;
+                }
+            }
+
+            let mode = belief.iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .map(|(i, _)| i as u8)
+                .unwrap_or(0);
+
+            // Create control decision if intent sanctioned
+            let decision = if intent.is_sanctioned {
+                match intent.action {
+                    IntentAction::GuideBreath { .. } => Some(ControlOutput {
+                        target_bpm: predicted_bpm, // Use LTC prediction!
+                        confidence: affect.confidence * intent.alignment,
+                        poll_interval_ms: 500,
+                    }),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            SynthesizedState {
+                form: form.clone(),
+                belief,
+                mode,
+                confidence: affect.confidence,
+                decision,
+                free_energy: form.anomaly_score * 2.0,
+            }
+        }
+    }
+
+    impl ZenbVinnanaLtc {
+        pub fn from_config(cfg: &crate::config::ZenbConfig) -> Self {
+            Self {
+                engine: BeliefEngine::from_config(&cfg.belief),
+                state: BeliefState::default(),
+                fep: FepState::default(),
+                breath_predictor: crate::ltc::LtcBreathPredictor::default_for_breath(),
+                last_dt: 0.5,
+            }
+        }
+
+        /// Learn from actual measured breath rate
+        pub fn learn_from_breath_measurement(&mut self, actual_rr: f32, inputs: &[f32]) {
+            self.breath_predictor.learn_from_measurement(actual_rr, inputs);
+        }
+
+        /// Get LTC diagnostics
+        pub fn ltc_diagnostics(&self, inputs: &[f32]) -> (f32, f32, f32, u64) {
+            self.breath_predictor.diagnostics(inputs)
+        }
+
+        /// Update time delta (call with actual dt between ticks)
+        pub fn set_dt(&mut self, dt: f32) {
+            self.last_dt = dt.clamp(0.01, 10.0);
+        }
+    }
+
+    // ========================================================================
+    // PIPELINE TYPE ALIASES
+    // ========================================================================
+
     pub type ZenbPipeline =
         SkandhaPipeline<ZenbRupa, defaults::DefaultVedana, ZenbSanna, ZenbSankhara, ZenbVinnana>;
+
+    /// SOTA Pipeline using HDC memory and LTC prediction
+    pub type ZenbPipelineSota =
+        SkandhaPipeline<ZenbRupa, defaults::DefaultVedana, ZenbSannaHdc, ZenbSankhara, ZenbVinnanaLtc>;
 
     /// Create ZenB pipeline with AGOLOS components wired in
     pub fn zenb_pipeline(cfg: &crate::config::ZenbConfig) -> ZenbPipeline {
@@ -861,6 +1071,42 @@ pub mod zenb {
             ZenbSanna::default(),
             ZenbSankhara::default(),
             ZenbVinnana::from_config(cfg),
+        )
+    }
+
+    /// Create SOTA ZenB pipeline with HDC + LTC
+    pub fn zenb_pipeline_sota(cfg: &crate::config::ZenbConfig) -> ZenbPipelineSota {
+        SkandhaPipeline::new(
+            ZenbRupa::default(),
+            defaults::DefaultVedana,
+            ZenbSannaHdc::default(),
+            ZenbSankhara::default(),
+            ZenbVinnanaLtc::from_config(cfg),
+        )
+    }
+
+    /// Unified Pipeline with BeliefSubsystem as Vedana (single source of truth)
+    pub type ZenbPipelineUnified = SkandhaPipeline<
+        ZenbRupa,
+        crate::belief_subsystem::BeliefSubsystem,
+        ZenbSannaHdc,
+        ZenbSankhara,
+        ZenbVinnanaLtc,
+    >;
+
+    /// Create unified ZenB pipeline with:
+    /// - ZenbRupa for sensor consensus
+    /// - BeliefSubsystem for affect extraction (single source of truth)
+    /// - ZenbSannaHdc for HDC pattern recognition
+    /// - ZenbSankhara for ethical filtering  
+    /// - ZenbVinnanaLtc for LTC-enhanced synthesis
+    pub fn zenb_pipeline_unified(cfg: &crate::config::ZenbConfig) -> ZenbPipelineUnified {
+        SkandhaPipeline::new(
+            ZenbRupa::default(),
+            crate::belief_subsystem::BeliefSubsystem::from_zenb_config(cfg),
+            ZenbSannaHdc::default(),
+            ZenbSankhara::default(),
+            ZenbVinnanaLtc::from_config(cfg),
         )
     }
 }
