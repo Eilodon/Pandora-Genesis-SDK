@@ -46,6 +46,14 @@ pub struct HolographicMemory {
     projector: KrylovProjector,
     /// Timestamp of last entanglement (for temporal decay)
     last_entangle_ts_us: Option<i64>,
+    
+    // === SCRATCH BUFFERS (Zero-allocation optimization) ===
+    /// Scratch buffer 1: for key FFT
+    scratch_a: Vec<Complex32>,
+    /// Scratch buffer 2: for value FFT  
+    scratch_b: Vec<Complex32>,
+    /// Scratch buffer 3: for IFFT result
+    scratch_c: Vec<Complex32>,
 }
 
 impl std::fmt::Debug for HolographicMemory {
@@ -82,6 +90,10 @@ impl HolographicMemory {
             max_magnitude: 100.0, // Configurable threshold
             projector: KrylovProjector::default(),
             last_entangle_ts_us: None,
+            // Pre-allocate scratch buffers
+            scratch_a: vec![Complex32::new(0.0, 0.0); dim],
+            scratch_b: vec![Complex32::new(0.0, 0.0); dim],
+            scratch_c: vec![Complex32::new(0.0, 0.0); dim],
         }
     }
 
@@ -133,25 +145,34 @@ impl HolographicMemory {
             self.decay(decay_factor);
         }
 
-        // 1. Transform to frequency domain
-        let mut k_fft = self.fft_process(key);
-        let v_fft = self.fft_process(value);
+        // === ZERO-ALLOCATION FFT OPERATIONS (using scratch buffers) ===
+        
+        // 1. Copy key into scratch_a, run forward FFT
+        self.scratch_a.copy_from_slice(key);
+        self.fft.process(&mut self.scratch_a);
+        
+        // 2. Copy value into scratch_b, run forward FFT
+        self.scratch_b.copy_from_slice(value);
+        self.fft.process(&mut self.scratch_b);
 
-        // 2. Hadamard product (element-wise multiplication)
-        // This is the magic: convolution becomes O(N) multiplication
-        for (k, v) in k_fft.iter_mut().zip(v_fft.iter()) {
-            *k = *k * v;
+        // 3. Hadamard product: scratch_a = scratch_a ⊙ scratch_b
+        for (a, b) in self.scratch_a.iter_mut().zip(self.scratch_b.iter()) {
+            *a = *a * b;
         }
 
-        // 3. Transform back and superpose onto memory trace
-        let binding = self.ifft_process(&k_fft);
-        for (m, b) in self.memory_trace.iter_mut().zip(binding.iter()) {
-            *m = *m + *b; // Superposition
+        // 4. Copy to scratch_c for IFFT (scratch_a still needed for next step)
+        self.scratch_c.copy_from_slice(&self.scratch_a);
+        self.ifft.process(&mut self.scratch_c);
+        
+        // 5. Normalize and superpose onto memory trace
+        let norm = self.norm_factor;
+        for (m, c) in self.memory_trace.iter_mut().zip(self.scratch_c.iter()) {
+            *m = *m + (*c * norm);
         }
 
         self.item_count += 1;
 
-        // 4. Safety check: detect NaN/inf corruption
+        // 6. Safety check: detect NaN/inf corruption
         let max_mag = self
             .memory_trace
             .iter()
@@ -164,7 +185,7 @@ impl HolographicMemory {
             return;
         }
 
-        // 5. Reactive decay if magnitude still exceeds limit (backup safety)
+        // 7. Reactive decay if magnitude still exceeds limit (backup safety)
         if max_mag > self.max_magnitude {
             self.decay(0.9);
         }
@@ -542,7 +563,7 @@ mod tests {
         // Store 10,000 items
         for i in 0..10_000 {
             let key: Vec<Complex32> = (0..dim)
-                .map(|j| Complex32::new(((i as f32 * 0.01 + j as f32 * 0.1).sin()), 0.0))
+                .map(|j| Complex32::new((i as f32 * 0.01 + j as f32 * 0.1).sin(), 0.0))
                 .collect();
             let value: Vec<Complex32> = (0..dim)
                 .map(|j| Complex32::new((i as f32 + j as f32) * 0.001, 0.0))
@@ -573,7 +594,7 @@ fn test_krylov_benchmark() {
     let mut mem = HolographicMemory::new(1024);
 
     // Fill with some data
-    for i in 0..10 {
+    for _i in 0..10 {
         let key: Vec<Complex32> = (0..1024)
             .map(|j| Complex32::new((j as f32 * 0.1).sin(), 0.0))
             .collect();

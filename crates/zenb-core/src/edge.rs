@@ -336,7 +336,7 @@ mod tests {
 
     #[test]
     fn test_mobile_low_battery() {
-        let mut specs = EdgeDeviceSpecs::mobile(2048.0, 0.15, true);
+        let specs = EdgeDeviceSpecs::mobile(2048.0, 0.15, true);
         let optimizer = EdgeOptimizer::new(specs.clone());
 
         assert!(specs.is_battery_low());

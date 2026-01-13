@@ -328,7 +328,7 @@ impl EFECalculator {
     pub fn compute_efe(
         &self,
         policy: &ActionPolicy,
-        belief_state: &[f32; 5],
+        _belief_state: &[f32; 5],
         belief_uncertainty: f32,
         predicted_state: &[f32; 5],
         predicted_uncertainty: f32,

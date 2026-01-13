@@ -121,12 +121,12 @@ mod tests {
             hold_out_us: 200,
         };
         let mut pm = PhaseMachine::new(durations);
-        let (t, c) = pm.tick(500);
+        let (t, _c) = pm.tick(500);
         assert!(t.is_empty());
-        let (t, c) = pm.tick(1_000);
+        let (t, _c) = pm.tick(1_000);
         assert!(!t.is_empty());
-        let (t, c) = pm.tick(10_000);
-        // should have completed cycles
-        assert!(c >= 0);
+        let (_t, c) = pm.tick(10_000);
+        // should have completed cycles (c is u64, always >= 0)
+        assert!(c > 0);
     }
 }

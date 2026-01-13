@@ -209,8 +209,8 @@ mod tests {
                     continue;
                 }
                 
-                let cause = Variable::from_index(cause_idx).unwrap();
-                let params = [
+                let _cause = Variable::from_index(cause_idx).unwrap();
+                let _params = [
                     if cause_idx == 0 { 1.0 } else { 0.0 }, // Simple context
                     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 
                 ]; // Full context vec size

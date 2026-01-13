@@ -83,7 +83,7 @@ fn test_no_cached_estimate_on_first_burst() {
 fn test_multiple_bursts() {
     let mut est = Estimator::default();
 
-    let e1 = est.ingest(&[60.0, 40.0, 6.0], 0);
+    let _e1 = est.ingest(&[60.0, 40.0, 6.0], 0);
 
     // Multiple rapid samples (burst)
     let e2 = est.ingest(&[100.0, 10.0, 12.0], 1_000);

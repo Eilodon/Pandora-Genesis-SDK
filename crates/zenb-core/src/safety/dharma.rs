@@ -595,7 +595,7 @@ mod tests {
         // Scenario 3: Extreme opposite action
         // This would be something like target -10 BPM (nonsensical)
         let extreme = Complex32::new(-5.0, -5.0); // Opposite quadrant
-        let result = filter.sanction(extreme);
+        let _result = filter.sanction(extreme);
         // Might or might not be vetoed depending on angle, but should be severely scaled
     }
 }

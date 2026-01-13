@@ -1,5 +1,4 @@
 use crate::breath_engine::BreathEngine;
-use crate::causal::{CausalBuffer, CausalGraph};
 use crate::config::ZenbConfig;
 use crate::controller::AdaptiveController;
 use crate::domain::ControlDecision;
@@ -865,7 +864,7 @@ impl Engine {
             }
         }
 
-        let mut patch = crate::safety_swarm::PatternPatch {
+        let patch = crate::safety_swarm::PatternPatch {
             target_bpm: proposed,
             hold_sec: 30.0,
             pattern_id: self.last_pattern_id,

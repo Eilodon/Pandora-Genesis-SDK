@@ -83,7 +83,7 @@ impl KrylovProjector {
             let mut w = DVector::from_vec(w_vec);
 
             // alpha_j = v_j^H * w
-            let alpha = self.v[j].dot(&w); // dot implies conjugate of first arg in nalgebra for complex?
+            let _alpha = self.v[j].dot(&w); // dot implies conjugate of first arg in nalgebra for complex?
                                            // nalgebra dot: a.dot(&b) = sum(a_i * b_i). Inner product usually requires conjugation.
                                            // For Complex, nalgebra's dot is standard dot product (bilinear), NOT inner product (sesquilinear)?
                                            // We need Hermitian inner product: v^H * w = conj(v) dot w.

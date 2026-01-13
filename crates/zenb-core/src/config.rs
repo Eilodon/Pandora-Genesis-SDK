@@ -342,7 +342,7 @@ impl ZenbConfig {
     }
 
     /// Merge another config into this one (other takes priority)
-    fn merge(mut self, other: ZenbConfig) -> Self {
+    fn merge(self, other: ZenbConfig) -> Self {
         // For simplicity, just replace with other
         // In production, you might want field-by-field merging
         other

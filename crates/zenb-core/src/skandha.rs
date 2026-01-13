@@ -807,7 +807,7 @@ pub mod zenb {
             form: &ProcessedForm,
             affect: &AffectiveState,
             _pattern: &PerceivedPattern,
-            intent: &FormedIntent,
+            _intent: &FormedIntent,
         ) -> SynthesizedState {
             // Now with &mut self, we can perform proper Active Inference updates!
             // Map affect to belief distribution

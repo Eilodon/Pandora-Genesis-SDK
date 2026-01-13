@@ -196,7 +196,7 @@ pub fn create_zenb_pipeline() -> ControlFlowGraph {
         .add_node(|msg| {
             // Node 3: Control decision (placeholder)
             match msg {
-                ZenBProtocol::BeliefUpdate { timestamp_us, .. } => {
+                ZenBProtocol::BeliefUpdate { .. } => {
                     // In real implementation, this would call Engine::make_control
                     ZenBProtocol::ControlOutput {
                         decision: crate::domain::ControlDecision {

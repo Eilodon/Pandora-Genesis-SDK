@@ -56,7 +56,7 @@ fn benchmark_baseline(observations: &[Observation]) -> (f64, BeliefState) {
         // Ingest and control (baseline path)
         let est = engine.ingest_sensor(&features, obs.timestamp_us);
         let (_dec, _persist, _policy, _deny) = engine.make_control(&est, obs.timestamp_us);
-        final_belief = engine.belief.state().clone();
+        final_belief = engine.skandha_pipeline.vedana.state().clone();
     }
 
     let duration = start.elapsed();
@@ -87,7 +87,7 @@ fn benchmark_vajra_piecemeal(observations: &[Observation]) -> (f64, BeliefState)
 
         // Make control (uses DharmaFilter internally)
         let (_dec, _persist, _policy, _deny) = engine.make_control(&est, obs.timestamp_us);
-        final_belief = engine.belief.state().clone();
+        final_belief = engine.skandha_pipeline.vedana.state().clone();
     }
 
     let duration = start.elapsed();

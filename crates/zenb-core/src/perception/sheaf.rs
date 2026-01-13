@@ -518,8 +518,8 @@ mod tests {
         // Anomalous input: very high HR, very high HRV (physiologically unlikely)
         let anomalous = DVector::from_vec(vec![1.0, 1.0, 0.0, 1.0, 0.0]);
 
-        let (_, normal_anomalous, _) = perception.process(&normal);
-        let (_, suspicious_anomalous, energy) = perception.process(&anomalous);
+        let (_, _normal_anomalous, _) = perception.process(&normal);
+        let (_, _suspicious_anomalous, energy) = perception.process(&anomalous);
 
         println!("Anomalous input energy: {:.4}", energy);
 

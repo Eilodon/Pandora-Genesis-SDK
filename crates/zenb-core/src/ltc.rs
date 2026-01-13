@@ -285,7 +285,7 @@ impl LtcBreathPredictor {
     /// # Arguments
     /// * `actual_rr` - Actual measured respiration rate in BPM
     /// * `inputs` - Input features at time of measurement
-    pub fn learn_from_measurement(&mut self, actual_rr: f32, inputs: &[f32]) {
+    pub fn learn_from_measurement(&mut self, actual_rr: f32, _inputs: &[f32]) {
         if actual_rr <= 0.0 || actual_rr > 30.0 {
             return; // Invalid measurement
         }

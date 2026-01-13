@@ -55,7 +55,7 @@ fn test_scientist_wires_discovery_to_causal_graph() {
     // Hypothesis: 0 -> 1 (strength ~1.0)
     // CausalGraph: HeartRate -> HeartRateVariability
     
-    let effect = eng.causal.graph.get_effect(Variable::HeartRate, Variable::HeartRateVariability);
+    let _effect = eng.causal.graph.get_effect(Variable::HeartRate, Variable::HeartRateVariability);
     let edges = eng.causal.graph.get_effects(Variable::HeartRate);
     
     // Just checking we have SOME learned edges from HR
