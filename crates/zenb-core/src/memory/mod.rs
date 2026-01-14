@@ -34,6 +34,10 @@ pub mod tiered_hdc; // LifeHD pattern: Two-tier memory with consolidation
 pub mod uncertainty; // ZENITH Tier 4: Uncertainty-aware retrieval
 pub mod zenith; // ZENITH Unified API
 
+// GPU FFT acceleration (feature-gated)
+#[cfg(any(feature = "gpu_cuda", feature = "gpu_metal"))]
+pub mod gpu_fft;
+
 pub use hdc::{BindingMethod, HdcConfig, HdcMemory, HdcVector, SparseHdcVector, SparsityController};
 pub use hologram::HolographicMemory;
 pub use krylov::KrylovProjector;

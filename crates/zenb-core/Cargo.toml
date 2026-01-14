@@ -32,6 +32,16 @@ lazy_static = "1.4"  # Thread-safe metric singletons
 version = "0.13"
 optional = true
 
+# GPU acceleration (cubecl) - PLACEHOLDER
+# Note: cubecl-metal not yet available on crates.io (as of 2026-01)
+# When cubecl releases Metal backend, uncomment and use:
+# [dependencies.cubecl]
+# version = "0.4"
+# optional = true
+# [dependencies.cubecl-cuda]
+# version = "0.4"
+# optional = true
+
 [dev-dependencies]
 tempfile = "3.10"
 criterion = "0.5"     # Benchmarking for performance tests
@@ -50,6 +60,10 @@ allow_dharma_mutation = []
 vajra_void = ["zenb-signals"]
 # SDK PORT: Prometheus metrics for production observability
 prometheus = ["dep:prometheus"]
+# GPU FFT: CUDA backend for NVIDIA GPUs - PLACEHOLDER (cubecl not yet stable)
+gpu_cuda = []
+# GPU FFT: Metal backend for Apple GPUs - PLACEHOLDER (cubecl-metal not on crates.io)
+gpu_metal = []
 
 [[bench]]
 name = "forensic_bench"

@@ -1,0 +1,44 @@
+# Cargo configuration for AGOLOS
+# Includes Hermit unikernel target support
+
+# ============================================================================
+# HERMIT UNIKERNEL TARGET
+# ============================================================================
+# RustyHermit is a lightweight unikernel written in Rust.
+# Build with: cargo +nightly build --target x86_64-unknown-hermit
+
+[target.x86_64-unknown-hermit]
+linker = "rust-lld"
+runner = "uhyve"
+
+# Environment for Hermit builds
+[env]
+# HERMIT_PATH = "~/.hermit"  # Uncomment if installed locally
+
+# ============================================================================
+# PROFILE OPTIMIZATIONS
+# ============================================================================
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# Hermit-optimized profile for minimal binary size
+[profile.hermit]
+inherits = "release"
+opt-level = "z"
+strip = true
+panic = "abort"
+
+# ============================================================================
+# ALIASES
+# ============================================================================
+
+[alias]
+# Build for Hermit unikernel
+hermit = "build --target x86_64-unknown-hermit --profile hermit"
+# Run all tests with all features
+test-all = "test --all-features --workspace"
+# Verify safety contracts
+verify = "test --features skandha_pipeline -- contracts"

@@ -176,6 +176,161 @@ impl ConsciousnessVector {
     }
 }
 
+// ============================================================================
+// PHASE CONSCIOUSNESS VECTOR (VAJRA-VOID MCCS Enhancement)
+// ============================================================================
+
+use num_complex::Complex32;
+
+/// Phase-enhanced 11D consciousness vector using Complex32 components.
+///
+/// # VAJRA-VOID: MCCS Phase-Based Ethics
+///
+/// The original ConsciousnessVector uses real f32 values. This extension uses
+/// Complex32 to encode both magnitude AND phase for each dimension.
+///
+/// ## Key Innovation: Dharma Phase Check
+/// The phase (argument) of dimension 3 (sankhara/ethical intent) serves as
+/// a "moral compass". Actions with phase within ±π/2 of the ethical reference
+/// are permitted; others are vetoed.
+///
+/// ## Mathematical Model
+/// ```text
+/// dharma_phase = arg(dimensions[3])
+/// ethical = |dharma_phase| <= π/2
+/// ```
+///
+/// ## Dimension Layout
+/// - [0-4]: Five Skandhas (Rūpa, Vedanā, Saññā, Saṅkhāra, Viññāṇa)
+/// - [5-7]: Three Belief States (Bio, Cognitive, Social)
+/// - [8-10]: Three Context Factors (Circadian, Environment, Interaction)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhaseConsciousnessVector {
+    /// 11D complex consciousness vector
+    pub dimensions: [Complex32; 11],
+}
+
+impl Default for PhaseConsciousnessVector {
+    fn default() -> Self {
+        Self {
+            dimensions: [
+                Complex32::new(0.5, 0.0),  // rupa_energy
+                Complex32::new(0.0, 0.0),  // vedana_valence
+                Complex32::new(0.5, 0.0),  // sanna_similarity
+                Complex32::new(1.0, 0.0),  // sankhara_alignment (ethical, real positive = aligned)
+                Complex32::new(0.5, 0.0),  // vinnana_confidence
+                Complex32::new(0.5, 0.0),  // bio_arousal
+                Complex32::new(0.5, 0.0),  // cognitive_focus
+                Complex32::new(0.0, 0.0),  // social_load
+                Complex32::new(0.5, 0.0),  // circadian_phase
+                Complex32::new(0.0, 0.0),  // environment_stress
+                Complex32::new(0.0, 0.0),  // interaction_intensity
+            ],
+        }
+    }
+}
+
+impl PhaseConsciousnessVector {
+    /// Dimension index for ethical intent (Saṅkhāra)
+    pub const SANKHARA_IDX: usize = 3;
+
+    /// Create from raw Complex32 array
+    pub fn from_array(dimensions: [Complex32; 11]) -> Self {
+        Self { dimensions }
+    }
+
+    /// Create from real ConsciousnessVector (phase = 0 for all dimensions)
+    pub fn from_real(real: &ConsciousnessVector) -> Self {
+        let arr = real.to_array();
+        let dimensions: [Complex32; 11] = std::array::from_fn(|i| Complex32::new(arr[i], 0.0));
+        Self { dimensions }
+    }
+
+    /// Convert to real ConsciousnessVector (discards phase information)
+    pub fn to_real(&self) -> ConsciousnessVector {
+        let arr: [f32; 11] = std::array::from_fn(|i| self.dimensions[i].norm());
+        ConsciousnessVector::from_array(arr)
+    }
+
+    /// Get the dharma (ethical intent) phase angle.
+    ///
+    /// # Returns
+    /// Phase angle in radians, range [-π, π]
+    ///
+    /// # Interpretation
+    /// - Phase ≈ 0: Aligned with ethical reference (good)
+    /// - Phase ≈ ±π/2: Neutral/uncertain
+    /// - Phase ≈ ±π: Opposed to ethical reference (harmful)
+    pub fn dharma_phase(&self) -> f32 {
+        self.dimensions[Self::SANKHARA_IDX].arg()
+    }
+
+    /// Get the dharma magnitude (strength of ethical intent).
+    pub fn dharma_magnitude(&self) -> f32 {
+        self.dimensions[Self::SANKHARA_IDX].norm()
+    }
+
+    /// Check if the current state passes the phase-based ethics check.
+    ///
+    /// # MCCS Ethics Gate
+    /// Actions are only permitted when the dharma phase is within ±π/2
+    /// of the ethical reference (positive real axis).
+    ///
+    /// # Returns
+    /// `true` if ethical, `false` if action should be vetoed
+    pub fn check_phase_ethics(&self) -> bool {
+        self.dharma_phase().abs() <= std::f32::consts::FRAC_PI_2
+    }
+
+    /// Check ethics with custom tolerance.
+    ///
+    /// # Arguments
+    /// * `tolerance` - Maximum allowed deviation from aligned (in radians)
+    pub fn check_phase_ethics_with_tolerance(&self, tolerance: f32) -> bool {
+        self.dharma_phase().abs() <= tolerance
+    }
+
+    /// Rotate the dharma phase by the given angle.
+    ///
+    /// # Use Case
+    /// Apply intentional drift or correction to ethical alignment.
+    pub fn rotate_dharma(&mut self, angle: f32) {
+        let rotation = Complex32::from_polar(1.0, angle);
+        self.dimensions[Self::SANKHARA_IDX] *= rotation;
+    }
+
+    /// Compute total consciousness magnitude (L2 norm across all dimensions)
+    pub fn magnitude(&self) -> f32 {
+        self.dimensions.iter().map(|c| c.norm_sqr()).sum::<f32>().sqrt()
+    }
+
+    /// Compute alignment with another phase vector
+    ///
+    /// Uses complex inner product: alignment = Re(⟨u, v⟩) / (|u| × |v|)
+    pub fn alignment(&self, other: &Self) -> f32 {
+        let inner: Complex32 = self
+            .dimensions
+            .iter()
+            .zip(other.dimensions.iter())
+            .map(|(a, b)| a * b.conj())
+            .sum();
+
+        let mag_self = self.magnitude();
+        let mag_other = other.magnitude();
+
+        if mag_self < 1e-6 || mag_other < 1e-6 {
+            return 0.0;
+        }
+
+        (inner.re / (mag_self * mag_other)).clamp(-1.0, 1.0)
+    }
+
+    /// Validate that all components are finite
+    pub fn is_valid(&self) -> bool {
+        self.dimensions.iter().all(|c| c.re.is_finite() && c.im.is_finite())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,4 +388,104 @@ mod tests {
         assert!((proj.rupa_energy - 1.0).abs() < 1e-5);
         assert!((proj.vedana_valence - 0.0).abs() < 1e-5);
     }
+
+    // ========================================================================
+    // PhaseConsciousnessVector Tests
+    // ========================================================================
+
+    #[test]
+    fn test_phase_default() {
+        let pv = PhaseConsciousnessVector::default();
+        assert!(pv.is_valid());
+        // Default dharma phase should be 0 (aligned)
+        assert!(pv.dharma_phase().abs() < 1e-5);
+        // Should pass ethics check
+        assert!(pv.check_phase_ethics());
+    }
+
+    #[test]
+    fn test_phase_from_real() {
+        let real = ConsciousnessVector::default();
+        let phase = PhaseConsciousnessVector::from_real(&real);
+        
+        // All imaginary parts should be 0
+        for c in phase.dimensions.iter() {
+            assert!(c.im.abs() < 1e-5);
+        }
+        
+        // Dharma phase should be 0 (aligned)
+        assert!(phase.check_phase_ethics());
+    }
+
+    #[test]
+    fn test_phase_ethics_aligned() {
+        // Phase = 0 (positive real): Perfectly aligned
+        let mut pv = PhaseConsciousnessVector::default();
+        pv.dimensions[PhaseConsciousnessVector::SANKHARA_IDX] = Complex32::new(1.0, 0.0);
+        assert!(pv.check_phase_ethics());
+        assert!(pv.dharma_phase().abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_phase_ethics_neutral() {
+        // Phase = π/4: Within tolerance
+        let mut pv = PhaseConsciousnessVector::default();
+        pv.dimensions[PhaseConsciousnessVector::SANKHARA_IDX] = 
+            Complex32::from_polar(1.0, std::f32::consts::FRAC_PI_4);
+        assert!(pv.check_phase_ethics()); // π/4 < π/2
+    }
+
+    #[test]
+    fn test_phase_ethics_boundary() {
+        // Phase = π/2: At boundary (should pass)
+        let mut pv = PhaseConsciousnessVector::default();
+        pv.dimensions[PhaseConsciousnessVector::SANKHARA_IDX] = 
+            Complex32::from_polar(1.0, std::f32::consts::FRAC_PI_2);
+        assert!(pv.check_phase_ethics()); // π/2 == π/2 (boundary case)
+    }
+
+    #[test]
+    fn test_phase_ethics_misaligned() {
+        // Phase = 3π/4: Beyond tolerance (should veto)
+        let mut pv = PhaseConsciousnessVector::default();
+        pv.dimensions[PhaseConsciousnessVector::SANKHARA_IDX] = 
+            Complex32::from_polar(1.0, 3.0 * std::f32::consts::FRAC_PI_4);
+        assert!(!pv.check_phase_ethics()); // 3π/4 > π/2
+    }
+
+    #[test]
+    fn test_phase_ethics_opposite() {
+        // Phase = π: Completely opposed (harmful)
+        let mut pv = PhaseConsciousnessVector::default();
+        pv.dimensions[PhaseConsciousnessVector::SANKHARA_IDX] = Complex32::new(-1.0, 0.0);
+        assert!(!pv.check_phase_ethics()); // π > π/2
+    }
+
+    #[test]
+    fn test_rotate_dharma() {
+        let mut pv = PhaseConsciousnessVector::default();
+        // Start aligned
+        assert!(pv.check_phase_ethics());
+        
+        // Rotate by π/4 (still within tolerance)
+        pv.rotate_dharma(std::f32::consts::FRAC_PI_4);
+        assert!(pv.check_phase_ethics());
+        
+        // Rotate by another π/2 (now beyond tolerance)
+        pv.rotate_dharma(std::f32::consts::FRAC_PI_2);
+        assert!(!pv.check_phase_ethics());
+    }
+
+    #[test]
+    fn test_phase_roundtrip() {
+        let real = ConsciousnessVector::from_array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]);
+        let phase = PhaseConsciousnessVector::from_real(&real);
+        let back = phase.to_real();
+        
+        // Magnitudes should match (phase = 0, so magnitude == value)
+        for (r, b) in real.to_array().iter().zip(back.to_array().iter()) {
+            assert!((r - b).abs() < 1e-5);
+        }
+    }
 }
+

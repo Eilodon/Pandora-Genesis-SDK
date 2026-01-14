@@ -30,6 +30,9 @@ pub mod message;
 pub mod peer;
 pub mod node;
 
+// Zero-copy transport (feature-gated)
+pub mod transport;
+
 pub use message::{P2PMessage, MessageType};
 pub use peer::{PeerId, PeerInfo, PeerStatus, PeerScore, PeerRegistry};
 pub use node::P2PNode;

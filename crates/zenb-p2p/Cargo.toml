@@ -33,3 +33,9 @@ tokio-test = "0.4"
 default = []
 # Enable full libp2p when ready
 # full = ["libp2p"]
+# Zero-copy networking via io_uring (Linux 5.6+ only)
+io_uring = ["compio"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Compio provides io_uring with cross-platform fallback
+compio = { version = "0.12", features = ["runtime"], optional = true }
