@@ -83,6 +83,11 @@ pub mod trauma_cache;
 pub mod uncertain; // NEW: Uncertainty quantification
 pub mod validation; // Phase 2.4: Consolidated timestamp tracking
 
+// SDK PORT: Learning and simulation modules
+pub mod learning;   // Priority Experience Buffer + PrefixSpan pattern mining
+pub mod simulation; // Grid World test environment
+pub mod monitoring; // Prometheus metrics (feature-gated)
+
 #[cfg(test)]
 pub mod tests_config;
 #[cfg(test)]
@@ -234,3 +239,18 @@ pub use ltc::{LtcBreathPredictor, LtcConfig, LtcNeuron};
 
 // SOTA: Binary Hyperdimensional Computing (NPU-accelerated memory)
 pub use memory::{HdcConfig, HdcMemory, HdcVector};
+
+// SDK PORT: Learning module for Active Inference
+pub use learning::{
+    ActionPrediction, Event as LearningEvent, ExperienceSample, PatternError,
+    PriorityExperienceBuffer, Sequence, TemporalPattern, TemporalPrefixSpanEngine,
+};
+
+// SDK PORT: Simulation for testing Active Inference agents
+pub use simulation::{
+    Action as SimAction, ActionResult as SimActionResult, Cell, Direction, GridWorld,
+    ObservabilityMode, Viewshed,
+};
+
+// SDK PORT: Prometheus metrics (re-exports convenience functions)
+pub use monitoring::{gather_metrics, register_metrics};

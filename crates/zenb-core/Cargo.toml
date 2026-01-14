@@ -25,6 +25,13 @@ rand = "0.8"          # Random vector generation
 # Vajra-Void: Signal processing integration
 zenb-signals = { path = "../zenb-signals", optional = true }
 
+# SDK PORT: Monitoring dependencies
+lazy_static = "1.4"  # Thread-safe metric singletons
+
+[dependencies.prometheus]
+version = "0.13"
+optional = true
+
 [dev-dependencies]
 tempfile = "3.10"
 criterion = "0.5"     # Benchmarking for performance tests
@@ -41,6 +48,8 @@ thermodynamic_logic = []
 allow_dharma_mutation = []
 # Vajra-Void: Enable advanced signal processing with EnsembleProcessor
 vajra_void = ["zenb-signals"]
+# SDK PORT: Prometheus metrics for production observability
+prometheus = ["dep:prometheus"]
 
 [[bench]]
 name = "forensic_bench"

@@ -110,11 +110,52 @@ pub enum CausalSource {
     Heuristic(String), // Temporary placeholder (must be flagged)
 }
 
+/// Causal edge type classification for GNN-style message passing.
+/// From SDK `pandora_cwm::GraphAttentionLayer` edge types.
+///
+/// Different edge types carry different semantic weights:
+/// - Cause: Direct causation (A→B means A causes B)
+/// - Precondition: Necessary but not sufficient (A required for B)
+/// - Enable: Permits but doesn't force (A allows B)
+/// - Inhibit: Blocks or reduces (A prevents/reduces B)
+/// - Correlate: Non-causal correlation (confounded or shared cause)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum CausalEdgeKind {
+    /// Direct causation (strongest effect)
+    #[default]
+    Cause,
+    /// Necessary precondition (moderate positive)
+    Precondition,
+    /// Enabling condition (weaker positive)
+    Enable,
+    /// Inhibitory effect (negative weight)
+    Inhibit,
+    /// Correlation only (weakest, non-causal)
+    Correlate,
+}
+
+impl CausalEdgeKind {
+    /// Get the type weight multiplier for causal propagation.
+    /// From SDK GNN attention weights.
+    pub fn type_weight(&self) -> f32 {
+        match self {
+            CausalEdgeKind::Cause => 1.0,       // Full effect
+            CausalEdgeKind::Precondition => 0.8, // Strong but not full
+            CausalEdgeKind::Enable => 0.6,       // Moderate effect
+            CausalEdgeKind::Inhibit => -0.8,     // Negative effect
+            CausalEdgeKind::Correlate => 0.3,    // Weak correlation
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CausalEdge {
     pub successes: u32,
     pub failures: u32,
     pub source: CausalSource,
+    /// Edge type for GNN-style weighted propagation
+    #[serde(default)]
+    pub kind: CausalEdgeKind,
 }
 
 impl CausalEdge {
@@ -126,12 +167,18 @@ impl CausalEdge {
             0.5
         }
     }
+    
+    /// Get effective weight including edge type modifier
+    pub fn effective_weight(&self) -> f32 {
+        self.success_prob() * self.kind.type_weight()
+    }
 
     pub fn zero() -> Self {
         Self {
             successes: 0,
             failures: 0,
             source: CausalSource::Heuristic("unset".to_string()),
+            kind: CausalEdgeKind::default(),
         }
     }
 
@@ -140,6 +187,17 @@ impl CausalEdge {
             successes,
             failures,
             source: CausalSource::Prior(note.to_string()),
+            kind: CausalEdgeKind::Cause, // Default priors are direct causes
+        }
+    }
+    
+    /// Create a prior with explicit edge kind
+    pub fn prior_with_kind(successes: u32, failures: u32, note: &str, kind: CausalEdgeKind) -> Self {
+        Self {
+            successes,
+            failures,
+            source: CausalSource::Prior(note.to_string()),
+            kind,
         }
     }
 }
@@ -340,11 +398,12 @@ impl CausalGraph {
             let target_idx = target_var.index();
             let mut delta = 0.0;
 
-            // Sum all incoming causal effects
+            // Sum all incoming causal effects (with edge-type weighting)
             for cause_var in Variable::all() {
                 let cause_idx = cause_var.index();
                 if let Some(link) = &self.weights[cause_idx][target_idx] {
-                    let weight = link.success_prob();
+                    // Use effective_weight which includes edge-type modifier
+                    let weight = link.effective_weight();
                     if weight.abs() > 1e-6 {
                         delta += state_values[cause_idx] * weight;
                     }

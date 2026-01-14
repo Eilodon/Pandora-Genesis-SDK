@@ -124,7 +124,24 @@ pub struct FepConfig {
     /// When prediction error exceeds this, trigger rapid learning
     #[serde(default)]
     pub surprise_threshold: Option<f32>,
+    
+    // === EFE (Expected Free Energy) Decomposition ===
+    // EFE = risk_weight * Risk + ambiguity_weight * Ambiguity
+    // From SDK `pandora_learning_engine::active_inference_efe`
+    
+    /// Weight for Risk term (KL divergence between prediction and expected)
+    /// Higher = more exploitation (prefer known good states)
+    #[serde(default = "default_risk_weight")]
+    pub risk_weight: f32,
+    
+    /// Weight for Ambiguity term (Entropy + Information Gain)
+    /// Higher = more exploration (seek information)
+    #[serde(default = "default_ambiguity_weight")]
+    pub ambiguity_weight: f32,
 }
+
+fn default_risk_weight() -> f32 { 0.7 }
+fn default_ambiguity_weight() -> f32 { 0.3 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResonanceConfig {
@@ -247,6 +264,9 @@ impl Default for FepConfig {
             lr_min: 0.05,
             lr_max: 0.8,
             surprise_threshold: Some(0.3), // Default: trigger learning at 0.3 prediction error
+            // EFE weights: 70% exploitation, 30% exploration
+            risk_weight: default_risk_weight(),
+            ambiguity_weight: default_ambiguity_weight(),
         }
     }
 }

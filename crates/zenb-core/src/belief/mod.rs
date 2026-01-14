@@ -65,6 +65,25 @@ pub struct FepUpdateOut {
     pub belief: BeliefState,
     pub fep: FepState,
     pub resonance_score: f32,
+    /// EFE decomposition for exploration/exploitation analysis
+    pub efe_decomposition: EfeDecomposition,
+}
+
+/// Expected Free Energy (EFE) Decomposition
+/// From SDK `pandora_learning_engine::active_inference_efe::EFECalculator`
+/// 
+/// EFE = risk_weight * Risk + ambiguity_weight * Ambiguity
+/// 
+/// - Risk: KL divergence between prediction and expected outcome (exploitation)
+/// - Ambiguity: Entropy + Information Gain (exploration)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EfeDecomposition {
+    /// Risk term: KL(prediction || expected) - measures exploitation pressure
+    pub risk: f32,
+    /// Ambiguity term: H(prediction) + info_gain - measures exploration pressure
+    pub ambiguity: f32,
+    /// Weighted EFE = risk_weight * risk + ambiguity_weight * ambiguity
+    pub efe: f32,
 }
 
 /// Lightweight context used by pathways
@@ -529,6 +548,7 @@ impl BeliefEngine {
                     lr: 0.0,
                 },
                 resonance_score: resonance.resonance_score,
+                efe_decomposition: EfeDecomposition::default(),
             };
         }
 
@@ -591,6 +611,34 @@ impl BeliefEngine {
         let conf = (obs_conf_adj * (1.0 / (1.0 + free_energy_ema))).clamp(0.0, 1.0);
         let mode = hysteresis_collapse(prev_mode, &mu_post, self.enter_th, self.exit_th);
 
+        // === EFE Decomposition ===
+        // Risk: prediction error (KL divergence approximation) = pe
+        let risk = pe;
+        
+        // Ambiguity: entropy of posterior belief + information gain
+        // H(X) = -sum(p * log(p))
+        let entropy = {
+            let mut h = 0.0f32;
+            for p in mu_post.iter() {
+                if *p > eps {
+                    h -= p * p.ln();
+                }
+            }
+            h
+        };
+        // Info gain from hierarchy level (simplified: use resonance as proxy)
+        let info_gain = (1.0 - resonance.resonance_score) * 0.5; // More gain when less coherent
+        let ambiguity = entropy + info_gain;
+        
+        // Weighted EFE
+        let efe = cfg.fep.risk_weight * risk + cfg.fep.ambiguity_weight * ambiguity;
+        
+        let efe_decomposition = EfeDecomposition {
+            risk,
+            ambiguity,
+            efe,
+        };
+
         FepUpdateOut {
             belief: BeliefState {
                 p: mu_post,
@@ -604,6 +652,7 @@ impl BeliefEngine {
                 lr,
             },
             resonance_score: resonance.resonance_score,
+            efe_decomposition,
         }
     }
 }
