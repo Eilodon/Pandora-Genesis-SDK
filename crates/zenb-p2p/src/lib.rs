@@ -31,7 +31,7 @@ pub mod peer;
 pub mod node;
 
 pub use message::{P2PMessage, MessageType};
-pub use peer::{PeerId, PeerInfo, PeerStatus};
+pub use peer::{PeerId, PeerInfo, PeerStatus, PeerScore, PeerRegistry};
 pub use node::P2PNode;
 
 /// Result type for P2P operations

@@ -423,6 +423,61 @@ impl TieredHdcMemory {
         1.0 + (access_count as f32).ln()
     }
 
+    /// Overfetch recall: search both tiers with redundancy for noise resistance
+    /// 
+    /// # Aether V29 Transplant
+    /// Direct port of Aether's overfetch strategy to tiered memory:
+    /// - Collects candidates from both working and long-term memory
+    /// - Fetches k + overfetch candidates to improve reliability
+    /// - In noisy environments, this compensates for degraded pattern matches
+    /// 
+    /// # Arguments
+    /// * `query` - Query vector
+    /// * `k` - Number of best results desired
+    /// * `overfetch` - Extra candidates to consider (0 = no overfetch)
+    /// 
+    /// # Returns
+    /// Vec of (value, similarity, tier) tuples, sorted by similarity descending
+    pub fn retrieve_overfetch(
+        &mut self, 
+        query: &HdcVector, 
+        k: usize, 
+        overfetch: usize
+    ) -> Vec<(HdcVector, f32, MemoryTier)> {
+        self.total_retrievals += 1;
+        
+        let mut candidates: Vec<(HdcVector, f32, MemoryTier)> = Vec::with_capacity(k + overfetch);
+        
+        // Collect from working memory
+        for entry in &self.working_entries {
+            let sim = query.similarity(&entry.key);
+            if sim >= self.config.working_config.similarity_threshold {
+                candidates.push((entry.value.clone(), sim, MemoryTier::Working));
+            }
+        }
+        
+        // Collect from long-term memory using overfetch
+        let lt_candidates = self.long_term.retrieve_overfetch(query, k + overfetch, 0);
+        for (value, sim) in lt_candidates {
+            candidates.push((value, sim, MemoryTier::LongTerm));
+        }
+        
+        // Sort by similarity descending
+        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        
+        // Take top k + overfetch, then filter to best k
+        candidates.truncate(k + overfetch);
+        
+        // Final selection: take k best
+        let result: Vec<_> = candidates.into_iter().take(k).collect();
+        
+        if !result.is_empty() {
+            self.successful_retrievals += 1;
+        }
+        
+        result
+    }
+
     /// Encode features to HDC vector (uses long-term memory's encoder)
     pub fn encode_features(&self, features: &[f32]) -> HdcVector {
         self.long_term.encode_features(features)

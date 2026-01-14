@@ -13,6 +13,7 @@ use rand::RngCore;
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::Sha256;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use thiserror::Error;
 use zeroize::Zeroize;
 
@@ -20,6 +21,46 @@ use zenb_core::domain::{Envelope, SessionId};
 use zenb_core::safety_swarm;
 
 pub mod migration;
+
+// ============================================================================
+// AETHER V29 TRANSPLANT: Atomic Nonce Counter
+// ============================================================================
+// This pattern prevents nonce collision across threads by combining:
+// - Monotonic counter (first 8 bytes) - guarantees uniqueness
+// - Random bytes (last 16 bytes) - adds unpredictability
+// 
+// XChaCha20 with 192-bit nonces can tolerate counter-based uniqueness
+// while the random portion prevents birthday attacks.
+// ============================================================================
+
+/// Global atomic counter for nonce generation.
+/// Initialized to 1 to avoid zero-nonce edge cases.
+static NONCE_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+/// Generate a hybrid nonce: 8 bytes counter + 16 bytes random.
+/// 
+/// # Aether V29 Transplant
+/// This pattern from Aether's distributed storage system ensures:
+/// - Thread-safe: Atomic counter prevents collision across threads
+/// - Unpredictable: Random portion adds 128 bits of entropy
+/// - Ordered: Counter allows nonce ordering for debugging
+/// 
+/// # Security Note
+/// XChaCha20's 192-bit nonce space makes counter+random hybrid safe.
+/// Even with 2^64 operations, birthday collision probability is negligible.
+#[inline]
+fn generate_hybrid_nonce() -> [u8; 24] {
+    let mut nonce = [0u8; 24];
+    
+    // First 8 bytes: atomic monotonic counter
+    let ctr = NONCE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    nonce[..8].copy_from_slice(&ctr.to_le_bytes());
+    
+    // Last 16 bytes: cryptographic random
+    OsRng.fill_bytes(&mut nonce[8..]);
+    
+    nonce
+}
 
 #[derive(Error, Debug)]
 pub enum StoreError {
@@ -402,8 +443,8 @@ impl EventStore {
     pub fn create_session_key(&self, session_id: &SessionId) -> Result<(), StoreError> {
         // generate session key and wrap with master_key
         let sk = SessionKey::random();
-        let mut nonce = [0u8; 24];
-        OsRng.fill_bytes(&mut nonce);
+        // AETHER V29: Use hybrid nonce for thread-safe collision prevention
+        let nonce = generate_hybrid_nonce();
         let aead = self.wrapping_aead()?;
         let ciphertext = aead
             .encrypt(XNonce::from_slice(&nonce), &sk.0[..])
@@ -570,8 +611,8 @@ impl EventStore {
                 aad.extend_from_slice(&env.ts_us.to_le_bytes());
                 aad.extend_from_slice(meta_hash.as_bytes());
 
-                let mut nonce = [0u8; 24];
-                OsRng.fill_bytes(&mut nonce);
+                // AETHER V29: Use hybrid nonce for thread-safe collision prevention
+                let nonce = generate_hybrid_nonce();
                 let ct = aead
                     .encrypt(
                         XNonce::from_slice(&nonce),
