@@ -19,6 +19,9 @@ use zenb_store::EventStore;
 pub mod async_worker;
 use async_worker::AsyncWorker;
 
+pub mod hardware_bridge;
+use hardware_bridge::MobileHardwareProvider;
+
 // UniFFI scaffolding
 uniffi::include_scaffolding!("zenb");
 
@@ -81,6 +84,8 @@ pub struct Runtime {
     buf_bytes: usize,
     last_flush_ts_us: Option<i64>,
     session_active: bool,
+    /// Hardware bridge for HamiltonianGuard physical state
+    hardware_provider: Arc<MobileHardwareProvider>,
 }
 
 impl Runtime {
@@ -145,6 +150,7 @@ impl Runtime {
             buf_bytes: 0,
             last_flush_ts_us: None,
             session_active: true,
+            hardware_provider: Arc::new(MobileHardwareProvider::new()),
         };
         // Persist SessionStarted immediately
         let ts = chrono::Utc::now().timestamp_micros();
@@ -705,6 +711,64 @@ impl ZenbCoreApi {
 
         rt.flush()?;
         Ok(())
+    }
+
+    /// Update device hardware state from Android/iOS.
+    ///
+    /// This feeds real battery/temperature data to HamiltonianGuard for
+    /// physical safety decisions. Call this periodically (e.g., every 30s)
+    /// from the native platform layer.
+    ///
+    /// # Arguments
+    /// * `battery_level` - Battery percentage 0.0-1.0 (e.g., 0.75 = 75%)
+    /// * `temperature_c` - Device temperature in Celsius
+    /// * `is_charging` - Whether device is currently charging
+    ///
+    /// # Example (Kotlin)
+    /// ```kotlin
+    /// val batteryLevel = batteryManager.getIntProperty(BATTERY_PROPERTY_CAPACITY) / 100f
+    /// val temp = batteryManager.getIntProperty(BATTERY_PROPERTY_TEMPERATURE) / 10f
+    /// val isCharging = batteryManager.isCharging
+    /// zenbApi.updateHardwareState(batteryLevel, temp, isCharging)
+    /// ```
+    pub fn update_hardware_state(
+        &self,
+        battery_level: f32,
+        temperature_c: f32,
+        is_charging: bool,
+    ) {
+        if let Ok(rt) = self.runtime.read() {
+            rt.hardware_provider.update(battery_level, temperature_c, is_charging);
+        }
+    }
+
+    /// Update full device hardware state including CPU/memory.
+    ///
+    /// For platforms that can provide CPU/memory info (requires system permissions).
+    ///
+    /// # Arguments
+    /// * `battery_level` - Battery percentage 0.0-1.0
+    /// * `temperature_c` - Device temperature in Celsius
+    /// * `is_charging` - Whether device is currently charging
+    /// * `cpu_usage` - CPU usage 0.0-1.0
+    /// * `memory_usage` - Memory usage 0.0-1.0
+    pub fn update_hardware_state_full(
+        &self,
+        battery_level: f32,
+        temperature_c: f32,
+        is_charging: bool,
+        cpu_usage: f32,
+        memory_usage: f32,
+    ) {
+        if let Ok(rt) = self.runtime.read() {
+            rt.hardware_provider.update_full(
+                battery_level,
+                temperature_c,
+                is_charging,
+                cpu_usage,
+                memory_usage,
+            );
+        }
     }
 
     /// Report action execution outcome from Android.

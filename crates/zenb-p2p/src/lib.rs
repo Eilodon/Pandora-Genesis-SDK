@@ -49,6 +49,9 @@ pub enum P2PError {
     #[error("Message encoding error: {0}")]
     EncodingError(String),
     
+    #[error("Invalid payload: {0}")]
+    InvalidPayload(String),
+    
     #[error("Channel closed")]
     ChannelClosed,
     

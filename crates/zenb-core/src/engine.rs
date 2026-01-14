@@ -103,6 +103,14 @@ pub struct Engine {
     // === TIER 3: Thermodynamic Logic (GENERIC Framework) ===
     /// Thermodynamic engine for GENERIC dynamics
     pub thermo_engine: crate::thermo_logic::ThermodynamicEngine,
+
+    // === NEURAL WIRING: Saccade Memory Linker ===
+    /// Saccade linker for memory coordinate prediction
+    /// Uses LTC network to predict where to look in memory
+    pub saccade: crate::memory::SaccadeLinker,
+    /// Dedicated holographic memory for saccade predictions
+    /// Separate from HDC-based Sanna memory to enable FFT-based recall
+    pub saccade_memory: crate::memory::HolographicMemory,
 }
 
 impl Engine {
@@ -211,6 +219,10 @@ impl Engine {
                 }
                 engine
             },
+
+            // NEURAL WIRING: Saccade Memory Linker
+            saccade: crate::memory::SaccadeLinker::default_for_zenb(),
+            saccade_memory: crate::memory::HolographicMemory::default_for_zenb(),
         }
     }
 
@@ -343,6 +355,10 @@ impl Engine {
     /// # VAJRA-001 Enhancement
     /// When `use_vajra_architecture` is enabled, observations are encoded into
     /// HolographicMemory for FFT-based associative recall.
+    ///
+    /// # Neural Wiring Enhancement
+    /// Saccade memory linker is called to predict where to look in memory
+    /// based on current perception context.
     pub fn tick(&mut self, dt_us: u64) -> u64 {
         let (_trans, cycles) = self.breath.tick(dt_us);
 
@@ -362,6 +378,9 @@ impl Engine {
 
         // Process Thermodynamic Evolution
         self.integrate_thermodynamics();
+
+        // NEURAL WIRING: Saccade Memory Recall
+        self.integrate_saccade_recall();
 
         cycles
     }
@@ -1222,6 +1241,64 @@ impl Engine {
                 self.thermo_engine.set_temperature(new_temp);
             }
         }
+    }
+
+    // =========================================================================
+    // NEURAL WIRING: Saccade Memory Integration
+    // =========================================================================
+    
+    /// Integrate saccade memory linker for memory-driven context modulation.
+    ///
+    /// Uses the current perception context (from Sheaf/Skandha) to predict
+    /// where to look in holographic memory. High-confidence predictions
+    /// can modulate belief updates for temporal consistency.
+    ///
+    /// # Algorithm
+    /// 1. Extract context from skandha_state.form.values
+    /// 2. Call saccade.recall_fast() to predict memory coordinates
+    /// 3. If prediction succeeds, log for diagnostics
+    /// 4. Optionally use prediction to modulate belief (future enhancement)
+    fn integrate_saccade_recall(&mut self) {
+        // Only proceed if we have a valid skandha state
+        let Some(ref skandha_state) = self.skandha_state else {
+            return;
+        };
+
+        // Convert form values to saccade context (5-dim)
+        let context: Vec<f32> = skandha_state.form.values.to_vec();
+        
+        // Get dt from last tick (default to 0.016 = 60fps if not available)
+        let dt = 0.016f32;
+        
+        // Recall prediction from saccade linker using dedicated holographic memory
+        let recalled = self.saccade.recall_fast(
+            &context,
+            &self.saccade_memory,
+            dt,
+        );
+        
+        // If memory recall succeeded
+        if let Some(recalled_pattern) = recalled {
+            // Compute energy of recalled pattern as confidence measure
+            let energy: f32 = recalled_pattern.iter()
+                .take(10)
+                .map(|c| c.norm_sqr())
+                .sum::<f32>()
+                .sqrt();
+            
+            if energy > 0.1 {
+                log::debug!(
+                    "Saccade: recall energy={:.3}, pattern_len={}",
+                    energy,
+                    recalled_pattern.len()
+                );
+            }
+        }
+        
+        // Learn from current observation for future predictions
+        // Use belief probabilities as the "actual coordinates" to learn
+        let actual_coords = self.skandha_pipeline.vedana.probabilities();
+        self.saccade.learn_correction(&context, actual_coords.as_slice());
     }
 }
 
