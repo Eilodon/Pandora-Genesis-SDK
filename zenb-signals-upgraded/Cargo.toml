@@ -1,0 +1,21 @@
+[package]
+name = "zenb-signals"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+# N-dimensional arrays (like NumPy)
+ndarray = "0.15"
+
+# High-performance FFT
+rustfft = "6.1"
+
+# Complex number support for FFT
+num-complex = "0.4"
+num-traits = "0.2"
+
+# Logging
+log = "0.4"
+
+[dev-dependencies]
+approx = "0.5"  # For floating-point comparisons in tests

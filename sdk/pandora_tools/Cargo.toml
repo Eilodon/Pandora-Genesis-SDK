@@ -1,0 +1,73 @@
+[dev-dependencies]
+tokio = { workspace = true }
+[package]
+name = "pandora_tools"
+version = "0.1.0"
+edition = "2021"
+description = "B.ONE Cognitive OS - Native Tools (empty for now)"
+authors = ["B.ONE Team <team@b1os.dev>"]
+license = "Apache-2.0"
+
+[features]
+default = ["arithmetic", "logical_reasoning", "pattern_matching", "analogy_reasoning"]
+arithmetic = []
+logical_reasoning = []
+# Temporarily disabled due to dependency conflicts
+# information_retrieval = ["dep:lance", "dep:tantivy"]
+pattern_matching = ["dep:regex"]
+analogy_reasoning = ["dep:strsim"]
+
+[dependencies]
+pandora_core = { path = "../pandora_core" }
+pandora_error = { path = "../pandora_error" }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+# Needed for per-execution timeout and spawn_blocking
+tokio = { workspace = true }
+# REMOVED: meval (uses old nom 1.2.4)
+regex = { workspace = true, optional = true }
+strsim = { workspace = true, optional = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+thiserror = { workspace = true }
+fnv = { workspace = true }
+# Temporarily disabled due to dependency conflicts
+# lance = { version = "0.13", optional = true }
+# tantivy = { version = "0.19", optional = true, default-features = false, features = ["quickwit"] }
+
+# For Vector Search & Database
+lancedb = "0.22"
+hnsw_rs = "0.2.0"
+rand = "0.8"
+arrow-array = "55.2"
+arrow-schema = "55.2"
+
+# For Knowledge Graph (in-memory)
+dashmap = "5.5"
+
+# Note: async-trait and tokio are already provided via workspace
+
+# For handling timestamps in event sequences
+chrono = { version = "0.4", features = ["serde"] }
+
+# For high-performance vector operations
+nalgebra = "0.32"
+
+# For caching compiled rules
+lru = "0.12"
+
+# Arithmetic backends
+fasteval = "0.2"
+nom = { version = "7", default-features = false, features = ["alloc"] }
+seahash = "4.1"
+lexical-core = "1.0"
+fast-float2 = "0.2"
+
+# additional dev deps
+proptest = { workspace = true }
+futures = { workspace = true }
+tempfile = "3"
+
+[[example]]
+name = "neural_skills_demo"
+path = "examples/neural_skills_demo.rs"

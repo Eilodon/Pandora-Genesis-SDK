@@ -325,6 +325,24 @@ impl ConfidenceTracker {
         self.total_count = 0;
         self.recent_outcomes.clear();
     }
+    
+    /// Decay confidence by multiplying success count by factor.
+    /// 
+    /// Used by FEP loop when high surprise is detected to reduce
+    /// decision confidence temporarily.
+    /// 
+    /// # Arguments
+    /// * `factor` - Decay factor (0.0-1.0), lower = more decay
+    pub fn decay(&mut self, factor: f32) {
+        let factor = factor.clamp(0.0, 1.0);
+        self.success_count = ((self.success_count as f32) * factor) as usize;
+        
+        log::debug!(
+            "ConfidenceTracker: decayed by factor {:.2}, success_rate now {:.2}",
+            factor,
+            self.success_rate()
+        );
+    }
 }
 
 impl Default for ConfidenceTracker {

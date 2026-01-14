@@ -22,6 +22,9 @@ rustfft = "6.2"       # FFT processing for holographic memory
 num-complex = "0.4"   # Complex number arithmetic
 rand = "0.8"          # Random vector generation
 
+# Vajra-Void: Signal processing integration
+zenb-signals = { path = "../zenb-signals", optional = true }
+
 [dev-dependencies]
 tempfile = "3.10"
 criterion = "0.5"     # Benchmarking for performance tests
@@ -36,6 +39,8 @@ skandha_pipeline = []
 thermodynamic_logic = []
 # Allow dharma key mutation (test/research only - unsafe for production)
 allow_dharma_mutation = []
+# Vajra-Void: Enable advanced signal processing with EnsembleProcessor
+vajra_void = ["zenb-signals"]
 
 [[bench]]
 name = "forensic_bench"

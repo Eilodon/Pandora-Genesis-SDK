@@ -311,6 +311,8 @@ impl VedanaSkandha for BeliefSubsystem {
             valence,
             arousal,
             confidence: confidence.clamp(0.1, 0.95),
+            karma_weight: 1.0,      // Default: fully aligned (no early filter in basic path)
+            is_karmic_debt: false,  // Will be computed in Phase 3 Dharma integration
         }
     }
 }

@@ -8,6 +8,34 @@ enum ZenbError {
     "InvalidObservation",
 };
 
+// === VAJRA-VOID: Synthesized Result from Skandha Pipeline ===
+dictionary SynthesizedResult {
+    // Belief distribution [Calm, Stress, Focus, Sleepy, Energize]
+    sequence<f32> belief;
+    // Dominant mode (0-4)
+    u8 mode;
+    // Overall confidence (0.0-1.0)
+    f32 confidence;
+    // Recommended action type
+    string action_type;
+    // Dharma alignment score (0.0-1.0)
+    f32 alignment;
+    // Is action sanctioned by DharmaFilter
+    boolean is_sanctioned;
+};
+
+// === VAJRA-VOID: Karmic Alignment Info ===
+dictionary KarmicAlignment {
+    // Karma weight (0.0-1.0, 1.0 = fully aligned)
+    f32 karma_weight;
+    // Is karmic debt detected
+    boolean is_karmic_debt;
+    // Current prediction error (surprise level)
+    f32 prediction_error;
+    // Dharma category
+    string dharma_category;
+};
+
 interface ZenbCoreApi {
     [Throws=ZenbError]
     constructor(string db_path, sequence<u8> master_key);
@@ -34,4 +62,21 @@ interface ZenbCoreApi {
     
     [Throws=ZenbError]
     void report_action_outcome(string outcome_json);
+    
+    // === VAJRA-VOID: Consciousness API ===
+    
+    // Perceive and synthesize state from sensor features
+    // Returns synthesized result from full Skandha pipeline
+    [Throws=ZenbError]
+    SynthesizedResult perceive(i64 ts_us, sequence<f32> features);
+    
+    // Get current synthesized state (without ingesting new data)
+    [Throws=ZenbError]
+    SynthesizedResult get_current_state();
+    
+    // Get karmic alignment information
+    KarmicAlignment get_karmic_alignment();
+    
+    // Get current prediction error (FEP surprise level)
+    f32 get_prediction_error();
 };

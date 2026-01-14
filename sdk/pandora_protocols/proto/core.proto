@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package b_one.core;
+
+// Định nghĩa thông điệp cơ bản cho FEP_Cell và ACALayer
+message FEPCellState {
+  string id = 1;
+  string status = 2;
+  string layer = 3;
+}
+
+message ACALayerState {
+  string id = 1;
+  string state = 2;
+}

@@ -111,6 +111,14 @@ pub struct Engine {
     /// Dedicated holographic memory for saccade predictions
     /// Separate from HDC-based Sanna memory to enable FFT-based recall
     pub saccade_memory: crate::memory::HolographicMemory,
+    
+    // === VAJRA-VOID: FEP Prediction Loop ===
+    /// Last predicted context values (from previous tick)
+    /// Used for computing prediction error (surprise)
+    pub last_predicted_context: Option<Vec<f32>>,
+    /// Exponential moving average of prediction error
+    /// High values indicate persistent surprise requiring model update
+    pub prediction_error_ema: f32,
 }
 
 impl Engine {
@@ -223,6 +231,10 @@ impl Engine {
             // NEURAL WIRING: Saccade Memory Linker
             saccade: crate::memory::SaccadeLinker::default_for_zenb(),
             saccade_memory: crate::memory::HolographicMemory::default_for_zenb(),
+            
+            // VAJRA-VOID: FEP Prediction Loop
+            last_predicted_context: None,
+            prediction_error_ema: 0.0,
         }
     }
 
@@ -359,8 +371,15 @@ impl Engine {
     /// # Neural Wiring Enhancement
     /// Saccade memory linker is called to predict where to look in memory
     /// based on current perception context.
+    /// 
+    /// # VAJRA-VOID: FEP Prediction Loop
+    /// Compares predicted context with actual state to compute prediction error.
+    /// High surprise triggers rapid learning and confidence reduction.
     pub fn tick(&mut self, dt_us: u64) -> u64 {
         let (_trans, cycles) = self.breath.tick(dt_us);
+        
+        // === VAJRA-VOID: FEP COMPARISON (Before updating state) ===
+        self.integrate_fep_prediction_loop();
 
         // Update Causal Subsystem
         if self.causal.tick() {
@@ -381,6 +400,9 @@ impl Engine {
 
         // NEURAL WIRING: Saccade Memory Recall
         self.integrate_saccade_recall();
+        
+        // === VAJRA-VOID: DATA REINCARNATION (At end of tick) ===
+        self.integrate_data_reincarnation(dt_us as i64);
 
         cycles
     }
@@ -1299,6 +1321,133 @@ impl Engine {
         // Use belief probabilities as the "actual coordinates" to learn
         let actual_coords = self.skandha_pipeline.vedana.probabilities();
         self.saccade.learn_correction(&context, actual_coords.as_slice());
+    }
+    
+    // =========================================================================
+    // VAJRA-VOID: FEP Prediction Loop
+    // =========================================================================
+    
+    /// Integrate FEP prediction loop: compare predicted vs actual context.
+    /// 
+    /// # Algorithm
+    /// 1. Compare last prediction with current skandha_state
+    /// 2. Compute prediction error (Euclidean distance)
+    /// 3. Update prediction_error_ema
+    /// 4. If error > surprise_threshold: trigger rapid learning
+    /// 5. Store current state as prediction for next tick
+    fn integrate_fep_prediction_loop(&mut self) {
+        // Only proceed if we have a valid skandha state
+        let Some(ref skandha_state) = self.skandha_state else {
+            return;
+        };
+        
+        let actual_context = &skandha_state.form.values;
+        
+        // Compare with last prediction if available
+        if let Some(ref predicted) = self.last_predicted_context {
+            let prediction_error = Self::compute_prediction_error(predicted, actual_context);
+            
+            // Update EMA of prediction error (α = 0.1 for smooth tracking)
+            const PREDICTION_EMA_ALPHA: f32 = 0.1;
+            self.prediction_error_ema = (1.0 - PREDICTION_EMA_ALPHA) * self.prediction_error_ema
+                + PREDICTION_EMA_ALPHA * prediction_error;
+            
+            // Get surprise threshold from config or use default
+            let surprise_threshold = self.config.fep.surprise_threshold.unwrap_or(0.3);
+            
+            // High surprise triggers FEP actions
+            if prediction_error > surprise_threshold {
+                log::info!(
+                    "FEP SURPRISE: error={:.3} > threshold={:.3}, triggering rapid learning",
+                    prediction_error, surprise_threshold
+                );
+                
+                // 1. Force causal graph update (high plasticity mode)
+                self.causal.force_discovery();
+                
+                // 2. Reduce decision confidence (model is uncertain)
+                self.decision_confidence.decay(0.8);
+                
+                // 3. Increase EFE precision beta (more exploitation of known-good states)
+                self.efe_precision_beta = (self.efe_precision_beta * 0.9).max(0.5);
+            }
+        }
+        
+        // Store current state as prediction for next tick
+        // Simple prediction: assume smooth continuation (persistence model)
+        // Future: use causal graph or LTC network for more sophisticated prediction
+        self.last_predicted_context = Some(actual_context.to_vec());
+    }
+    
+    /// Compute prediction error as Euclidean distance between predicted and actual.
+    fn compute_prediction_error(predicted: &[f32], actual: &[f32; 5]) -> f32 {
+        predicted.iter()
+            .zip(actual.iter())
+            .map(|(p, a)| (p - a).powi(2))
+            .sum::<f32>()
+            .sqrt()
+    }
+    
+    /// Predict next context (simple persistence model).
+    /// 
+    /// Future enhancement: Use causal graph for intervention prediction.
+    #[allow(dead_code)]
+    fn predict_next_context(&self) -> Vec<f32> {
+        if let Some(ref state) = self.skandha_state {
+            state.form.values.to_vec()
+        } else {
+            vec![0.5; 5] // Neutral prediction
+        }
+    }
+    
+    // =========================================================================
+    // VAJRA-VOID: Data Reincarnation
+    // =========================================================================
+    
+    /// Integrate data reincarnation: feed Vinnana output back as internal sensation.
+    /// 
+    /// # V3-1 Spec
+    /// "Nối output Vinnana (Thức) quay lại làm input Rupa (Sắc) cho vòng lặp sau"
+    /// 
+    /// This creates a feedback loop where the synthesized belief state
+    /// influences the next perception cycle through the causal system.
+    fn integrate_data_reincarnation(&mut self, ts_us: i64) {
+        // Only proceed if we have a valid synthesized state
+        let Some(ref final_state) = self.skandha_state else {
+            return;
+        };
+        
+        // Don't reincarnate if confidence is too low (unreliable synthesis)
+        if final_state.confidence < 0.3 {
+            return;
+        }
+        
+        // Convert "Thức" (consciousness) to "Sắc" (form) - internal sensation
+        // Map belief states to virtual physiological signals
+        let stress_belief = final_state.belief[1]; // Stress mode probability
+        let calm_belief = final_state.belief[0];   // Calm mode probability
+        
+        // Virtual HR: higher stress -> higher HR
+        let virtual_hr = 60.0 + stress_belief * 40.0 - calm_belief * 10.0;
+        // Virtual HRV: inverse of stress
+        let virtual_hrv = (1.0 - stress_belief) * 60.0 + 20.0;
+        
+        let internal_features = [
+            virtual_hr / 200.0,      // Normalized HR
+            virtual_hrv / 100.0,     // Normalized HRV
+            final_state.form.values[2], // Keep actual RR
+            final_state.confidence,  // Use confidence as quality
+            0.0,                     // Zero motion (internal state)
+        ];
+        
+        // Feed to causal subsystem as internal observation
+        // This allows the causal graph to learn from self-generated predictions
+        self.causal.observe_internal(internal_features, ts_us);
+    }
+    
+    /// Get current prediction error EMA (for diagnostics).
+    pub fn prediction_error(&self) -> f32 {
+        self.prediction_error_ema
     }
 }
 

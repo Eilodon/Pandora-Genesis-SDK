@@ -538,6 +538,76 @@ impl AutomaticScientist {
             .iter()
             .any(|h| h.from_variable == from && h.to_variable == to)
     }
+    
+    /// Force advance state machine (for FEP surprise-triggered learning).
+    /// 
+    /// When the FEP loop detects high prediction error (surprise), this method
+    /// is called to accelerate hypothesis testing and graph updates.
+    pub fn force_advance(&mut self) {
+        // Clone state to avoid borrow issues
+        let current_state = self.state.clone();
+        
+        match current_state {
+            ScientistState::Observing { observations, steps } => {
+                // If we have any observations, try to generate a hypothesis immediately
+                if observations.len() >= 5 {
+                    if let Some(hypothesis) = self.find_hypothesis(&observations) {
+                        let obs_len = observations.len();
+                        self.state = ScientistState::Proposing { hypothesis };
+                        log::debug!("Scientist: force_advance triggered hypothesis from {} observations", obs_len);
+                    }
+                }
+                // Otherwise just increment steps faster
+                else {
+                    self.state = ScientistState::Observing {
+                        observations,
+                        steps: steps + 5, // Faster accumulation
+                    };
+                }
+            }
+            ScientistState::Proposing { hypothesis } => {
+                // Immediately start experimenting
+                self.handle_proposing(hypothesis);
+            }
+            ScientistState::Experimenting { hypothesis, step, max_steps, results } => {
+                // Skip to end of experiment
+                if step + 1 < max_steps {
+                    let mut new_results = results;
+                    // Run remaining steps quickly
+                    for s in step..max_steps {
+                        let action = match s {
+                            0 => ExperimentAction::ObserveBaseline,
+                            1..=3 => ExperimentAction::InterveneCause,
+                            _ => ExperimentAction::ObserveEffect,
+                        };
+                        let observation = self.simulate_experiment(&hypothesis, action);
+                        let supports = self.check_hypothesis_support(&hypothesis, &observation, action);
+                        new_results.push(ExperimentResult {
+                            step: s,
+                            action,
+                            observation,
+                            supports_hypothesis: supports,
+                        });
+                        
+                        if s == max_steps - 1 {
+                            let confirmed = new_results.iter().filter(|r| r.supports_hypothesis).count();
+                            let rate = confirmed as f32 / new_results.len() as f32;
+                            self.state = ScientistState::Verifying {
+                                hypothesis,
+                                results: new_results,
+                                confirmation_rate: rate,
+                            };
+                            return;
+                        }
+                    }
+                }
+            }
+            ScientistState::Verifying { hypothesis, results, confirmation_rate } => {
+                // Immediately crystallize/reject
+                self.handle_verifying(hypothesis, results, confirmation_rate);
+            }
+        }
+    }
 }
 
 impl Default for AutomaticScientist {

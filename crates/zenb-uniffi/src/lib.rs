@@ -863,6 +863,152 @@ impl ZenbCoreApi {
 
         Ok(())
     }
+    
+    // =========================================================================
+    // VAJRA-VOID: Consciousness API
+    // =========================================================================
+    
+    /// Perceive and synthesize state from sensor features.
+    /// 
+    /// This runs the full Skandha pipeline (Rupa → Vedana → Sanna → Sankhara → Vinnana)
+    /// and returns the synthesized result.
+    /// 
+    /// # Arguments
+    /// * `ts_us` - Timestamp in microseconds
+    /// * `features` - Sensor features [hr_bpm, hrv_rmssd, rr_bpm, quality, motion]
+    pub fn perceive(&self, ts_us: i64, features: Vec<f32>) -> Result<SynthesizedResult, ZenbError> {
+        let mut rt = self
+            .runtime
+            .write()
+            .map_err(|e| ZenbError::RuntimeError(format!("RwLock write lock failed: {}", e)))?;
+        
+        // Build context from current state
+        let ctx = zenb_core::belief::Context {
+            local_hour: chrono::Utc::now().hour() as u8,
+            is_charging: false,
+            recent_sessions: 0,
+        };
+        
+        // Ingest through engine
+        rt.engine.ingest_sensor_with_context(&features, ts_us, ctx);
+        
+        // Run tick to process
+        rt.engine.tick(16_667); // ~60fps tick
+        
+        // Extract synthesized state
+        self.extract_synthesized_result(&rt)
+    }
+    
+    /// Get current synthesized state without ingesting new data.
+    pub fn get_current_state(&self) -> Result<SynthesizedResult, ZenbError> {
+        let rt = self
+            .runtime
+            .read()
+            .map_err(|e| ZenbError::RuntimeError(format!("RwLock read lock failed: {}", e)))?;
+        
+        self.extract_synthesized_result(&rt)
+    }
+    
+    /// Get karmic alignment information.
+    pub fn get_karmic_alignment(&self) -> KarmicAlignment {
+        if let Ok(rt) = self.runtime.read() {
+            // Get last skandha state if available
+            let (karma_weight, is_karmic_debt) = if let Some(ref _state) = rt.engine.skandha_state {
+                // TODO: Extract actual karma values when integrated into pipeline
+                (1.0, false)
+            } else {
+                (1.0, false)
+            };
+            
+            let prediction_error = rt.engine.prediction_error();
+            let dharma_category = "Neutral".to_string();
+            
+            KarmicAlignment {
+                karma_weight,
+                is_karmic_debt,
+                prediction_error,
+                dharma_category,
+            }
+        } else {
+            KarmicAlignment {
+                karma_weight: 1.0,
+                is_karmic_debt: false,
+                prediction_error: 0.0,
+                dharma_category: "Unknown".to_string(),
+            }
+        }
+    }
+    
+    /// Get current prediction error (FEP surprise level).
+    pub fn get_prediction_error(&self) -> f32 {
+        if let Ok(rt) = self.runtime.read() {
+            rt.engine.prediction_error()
+        } else {
+            0.0
+        }
+    }
+    
+    // Helper to extract synthesized result from runtime
+    fn extract_synthesized_result(&self, rt: &Runtime) -> Result<SynthesizedResult, ZenbError> {
+        let belief = rt.engine.skandha_pipeline.vedana.to_5mode_array().to_vec();
+        let mode = rt.engine.skandha_pipeline.vedana.mode() as u8;
+        let confidence = rt.engine.skandha_pipeline.vedana.confidence();
+        
+        // Get action and alignment from last skandha state
+        let (action_type, alignment, is_sanctioned) = if let Some(ref state) = rt.engine.skandha_state {
+            let action = format!("{:?}", zenb_core::skandha::IntentAction::Observe);
+            (action, state.confidence, true)
+        } else {
+            ("Observe".to_string(), 0.5, true)
+        };
+        
+        Ok(SynthesizedResult {
+            belief,
+            mode,
+            confidence,
+            action_type,
+            alignment,
+            is_sanctioned,
+        })
+    }
+}
+
+// ============================================================================
+// VAJRA-VOID: UniFFI Structs for Consciousness API
+// ============================================================================
+
+/// Synthesized result from Skandha pipeline.
+/// 
+/// Returned by `perceive()` and `get_current_state()`.
+#[derive(Debug, Clone)]
+pub struct SynthesizedResult {
+    /// Belief distribution [Calm, Stress, Focus, Sleepy, Energize]
+    pub belief: Vec<f32>,
+    /// Dominant mode (0-4)
+    pub mode: u8,
+    /// Overall confidence (0.0-1.0)
+    pub confidence: f32,
+    /// Recommended action type
+    pub action_type: String,
+    /// Dharma alignment score (0.0-1.0)
+    pub alignment: f32,
+    /// Is action sanctioned by DharmaFilter
+    pub is_sanctioned: bool,
+}
+
+/// Karmic alignment information.
+/// 
+/// Returned by `get_karmic_alignment()`.
+#[derive(Debug, Clone)]
+pub struct KarmicAlignment {
+    /// Karma weight (0.0-1.0, 1.0 = fully aligned)
+    pub karma_weight: f32,
+    /// Is karmic debt detected
+    pub is_karmic_debt: bool,
+    /// Current prediction error (surprise level)
+    pub prediction_error: f32,
+    /// Dharma category
+    pub dharma_category: String,
 }
 
 #[cfg(test)]

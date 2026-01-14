@@ -1,0 +1,47 @@
+pandora_core/src/skandha_implementations/tests.rs:17:            flow.rupa.as_ref().unwrap().as_ref(),
+pandora_core/src/skandha_implementations/tests.rs:33:        match flow.vedana.as_ref().unwrap() {
+pandora_core/src/skandha_implementations/tests.rs:37:            _ => panic!("Expected Pleasant feeling"),
+pandora_core/src/skandha_implementations/tests.rs:53:        assert!(!flow.related_eidos.as_ref().unwrap().is_empty());
+pandora_core/src/skandha_implementations/tests.rs:72:        let intent = flow.sankhara.as_ref().unwrap();
+pandora_core/src/skandha_implementations/tests.rs:99:        let result_bytes = result.unwrap();
+pandora_core/src/skandha_implementations/tests.rs:201:        let result_bytes = result.unwrap();
+pandora_core/src/skandha_implementations/advanced_skandhas.rs:46:                .unwrap()
+pandora_core/src/skandha_implementations/advanced_skandhas.rs:174:        let related_eidos = self.find_advanced_patterns(flow.sanna.as_ref().unwrap());
+pandora_core/src/skandha_implementations/advanced_skandhas.rs:178:                self.name(), flow.related_eidos.as_ref().unwrap().len());
+pandora_core/src/skandha_implementations/advanced_skandhas.rs:446:            .unwrap()
+pandora_cwm/src/interdependent_repr/irl.rs:143:        influencers.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+pandora_cwm/src/vsa/hrr.rs:87:        let result = bind(&vec_a, &identity).unwrap();
+pandora_cwm/src/vsa/hrr.rs:97:        let result = bundle(&[vec_a, vec_b]).unwrap();
+pandora_error/src/testing.rs:8:        Ok(_) => panic!("Expected error, got Ok"),
+pandora_error/src/testing.rs:16:        Ok(_) => panic!("Expected error, got Ok"),
+pandora_error/src/testing.rs:24:        Ok(_) => panic!("Expected error, got Ok"),
+pandora_orchestrator/src/lib.rs:495:            .set_default("retry.max_retries", RetryConfig::default_max_retries()).unwrap()
+pandora_orchestrator/src/lib.rs:496:            .set_default("retry.initial_backoff_ms", RetryConfig::default_initial_backoff_ms()).unwrap()
+pandora_orchestrator/src/lib.rs:497:            .set_default("retry.backoff_multiplier", RetryConfig::default_backoff_multiplier()).unwrap()
+pandora_orchestrator/src/lib.rs:498:            .set_default("retry.max_backoff_ms", RetryConfig::default_max_backoff_ms()).unwrap()
+pandora_orchestrator/src/lib.rs:499:            .set_default("retry.jitter_ms", RetryConfig::default_jitter_ms()).unwrap()
+pandora_orchestrator/src/lib.rs:500:            .set_default("timeout.timeout_ms", TimeoutConfig::default_timeout_ms()).unwrap()
+pandora_orchestrator/src/lib.rs:501:            .set_default("circuit.failure_threshold", CircuitConfig::default_failure_threshold()).unwrap()
+pandora_orchestrator/src/lib.rs:502:            .set_default("circuit.open_cooldown_ms", CircuitConfig::default_open_cooldown_ms()).unwrap()
+pandora_orchestrator/src/lib.rs:503:            .set_default("circuit.half_open_trial", CircuitConfig::default_half_open_trial()).unwrap();
+pandora_orchestrator/src/lib.rs:566:    ).expect("register counter");
+pandora_orchestrator/src/lib.rs:572:    ).expect("register counter");
+pandora_orchestrator/src/lib.rs:579:    ).expect("register histogram");
+pandora_orchestrator/src/circuit_breaker.rs:71:            .expect("max_circuits must be > 0");
+pandora_orchestrator/src/circuit_breaker.rs:90:        let state = states.get_mut(skill_name).expect("state just inserted exists");
+pandora_tools/src/skills/information_retrieval_skill.rs:11:        let output = skill.execute(input).await.unwrap();
+pandora_tools/src/skills/information_retrieval_skill.rs:19:        let output = skill.execute(input).await.unwrap();
+pandora_tools/src/skills/arithmetic_skill.rs:191:        assert_eq!(skill.execute(input).await.unwrap(), json!({"result": 4.0}));
+pandora_tools/src/skills/arithmetic_skill.rs:198:        assert_eq!(skill.execute(input).await.unwrap(), json!({"result": 14.0}));
+pandora_tools/src/skills/arithmetic_skill.rs:205:        assert_eq!(skill.execute(input).await.unwrap(), json!({"result": 20.0}));
+pandora_tools/src/skills/arithmetic_skill.rs:212:        assert_eq!(skill.execute(input).await.unwrap(), json!({"result": 5.0}));
+pandora_tools/src/skills/arithmetic_skill.rs:226:        assert_eq!(skill.execute(input).await.unwrap(), json!({"result": -2.0}));
+pandora_tools/src/skills/arithmetic_skill.rs:233:        assert_eq!(skill.execute(input).await.unwrap(), json!({"result": 6.28}));
+pandora_tools/src/skills/arithmetic_skill.rs:240:        assert_eq!(skill.execute(input).await.unwrap(), json!({"result": 6.5}));
+pandora_tools/src/skills/arithmetic_skill.rs:247:        assert_eq!(skill.execute(input).await.unwrap(), json!({"result": 5.0}));
+pandora_tools/src/skills/logical_reasoning_skill.rs:18:		assert_eq!(skill.execute(input).await.unwrap(), json!({"result": true}));
+pandora_tools/src/skills/logical_reasoning_skill.rs:33:		assert_eq!(skill.execute(input).await.unwrap(), json!({"result": false}));
+pandora_tools/src/skills/logical_reasoning_skill.rs:48:		assert_eq!(skill.execute(input).await.unwrap(), json!({"result": true}));
+pandora_tools/src/skills/analogy_reasoning_skill.rs:15:		let output = skill.execute(input).await.unwrap();
+pandora_tools/src/skills/pattern_matching_skill.rs:10:        let output = skill.execute(input).await.unwrap();
+pandora_tools/src/skills/pattern_matching_skill.rs:18:        let output = skill.execute(input).await.unwrap();

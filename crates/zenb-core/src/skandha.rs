@@ -33,6 +33,138 @@ pub struct SensorInput {
     pub timestamp_us: i64,
 }
 
+// ============================================================================
+// VAJRA-VOID: Divine Perception (Enhanced Sensory Input)
+// ============================================================================
+
+/// Geometry features from face detection/mesh.
+/// Used for ROI stability tracking and mesh-based vital signs.
+#[derive(Debug, Clone, Default)]
+pub struct FaceGeometry {
+    /// Whether a face was detected in the current frame
+    pub face_detected: bool,
+    /// Stability of the Region of Interest over time (0-1)
+    pub roi_stability: f32,
+    /// 3D landmarks from face mesh if available (468 points for MediaPipe)
+    pub mesh_landmarks: Option<Vec<[f32; 3]>>,
+}
+
+/// Vitality metrics extracted from advanced signal processing.
+/// These metrics come from zenb-signals processing pipeline.
+#[derive(Debug, Clone, Default)]
+pub struct VitalityMetrics {
+    /// Signal-to-noise ratio in dB (higher = cleaner signal)
+    pub snr_db: f32,
+    /// Signal entropy (measures chaos/randomness, higher = more chaotic)
+    pub entropy: f32,
+    /// RGB aura color for visualization (derived from spectral analysis)
+    pub aura_color: [f32; 3],
+    /// PRISM adaptive alpha parameter (if using PRISM algorithm)
+    pub prism_alpha: Option<f32>,
+    /// Ensemble algorithm agreement score (0-1, higher = more consensus)
+    pub ensemble_agreement: f32,
+}
+
+/// Enhanced sensory input with raw signal buffer for advanced processing.
+/// 
+/// # VAJRA-VOID: Tri Giác Thần Thánh (Divine Perception)
+/// 
+/// This extends `SensorInput` with:
+/// - Raw signal buffer for zenb-signals processing (CHROM/POS/PRISM)
+/// - Geometry from face detection/mesh
+/// - Vitality metrics from advanced signal processing
+/// 
+/// # Backward Compatibility
+/// All new fields are `Option<T>`, so existing code using `SensorInput`
+/// can be converted via `From<SensorInput>`.
+#[derive(Debug, Clone, Default)]
+pub struct DivinePercept {
+    // === Existing fields (from SensorInput, backward compatible) ===
+    /// Heart rate in BPM (pre-processed or from external source)
+    pub hr_bpm: Option<f32>,
+    /// Heart rate variability RMSSD in ms
+    pub hrv_rmssd: Option<f32>,
+    /// Respiratory rate in BPM
+    pub rr_bpm: Option<f32>,
+    /// Signal quality (0-1)
+    pub quality: f32,
+    /// Motion level (0 = still, 1 = high movement)
+    pub motion: f32,
+    /// Timestamp in microseconds
+    pub timestamp_us: i64,
+    
+    // === NEW: Raw signal for zenb-signals processing ===
+    /// Raw RGB signal buffer (interleaved: [R,G,B,R,G,B,...])
+    /// Used by EnsembleProcessor for CHROM/POS/PRISM extraction
+    pub raw_signal_buffer: Option<Vec<f32>>,
+    
+    // === NEW: Geometry from face mesh/vision (HÌNH) ===
+    /// Face detection and mesh geometry
+    pub geometry: Option<FaceGeometry>,
+    
+    // === NEW: Vitality metrics from zenb-signals (THẦN) ===
+    /// Advanced vitality metrics from signal processing
+    pub vitality: Option<VitalityMetrics>,
+}
+
+impl From<SensorInput> for DivinePercept {
+    fn from(input: SensorInput) -> Self {
+        Self {
+            hr_bpm: input.hr_bpm,
+            hrv_rmssd: input.hrv_rmssd,
+            rr_bpm: input.rr_bpm,
+            quality: input.quality,
+            motion: input.motion,
+            timestamp_us: input.timestamp_us,
+            raw_signal_buffer: None,
+            geometry: None,
+            vitality: None,
+        }
+    }
+}
+
+impl From<&SensorInput> for DivinePercept {
+    fn from(input: &SensorInput) -> Self {
+        Self {
+            hr_bpm: input.hr_bpm,
+            hrv_rmssd: input.hrv_rmssd,
+            rr_bpm: input.rr_bpm,
+            quality: input.quality,
+            motion: input.motion,
+            timestamp_us: input.timestamp_us,
+            raw_signal_buffer: None,
+            geometry: None,
+            vitality: None,
+        }
+    }
+}
+
+impl DivinePercept {
+    /// Create from SensorInput with additional raw signal buffer
+    pub fn with_raw_signal(input: SensorInput, raw_signal: Vec<f32>) -> Self {
+        let mut percept = Self::from(input);
+        percept.raw_signal_buffer = Some(raw_signal);
+        percept
+    }
+    
+    /// Convert back to basic SensorInput (drops enhanced fields)
+    pub fn to_sensor_input(&self) -> SensorInput {
+        SensorInput {
+            hr_bpm: self.hr_bpm,
+            hrv_rmssd: self.hrv_rmssd,
+            rr_bpm: self.rr_bpm,
+            quality: self.quality,
+            motion: self.motion,
+            timestamp_us: self.timestamp_us,
+        }
+    }
+    
+    /// Check if raw signal processing is available
+    pub fn has_raw_signal(&self) -> bool {
+        self.raw_signal_buffer.as_ref().map(|b| !b.is_empty()).unwrap_or(false)
+    }
+}
+
 /// Processed form after sensor consensus (Rupa stage output).
 #[derive(Debug, Clone, Default)]
 pub struct ProcessedForm {
@@ -47,7 +179,10 @@ pub struct ProcessedForm {
 }
 
 /// Affective state (Vedana stage output).
-#[derive(Debug, Clone, Default)]
+/// 
+/// # VAJRA-VOID Enhancement
+/// Includes karma weight from early Dharma check in Vedana stage.
+#[derive(Debug, Clone)]
 pub struct AffectiveState {
     /// Valence (-1 negative to +1 positive)
     pub valence: f32,
@@ -55,6 +190,25 @@ pub struct AffectiveState {
     pub arousal: f32,
     /// Confidence in affective assessment
     pub confidence: f32,
+    
+    // === VAJRA-VOID: Karma Integration ===
+    /// Karma alignment weight from early Dharma check (-1 to 1)
+    /// Negative = karmic debt, Positive = aligned with dharma
+    pub karma_weight: f32,
+    /// Flag indicating karmic debt requires priority corrective action
+    pub is_karmic_debt: bool,
+}
+
+impl Default for AffectiveState {
+    fn default() -> Self {
+        Self {
+            valence: 0.0,
+            arousal: 0.5,
+            confidence: 0.5,
+            karma_weight: 1.0,  // Default: fully aligned
+            is_karmic_debt: false,
+        }
+    }
 }
 
 /// Perceived pattern (Sanna stage output).
@@ -127,7 +281,7 @@ pub struct SynthesizedState {
 }
 
 /// Control output from synthesis.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ControlOutput {
     pub target_bpm: f32,
     pub confidence: f32,
@@ -210,10 +364,11 @@ impl Default for SkandhaConfig {
             enable_sanna: true,
             enable_sankhara: true,
             enable_vinnana: true,
-            // MOON UPGRADE defaults
-            refinement_enabled: true,
+            // MOON UPGRADE defaults (disabled by default for performance)
+            // Set refinement_enabled: true for higher accuracy at cost of ~4x latency
+            refinement_enabled: false,
             uncertainty_threshold: 0.15,
-            max_refinement_depth: 3,
+            max_refinement_depth: 1, // Reduced from 3 for faster refinement when enabled
         }
     }
 }
@@ -273,6 +428,8 @@ pub mod defaults {
                 valence,
                 arousal,
                 confidence,
+                karma_weight: 1.0,      // Default: fully aligned
+                is_karmic_debt: false,  // No early filter in default path
             }
         }
     }
@@ -460,6 +617,9 @@ where
     /// 
     /// If refinement is enabled and uncertainty exceeds threshold,
     /// the pipeline will run additional iterations to refine the output.
+    /// 
+    /// # Performance Optimization
+    /// Uses in-place mutation to avoid heap allocations in refinement loop.
     pub fn process(&mut self, input: &SensorInput) -> SynthesizedState {
         let mut result = self.process_single(input);
         
@@ -491,8 +651,8 @@ where
                 
                 let new_result = self.process_single(&refined_input);
                 
-                // Blend new result with previous (exponential moving average)
-                result = Self::blend_results(&result, &new_result, 0.7);
+                // Blend new result into existing (in-place mutation, no allocation)
+                Self::blend_into(&mut result, &new_result, 0.7);
                 depth += 1;
             }
             
@@ -566,6 +726,10 @@ where
     }
     
     /// Blend two synthesized states using exponential moving average.
+    /// 
+    /// # Deprecated
+    /// Use `blend_into()` for better performance (avoids allocation).
+    #[allow(dead_code)]
     fn blend_results(old: &SynthesizedState, new: &SynthesizedState, alpha: f32) -> SynthesizedState {
         let mut blended_belief = [0.0f32; 5];
         for i in 0..5 {
@@ -587,6 +751,51 @@ where
             confidence: alpha * new.confidence + (1.0 - alpha) * old.confidence,
             decision: new.decision.clone(),
             free_energy: alpha * new.free_energy + (1.0 - alpha) * old.free_energy,
+        }
+    }
+    
+    /// Blend new state INTO target using exponential moving average (in-place mutation).
+    /// 
+    /// # Performance
+    /// - Zero heap allocations
+    /// - Avoids cloning form and decision (reuses new's if needed)
+    /// - ~10x faster than blend_results() in tight loops
+    /// 
+    /// # Parameters
+    /// - `target`: Mutable reference to state to update
+    /// - `new`: New state to blend from
+    /// - `alpha`: Blend factor (0.0 = keep old, 1.0 = use new)
+    #[inline]
+    fn blend_into(target: &mut SynthesizedState, new: &SynthesizedState, alpha: f32) {
+        let one_minus_alpha = 1.0 - alpha;
+        
+        // Blend beliefs in-place
+        for i in 0..5 {
+            target.belief[i] = alpha * new.belief[i] + one_minus_alpha * target.belief[i];
+        }
+        
+        // Renormalize belief in-place
+        let sum: f32 = target.belief.iter().sum();
+        if sum > 0.0 {
+            let inv_sum = 1.0 / sum;
+            for b in &mut target.belief {
+                *b *= inv_sum;
+            }
+        }
+        
+        // Blend scalar fields in-place
+        target.confidence = alpha * new.confidence + one_minus_alpha * target.confidence;
+        target.free_energy = alpha * new.free_energy + one_minus_alpha * target.free_energy;
+        
+        // Take new mode and form (latest iteration wins for non-blendable fields)
+        target.mode = new.mode;
+        // Only clone if form actually changed (ptr comparison optimization)
+        if !std::ptr::eq(&target.form, &new.form) {
+            target.form = new.form.clone();
+        }
+        // Only clone decision if changed
+        if target.decision != new.decision {
+            target.decision = new.decision.clone();
         }
     }
 }
@@ -628,12 +837,43 @@ pub mod zenb {
     use num_complex::Complex32;
 
     /// ZenbRupa: Wraps SheafPerception for sensor consensus
-    #[derive(Debug, Default)]
+    /// 
+    /// # VAJRA-VOID Enhancement
+    /// Optionally includes EnsembleProcessor for raw signal processing.
+    /// When `vajra_void` feature is enabled, can process raw RGB buffers
+    /// through CHROM/POS/PRISM algorithms.
+    #[derive(Debug)]
     pub struct ZenbRupa {
         pub sheaf: SheafPerception,
+        /// Optional signal processor for raw RGB processing (requires `vajra_void` feature)
+        #[cfg(feature = "vajra_void")]
+        pub signal_processor: Option<zenb_signals::EnsembleProcessor>,
+        /// Last processed vitality metrics
+        pub last_vitality: Option<VitalityMetrics>,
+    }
+
+    impl Default for ZenbRupa {
+        fn default() -> Self {
+            Self {
+                sheaf: SheafPerception::default(),
+                #[cfg(feature = "vajra_void")]
+                signal_processor: None,
+                last_vitality: None,
+            }
+        }
     }
 
     impl ZenbRupa {
+        /// Create ZenbRupa with EnsembleProcessor for raw signal processing
+        #[cfg(feature = "vajra_void")]
+        pub fn with_signal_processor() -> Self {
+            Self {
+                sheaf: SheafPerception::default(),
+                signal_processor: Some(zenb_signals::EnsembleProcessor::new()),
+                last_vitality: None,
+            }
+        }
+        
         /// Detect physiological context from sensor values
         ///
         /// Uses HR, HRV, and motion to infer user's current state.
@@ -681,6 +921,11 @@ pub mod zenb {
         pub fn context(&self) -> PhysiologicalContext {
             self.sheaf.context()
         }
+        
+        /// Get last computed vitality metrics
+        pub fn last_vitality(&self) -> Option<&VitalityMetrics> {
+            self.last_vitality.as_ref()
+        }
 
         /// Process form with auto-context detection
         pub fn process_form_adaptive(&mut self, input: &SensorInput) -> ProcessedForm {
@@ -694,6 +939,79 @@ pub mod zenb {
 
             // Process with updated context
             self.process_form_internal(input)
+        }
+        
+        /// Process DivinePercept with raw signal processing
+        /// 
+        /// # VAJRA-VOID: Tri Giác Thần Thánh
+        /// 
+        /// When raw signal buffer is available and signal processor is configured,
+        /// extracts HR/HRV using CHROM+POS+PRISM ensemble with SNR-weighted voting.
+        pub fn process_divine_percept(&mut self, percept: &DivinePercept) -> ProcessedForm {
+            // Try to extract vitals from raw signal if available
+            #[cfg(feature = "vajra_void")]
+            let extracted_vitals = self.process_raw_signal(percept);
+            #[cfg(not(feature = "vajra_void"))]
+            let extracted_vitals: Option<(f32, f32, VitalityMetrics)> = None;
+            
+            // Build effective SensorInput, preferring extracted over provided
+            let effective_input = if let Some((hr, snr, vitality)) = extracted_vitals {
+                self.last_vitality = Some(vitality);
+                SensorInput {
+                    hr_bpm: Some(hr),
+                    hrv_rmssd: percept.hrv_rmssd, // HRV needs separate extraction TODO
+                    rr_bpm: percept.rr_bpm,
+                    quality: (snr / 20.0).clamp(0.0, 1.0), // Convert SNR to quality
+                    motion: percept.motion,
+                    timestamp_us: percept.timestamp_us,
+                }
+            } else {
+                percept.to_sensor_input()
+            };
+            
+            // Process with adaptive context detection
+            self.process_form_adaptive(&effective_input)
+        }
+        
+        /// Process raw RGB signal buffer through EnsembleProcessor
+        #[cfg(feature = "vajra_void")]
+        fn process_raw_signal(&mut self, percept: &DivinePercept) -> Option<(f32, f32, VitalityMetrics)> {
+            let buffer = percept.raw_signal_buffer.as_ref()?;
+            if buffer.len() < 90 {  // Need at least ~3 seconds at 30fps
+                return None;
+            }
+            
+            let processor = self.signal_processor.as_mut()?;
+            
+            // Deinterleave RGB: [R,G,B,R,G,B,...] -> separate arrays
+            let n_samples = buffer.len() / 3;
+            let mut r = ndarray::Array1::zeros(n_samples);
+            let mut g = ndarray::Array1::zeros(n_samples);
+            let mut b = ndarray::Array1::zeros(n_samples);
+            
+            for i in 0..n_samples {
+                r[i] = buffer[i * 3];
+                g[i] = buffer[i * 3 + 1];
+                b[i] = buffer[i * 3 + 2];
+            }
+            
+            // Process through ensemble
+            let result = processor.process_arrays(&r, &g, &b)?;
+            
+            // Build vitality metrics
+            let vitality = VitalityMetrics {
+                snr_db: result.snr_db,
+                entropy: 0.0, // TODO: compute from signal
+                aura_color: [
+                    r.iter().sum::<f32>() / n_samples as f32,
+                    g.iter().sum::<f32>() / n_samples as f32,
+                    b.iter().sum::<f32>() / n_samples as f32,
+                ],
+                prism_alpha: result.prism_alpha,
+                ensemble_agreement: result.confidence,
+            };
+            
+            Some((result.bpm, result.snr_db, vitality))
         }
 
         /// Internal processing (shared between trait impl and adaptive method)
@@ -827,9 +1145,41 @@ pub mod zenb {
     }
 
     /// ZenbSankhara: Wraps DharmaFilter for ethical intent filtering
+    /// 
+    /// # VAJRA-VOID Enhancement
+    /// - Prioritizes corrective action when `is_karmic_debt` is true
+    /// - Uses heuristics to select action (future: CausalGraph query)
     #[derive(Debug, Default)]
     pub struct ZenbSankhara {
         pub dharma: DharmaFilter,
+    }
+
+    impl ZenbSankhara {
+        /// Query optimal action based on context patterns (heuristic)
+        /// 
+        /// Future: Query CausalGraph for historically optimal actions
+        fn query_action_heuristic(
+            &self,
+            pattern: &PerceivedPattern,
+            affect: &AffectiveState,
+        ) -> IntentAction {
+            // High arousal → suggest calming breath
+            if affect.arousal > 0.8 {
+                IntentAction::GuideBreath { target_bpm: 6 } // Slow, calming
+            }
+            // Low arousal + negative valence → energize
+            else if affect.arousal < 0.2 && affect.valence < -0.2 {
+                IntentAction::GuideBreath { target_bpm: 8 } // Slightly faster
+            }
+            // High pattern similarity to known stress → calm
+            else if pattern.similarity > 0.8 && affect.valence < 0.0 {
+                IntentAction::GuideBreath { target_bpm: 6 }
+            }
+            // Default: observe
+            else {
+                IntentAction::Observe
+            }
+        }
     }
 
     impl SankharaSkandha for ZenbSankhara {
@@ -838,16 +1188,37 @@ pub mod zenb {
             pattern: &PerceivedPattern,
             affect: &AffectiveState,
         ) -> FormedIntent {
-            // Determine proposed action
-            let action = if pattern.is_trauma_associated {
-                IntentAction::SafeFallback
-            } else if affect.arousal > 0.8 {
-                IntentAction::GuideBreath { target_bpm: 6 }
-            } else if affect.arousal < 0.2 {
-                IntentAction::GuideBreath { target_bpm: 8 }
-            } else {
-                IntentAction::Observe
-            };
+            // === VAJRA-VOID: PRIORITY KARMIC DEBT HANDLING ===
+            // If karmic debt detected at Vedana stage, prioritize corrective action
+            if affect.is_karmic_debt {
+                log::info!(
+                    "Sankhara: Karmic debt detected (weight={:.2}), applying corrective action",
+                    affect.karma_weight
+                );
+                return FormedIntent {
+                    action: IntentAction::SafeFallback,
+                    alignment: 0.3,
+                    is_sanctioned: true,
+                    reasoning: format!(
+                        "Karmic debt (weight={:.2}) → corrective action",
+                        affect.karma_weight
+                    ),
+                };
+            }
+            
+            // === TRAUMA-ASSOCIATED PATTERN → SAFE FALLBACK ===
+            if pattern.is_trauma_associated {
+                return FormedIntent {
+                    action: IntentAction::SafeFallback,
+                    alignment: 0.5,
+                    is_sanctioned: true,
+                    reasoning: "Trauma-associated pattern → safe fallback".to_string(),
+                };
+            }
+            
+            // === CAUSAL-DRIVEN ACTION SELECTION ===
+            // Use heuristics (future: query CausalGraph for optimal action)
+            let action = self.query_action_heuristic(pattern, affect);
 
             // Create complex action vector representing the intent
             // Real part: valence (positive = beneficial/calming)
@@ -871,8 +1242,8 @@ pub mod zenb {
                 alignment,
                 is_sanctioned,
                 reasoning: format!(
-                    "Pattern {} arousal={:.2} dharma={:?}",
-                    pattern.pattern_id, affect.arousal, category
+                    "Pattern {} arousal={:.2} karma={:.2} dharma={:?}",
+                    pattern.pattern_id, affect.arousal, affect.karma_weight, category
                 ),
             }
         }

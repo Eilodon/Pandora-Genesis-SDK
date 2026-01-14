@@ -167,6 +167,53 @@ impl CausalSubsystem {
     pub fn total_cycles(&self) -> u64 {
         self.scientist.total_cycles
     }
+    
+    // =========================================================================
+    // VAJRA-VOID: FEP Integration
+    // =========================================================================
+    
+    /// Force immediate discovery cycle (high plasticity mode).
+    /// 
+    /// Called when FEP detects high surprise (prediction error) to trigger
+    /// rapid learning and graph update.
+    pub fn force_discovery(&mut self) {
+        // Force scientist to advance state
+        self.scientist.force_advance();
+        
+        // Wire any pending discoveries immediately
+        let discoveries = self.scientist.drain_pending_discoveries();
+        for h in &discoveries {
+            self.wire_hypothesis(h);
+        }
+        
+        log::debug!(
+            "CausalSubsystem: force_discovery triggered, {} hypotheses wired",
+            discoveries.len()
+        );
+    }
+    
+    /// Observe internal state (from data reincarnation).
+    /// 
+    /// This is separate from external observations to allow the causal
+    /// graph to learn from self-generated predictions vs external reality.
+    /// 
+    /// # Arguments
+    /// * `features` - [hr, hrv, rr, quality, motion] normalized to 0-1
+    /// * `ts_us` - Timestamp in microseconds
+    pub fn observe_internal(&mut self, features: [f32; 5], _ts_us: i64) {
+        // Tag as internal for future filtering if needed
+        // For now, just feed to scientist with reduced weight
+        // (internal observations are less reliable than external)
+        let weighted_features = [
+            features[0] * 0.8,
+            features[1] * 0.8,
+            features[2] * 0.8,
+            features[3] * 0.5, // Lower quality weight for internal
+            features[4] * 0.5,
+        ];
+        
+        self.scientist.observe(weighted_features);
+    }
 }
 
 #[cfg(test)]

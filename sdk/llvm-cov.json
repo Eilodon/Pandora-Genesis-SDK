@@ -1,0 +1,23 @@
+{
+  "llvm-cov": {
+    "run-types": ["test", "doctest"],
+    "ignore-filename-regex": [
+      ".*/target/.*",
+      ".*/examples/.*",
+      ".*/benches/.*"
+    ],
+    "ignore-line-regex": [
+      ".*#\\[cfg\\(test\\)\\].*",
+      ".*#\\[test\\].*",
+      ".*#\\[tokio::test\\].*"
+    ],
+    "summary-only": false,
+    "fail-under-lines": 80,
+    "fail-under-functions": 80,
+    "fail-under-regions": 80,
+    "show-line-counts-or-regions": true,
+    "remap-path-prefix": {
+      "/home/runner/work": "."
+    }
+  }
+}

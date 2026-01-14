@@ -1,0 +1,128 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run benchmarks daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for trend analysis
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+        override: true
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc valgrind
+        # Install cargo tools
+        cargo install cargo-criterion
+        cargo install flamegraph
+    
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Run benchmarks
+      run: |
+        cd sdk
+        ./scripts/benchmark_dashboard.sh
+    
+    - name: Check for performance regression
+      run: |
+        cd sdk
+        ./scripts/performance_regression.sh
+      continue-on-error: true
+    
+    - name: Generate flamegraphs
+      run: |
+        cd sdk
+        ./scripts/profile_flamegraph.sh
+      continue-on-error: true
+    
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results-${{ github.run_number }}
+        path: |
+          sdk/benchmark_results/
+        retention-days: 30
+    
+    - name: Comment PR with benchmark results
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const path = 'sdk/benchmark_results/trends/current_metrics.json';
+          
+          if (fs.existsSync(path)) {
+            const metrics = JSON.parse(fs.readFileSync(path, 'utf8'));
+            let comment = '## 📊 Performance Benchmark Results\n\n';
+            
+            comment += '| Benchmark | Time (μs) | Std Dev (μs) |\n';
+            comment += '|-----------|-----------|-------------|\n';
+            
+            for (const [name, data] of Object.entries(metrics)) {
+              comment += `| ${name} | ${data.mean_us.toFixed(2)} | ${data.std_dev_us.toFixed(2)} |\n`;
+            }
+            
+            comment += '\n📈 [View detailed results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+          }
+
+  load-test:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y valgrind
+    
+    - name: Run load tests
+      run: |
+        cd sdk
+        ./scripts/load_testing.sh
+      continue-on-error: true
+    
+    - name: Upload load test results
+      uses: actions/upload-artifact@v3
+      with:
+        name: load-test-results-${{ github.run_number }}
+        path: sdk/benchmark_results/load_tests/
+        retention-days: 30

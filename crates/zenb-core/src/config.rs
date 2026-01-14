@@ -120,6 +120,10 @@ pub struct FepConfig {
     pub lr_base: f32,
     pub lr_min: f32,
     pub lr_max: f32,
+    /// VAJRA-VOID: Surprise threshold for FEP prediction loop
+    /// When prediction error exceeds this, trigger rapid learning
+    #[serde(default)]
+    pub surprise_threshold: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -242,6 +246,7 @@ impl Default for FepConfig {
             lr_base: 0.6,
             lr_min: 0.05,
             lr_max: 0.8,
+            surprise_threshold: Some(0.3), // Default: trigger learning at 0.3 prediction error
         }
     }
 }
