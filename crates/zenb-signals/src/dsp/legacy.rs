@@ -302,8 +302,8 @@ mod tests {
         let signal = Array1::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
         let std = DspProcessor::std(&signal);
 
-        // Known std for this sequence
-        assert_relative_eq!(std, 1.4142135, epsilon = 0.001);
+        // Known std for [1,2,3,4,5] is sqrt(2)
+        assert_relative_eq!(std, std::f32::consts::SQRT_2, epsilon = 0.001);
     }
 
     #[test]

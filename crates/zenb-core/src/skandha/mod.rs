@@ -1180,6 +1180,67 @@ pub mod zenb {
                 IntentAction::Observe
             }
         }
+        
+        /// Query optimal action using thermodynamic free energy minimization.
+        /// 
+        /// # EIDOLON FIX: Thermodynamic Decision Integration
+        /// Instead of hardcoded heuristics, this method:
+        /// 1. Generates candidate actions based on current state
+        /// 2. Simulates each action's effect on the state
+        /// 3. Selects the action with lowest free energy
+        /// 
+        /// # Arguments
+        /// * `thermo` - ThermodynamicEngine for free energy evaluation
+        /// * `affect` - Current affective state
+        /// 
+        /// # Returns
+        /// (action, free_energy) tuple
+        pub fn query_action_thermodynamic(
+            &self,
+            thermo: &crate::thermo_logic::ThermodynamicEngine,
+            affect: &AffectiveState,
+        ) -> (IntentAction, f32) {
+            use nalgebra::DVector;
+            
+            // Target state: calm, positive, balanced (arousal=0.3, valence=0.6)
+            let target = DVector::from_vec(vec![0.3, 0.6, 0.5, 0.5, 0.0]);
+            
+            // Candidate actions with their target breath rates
+            let candidates = [
+                (IntentAction::Observe, 0.5),          // No change
+                (IntentAction::GuideBreath { target_bpm: 6 }, 0.25),  // Calm
+                (IntentAction::GuideBreath { target_bpm: 8 }, 0.35),  // Gentle
+                (IntentAction::GuideBreath { target_bpm: 10 }, 0.45), // Energize
+                (IntentAction::SafeFallback, 0.3),     // Safety mode
+            ];
+            
+            let mut best_action = IntentAction::Observe;
+            let mut best_energy = f32::MAX;
+            
+            for (action, target_arousal) in candidates {
+                // Simulate state after action
+                // arousal converges toward target, valence improves with lower arousal
+                let simulated_arousal = affect.arousal * 0.7 + target_arousal * 0.3;
+                let simulated_valence = affect.valence + (0.5 - simulated_arousal) * 0.2;
+                
+                let simulated_state = DVector::from_vec(vec![
+                    simulated_arousal,
+                    simulated_valence.clamp(-1.0, 1.0),
+                    affect.karma_weight,
+                    if affect.is_karmic_debt { 0.0 } else { 0.5 },
+                    0.0,
+                ]);
+                
+                let free_energy = thermo.free_energy(&simulated_state, &target);
+                
+                if free_energy < best_energy {
+                    best_energy = free_energy;
+                    best_action = action;
+                }
+            }
+            
+            (best_action, best_energy)
+        }
     }
 
     impl SankharaSkandha for ZenbSankhara {

@@ -19,7 +19,7 @@ parking_lot = "0.12"  # High-performance mutex for circuit breaker
 
 # Vajra-001: Holographic Memory dependencies
 rustfft = "6.2"       # FFT processing for holographic memory
-num-complex = "0.4"   # Complex number arithmetic
+num-complex = { version = "0.4", features = ["serde"] }   # Complex number arithmetic + serialization
 rand = "0.8"          # Random vector generation
 
 # Vajra-Void: Signal processing integration

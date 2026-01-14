@@ -5,7 +5,7 @@
 use crate::StoreError;
 use rusqlite::{params, Connection, OptionalExtension};
 
-const CURRENT_SCHEMA_VERSION: i32 = 2;
+const CURRENT_SCHEMA_VERSION: i32 = 3;
 
 /// Metadata table for tracking schema version
 pub fn init_metadata_table(conn: &Connection) -> Result<(), StoreError> {
@@ -75,6 +75,12 @@ pub fn migrate_to_current(conn: &Connection) -> Result<(), StoreError> {
         version = 2;
         set_schema_version(conn, version)?;
     }
+    
+    if version < 3 {
+        migrate_v2_to_v3(conn)?;
+        version = 3;
+        set_schema_version(conn, version)?;
+    }
 
     Ok(())
 }
@@ -119,6 +125,32 @@ fn migrate_v1_to_v2(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// Migration v2 -> v3: Add memory_snapshots table (EIDOLON FIX: Memory Persistence)
+///
+/// This table stores encrypted snapshots of HolographicMemory and other
+/// cognitive state for persistence across process restarts.
+fn migrate_v2_to_v3(conn: &Connection) -> Result<(), StoreError> {
+    conn.execute_batch(
+        "BEGIN IMMEDIATE;
+        
+        -- EIDOLON FIX: Memory persistence table
+        -- Stores encrypted snapshots of cognitive state
+        CREATE TABLE IF NOT EXISTS memory_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id BLOB NOT NULL,
+            snapshot_type TEXT NOT NULL,
+            created_ts_us INTEGER NOT NULL,
+            payload BLOB NOT NULL,
+            nonce BLOB NOT NULL,
+            UNIQUE(session_id, snapshot_type)
+        );
+        CREATE INDEX IF NOT EXISTS memory_snapshots_session_idx ON memory_snapshots(session_id);
+        
+        COMMIT;",
+    )?;
+    Ok(())
+}
+
 /// Check if migration is needed
 pub fn needs_migration(conn: &Connection) -> Result<bool, StoreError> {
     init_metadata_table(conn)?;
@@ -147,7 +179,21 @@ mod tests {
         let tf = NamedTempFile::new().unwrap();
         let conn = Connection::open(tf.path()).unwrap();
 
-        // Simulate v0 DB (no metadata table)
+        // Simulate v0 DB (has events table but no metadata table)
+        // v0 databases would have been created by init_schema in lib.rs
+        conn.execute_batch(
+            "CREATE TABLE events (
+                id INTEGER PRIMARY KEY,
+                session_id BLOB NOT NULL,
+                seq INTEGER NOT NULL,
+                ts_us INTEGER NOT NULL,
+                event_type INTEGER NOT NULL,
+                meta BLOB NOT NULL,
+                payload BLOB NOT NULL,
+                nonce BLOB NOT NULL
+            );",
+        ).unwrap();
+        
         assert!(needs_migration(&conn).unwrap());
 
         // Run migration
@@ -159,6 +205,16 @@ mod tests {
 
         // Should not need migration anymore
         assert!(!needs_migration(&conn).unwrap());
+        
+        // Verify memory_snapshots table was created (v2→v3)
+        let count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memory_snapshots'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]

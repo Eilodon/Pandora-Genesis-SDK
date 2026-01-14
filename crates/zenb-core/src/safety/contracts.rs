@@ -229,6 +229,7 @@ mod tests {
     }
     
     #[test]
+    #[cfg(debug_assertions)]
     #[should_panic(expected = "Precondition violated")]
     fn test_requires_fails() {
         let x = -1;

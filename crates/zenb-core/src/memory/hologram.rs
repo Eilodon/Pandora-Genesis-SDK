@@ -6,6 +6,7 @@
 
 use crate::memory::krylov::KrylovProjector;
 use rustfft::{num_complex::Complex32, Fft, FftPlanner};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Holographic Associative Memory
@@ -464,6 +465,114 @@ impl Default for HolographicMemory {
 }
 
 // ============================================================================
+// PERSISTENCE (EIDOLON FIX: Memory Snapshot)
+// ============================================================================
+
+/// Serializable snapshot of HolographicMemory state.
+/// 
+/// # EIDOLON FIX: Memory Persistence
+/// This struct enables memory persistence across process restarts.
+/// Complex32 is split into re/im vectors for serde compatibility.
+/// 
+/// # Usage
+/// ```ignore
+/// // Save
+/// let snapshot = memory.to_snapshot();
+/// let bytes = serde_json::to_vec(&snapshot)?;
+/// store.save_memory_snapshot(session_id, "holographic", &bytes)?;
+/// 
+/// // Load
+/// let bytes = store.load_memory_snapshot(session_id, "holographic")?;
+/// let snapshot: HologramSnapshot = serde_json::from_slice(&bytes)?;
+/// let memory = HolographicMemory::from_snapshot(snapshot);
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HologramSnapshot {
+    /// Real parts of memory trace
+    memory_re: Vec<f32>,
+    /// Imaginary parts of memory trace
+    memory_im: Vec<f32>,
+    /// Dimension of the memory space
+    dim: usize,
+    /// Number of items stored
+    item_count: usize,
+    /// Maximum items before decay eviction
+    max_items: usize,
+    /// Residual alpha for holo-residual encoding
+    residual_alpha: f32,
+    /// Timestamp of last entanglement
+    last_entangle_ts_us: Option<i64>,
+    /// Capacity decay factor
+    capacity_decay_factor: f32,
+    /// Version for future schema migrations
+    version: u8,
+}
+
+impl HolographicMemory {
+    /// Serialize to snapshot for persistence.
+    /// 
+    /// # EIDOLON FIX: Memory Persistence
+    /// Call this before process shutdown to save memory state.
+    pub fn to_snapshot(&self) -> HologramSnapshot {
+        let (re, im): (Vec<f32>, Vec<f32>) = self.memory_trace
+            .iter()
+            .map(|c| (c.re, c.im))
+            .unzip();
+        
+        HologramSnapshot {
+            memory_re: re,
+            memory_im: im,
+            dim: self.dim,
+            item_count: self.item_count,
+            max_items: self.max_items,
+            residual_alpha: self.residual_alpha,
+            last_entangle_ts_us: self.last_entangle_ts_us,
+            capacity_decay_factor: self.capacity_decay_factor,
+            version: 1,
+        }
+    }
+    
+    /// Restore from snapshot.
+    /// 
+    /// # EIDOLON FIX: Memory Persistence
+    /// Call this on startup to restore memory state.
+    /// 
+    /// # Panics
+    /// Panics if snapshot.dim == 0 or re/im vectors have mismatched lengths.
+    pub fn from_snapshot(snapshot: HologramSnapshot) -> Self {
+        assert_eq!(snapshot.memory_re.len(), snapshot.memory_im.len(), 
+            "Snapshot re/im length mismatch");
+        assert!(snapshot.dim > 0, "Snapshot dim must be positive");
+        
+        let memory_trace: Vec<Complex32> = snapshot.memory_re.iter()
+            .zip(snapshot.memory_im.iter())
+            .map(|(&re, &im)| Complex32::new(re, im))
+            .collect();
+        
+        let dim = snapshot.dim;
+        let mut planner = FftPlanner::new();
+        
+        Self {
+            memory_trace,
+            dim,
+            fft: planner.plan_fft_forward(dim),
+            ifft: planner.plan_fft_inverse(dim),
+            norm_factor: 1.0 / (dim as f32),
+            item_count: snapshot.item_count,
+            max_magnitude: 100.0,
+            projector: KrylovProjector::default(),
+            last_entangle_ts_us: snapshot.last_entangle_ts_us,
+            residual_alpha: snapshot.residual_alpha,
+            max_items: snapshot.max_items,
+            capacity_decay_factor: snapshot.capacity_decay_factor,
+            scratch_a: vec![Complex32::new(0.0, 0.0); dim],
+            scratch_b: vec![Complex32::new(0.0, 0.0); dim],
+            scratch_c: vec![Complex32::new(0.0, 0.0); dim],
+        }
+    }
+}
+
+// ============================================================================
 // ENCODING HELPERS
 // ============================================================================
 
@@ -753,3 +862,62 @@ fn test_krylov_benchmark() {
     let energy = mem.energy();
     println!("Energy after evolution: {}", energy);
 }
+
+/// EIDOLON FIX: Snapshot persistence test
+#[test]
+fn test_snapshot_roundtrip() {
+    use crate::memory::hologram::HologramSnapshot;
+    
+    let dim = 128;
+    let mut mem = HolographicMemory::new(dim);
+    
+    // Entangle some data
+    let key: Vec<Complex32> = (0..dim)
+        .map(|i| Complex32::new((i as f32 * 0.1).sin(), 0.0))
+        .collect();
+    let value: Vec<Complex32> = (0..dim)
+        .map(|i| Complex32::new((i as f32 * 0.2).cos(), 0.0))
+        .collect();
+    mem.entangle(&key, &value);
+    
+    // Get original recall
+    let original_recall = mem.recall(&key);
+    let original_energy = mem.energy();
+    
+    // Snapshot and serialize to JSON
+    let snapshot = mem.to_snapshot();
+    let json = serde_json::to_vec(&snapshot).expect("serialize");
+    
+    // Deserialize and restore
+    let restored_snapshot: HologramSnapshot = serde_json::from_slice(&json).expect("deserialize");
+    let restored = HolographicMemory::from_snapshot(restored_snapshot);
+    
+    // Verify recall matches
+    let restored_recall = restored.recall(&key);
+    let restored_energy = restored.energy();
+    
+    // Energy should be preserved (within floating point tolerance)
+    assert!(
+        (original_energy - restored_energy).abs() < 1e-5,
+        "Energy not preserved: {} vs {}",
+        original_energy,
+        restored_energy
+    );
+    
+    // Recalled values should match
+    for (o, r) in original_recall.iter().zip(restored_recall.iter()) {
+        assert!(
+            (o.re - r.re).abs() < 1e-5,
+            "Real part mismatch: {} vs {}",
+            o.re,
+            r.re
+        );
+        assert!(
+            (o.im - r.im).abs() < 1e-5,
+            "Imag part mismatch: {} vs {}",
+            o.im,
+            r.im
+        );
+    }
+}
+

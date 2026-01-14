@@ -501,6 +501,287 @@ impl EventStore {
         Ok(())
     }
 
+    // =========================================================================
+    // EIDOLON FIX: Memory Persistence
+    // =========================================================================
+
+    /// Save an encrypted memory snapshot to the database.
+    ///
+    /// # EIDOLON FIX: Memory Persistence
+    /// This method encrypts the snapshot payload using the session's encryption key
+    /// and stores it in the memory_snapshots table. The snapshot can be loaded on
+    /// process restart to restore cognitive state.
+    ///
+    /// # Arguments
+    /// * `session_id` - Session to associate the snapshot with
+    /// * `snapshot_type` - Type identifier (e.g., "holographic", "sanna", "vedana")
+    /// * `payload` - Raw bytes of the serialized snapshot
+    ///
+    /// # Security
+    /// - Uses XChaCha20Poly1305 for authenticated encryption
+    /// - Nonce is generated using hybrid counter+random pattern
+    pub fn save_memory_snapshot(
+        &self,
+        session_id: &SessionId,
+        snapshot_type: &str,
+        payload: &[u8],
+    ) -> Result<(), StoreError> {
+        let sk = self.load_session_key(session_id)?;
+        let aead = self.xchacha(&sk.0);
+        let nonce = generate_hybrid_nonce();
+        
+        let ciphertext = aead
+            .encrypt(XNonce::from_slice(&nonce), payload)
+            .map_err(|e| StoreError::CryptoError(format!("snapshot encrypt failed: {:?}", e)))?;
+        
+        let ts = chrono::Utc::now().timestamp_micros();
+        
+        self.conn.execute(
+            "INSERT OR REPLACE INTO memory_snapshots 
+             (session_id, snapshot_type, created_ts_us, payload, nonce) 
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                session_id.as_bytes() as &[u8],
+                snapshot_type,
+                ts,
+                ciphertext,
+                &nonce as &[u8]
+            ],
+        )?;
+        
+        log::info!(
+            "Saved memory snapshot: type={}, size={}B, session={:02x}{:02x}...",
+            snapshot_type,
+            payload.len(),
+            session_id.as_bytes()[0],
+            session_id.as_bytes()[1]
+        );
+        
+        Ok(())
+    }
+
+    /// Load an encrypted memory snapshot from the database.
+    ///
+    /// # EIDOLON FIX: Memory Persistence
+    /// This method retrieves and decrypts a previously saved snapshot.
+    /// Returns None if no snapshot exists for the given type.
+    ///
+    /// # Arguments
+    /// * `session_id` - Session to load snapshot for
+    /// * `snapshot_type` - Type identifier (e.g., "holographic", "sanna", "vedana")
+    ///
+    /// # Returns
+    /// * `Ok(Some(bytes))` - Decrypted snapshot payload
+    /// * `Ok(None)` - No snapshot found for this type
+    /// * `Err(...)` - Database or crypto error
+    pub fn load_memory_snapshot(
+        &self,
+        session_id: &SessionId,
+        snapshot_type: &str,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        let row: Option<(Vec<u8>, Vec<u8>)> = self.conn
+            .query_row(
+                "SELECT payload, nonce FROM memory_snapshots 
+                 WHERE session_id = ?1 AND snapshot_type = ?2",
+                params![session_id.as_bytes() as &[u8], snapshot_type],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        
+        let Some((ciphertext, nonce)) = row else { 
+            return Ok(None); 
+        };
+        
+        let sk = self.load_session_key(session_id)?;
+        let aead = self.xchacha(&sk.0);
+        
+        let plaintext = aead
+            .decrypt(XNonce::from_slice(&nonce), ciphertext.as_slice())
+            .map_err(|e| StoreError::CryptoError(format!("snapshot decrypt failed: {:?}", e)))?;
+        
+        log::info!(
+            "Loaded memory snapshot: type={}, size={}B",
+            snapshot_type,
+            plaintext.len()
+        );
+        
+        Ok(Some(plaintext))
+    }
+
+    /// Delete all memory snapshots for a session.
+    ///
+    /// Called during session cleanup or when resetting cognitive state.
+    pub fn delete_memory_snapshots(&self, session_id: &SessionId) -> Result<usize, StoreError> {
+        let count = self.conn.execute(
+            "DELETE FROM memory_snapshots WHERE session_id = ?1",
+            params![session_id.as_bytes() as &[u8]],
+        )?;
+        Ok(count)
+    }
+
+    /// List available snapshot types for a session.
+    pub fn list_memory_snapshots(&self, session_id: &SessionId) -> Result<Vec<String>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT snapshot_type FROM memory_snapshots WHERE session_id = ?1"
+        )?;
+        
+        let types = stmt
+            .query_map(params![session_id.as_bytes() as &[u8]], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        
+        Ok(types)
+    }
+
+    // =========================================================================
+    // EIDOLON FIX: P2P Key Persistence
+    // =========================================================================
+
+    /// Save an encrypted P2P identity (Ed25519 private key) to the database.
+    ///
+    /// # EIDOLON FIX: P2P Key Persistence
+    /// This method encrypts the 32-byte Ed25519 signing key using the master key
+    /// and stores it with an identifier. On process restart, the same identity
+    /// can be restored, maintaining peer reputation and message history.
+    ///
+    /// # Arguments
+    /// * `identity_id` - Unique identifier for this identity (e.g., "default", "backup")
+    /// * `private_key` - 32-byte Ed25519 private key bytes
+    ///
+    /// # Security
+    /// - Uses XChaCha20Poly1305 for authenticated encryption
+    /// - The private key is NEVER stored in plaintext
+    /// - Only the master key holder can decrypt
+    pub fn save_peer_identity(
+        &self,
+        identity_id: &str,
+        private_key: &[u8; 32],
+    ) -> Result<(), StoreError> {
+        let aead = self.xchacha(&self.master_key);
+        let nonce = generate_hybrid_nonce();
+        
+        let ciphertext = aead
+            .encrypt(XNonce::from_slice(&nonce), private_key.as_slice())
+            .map_err(|e| StoreError::CryptoError(format!("peer key encrypt failed: {:?}", e)))?;
+        
+        let ts = chrono::Utc::now().timestamp_micros();
+        
+        // Store in memory_snapshots table with special type prefix
+        self.conn.execute(
+            "INSERT OR REPLACE INTO memory_snapshots 
+             (session_id, snapshot_type, created_ts_us, payload, nonce) 
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                b"__p2p_identity__" as &[u8],  // Fixed session ID for P2P keys
+                format!("peer_identity:{}", identity_id),
+                ts,
+                ciphertext,
+                &nonce as &[u8]
+            ],
+        )?;
+        
+        log::info!(
+            "Saved P2P identity: id={}, key_size=32B (encrypted={}B)",
+            identity_id,
+            ciphertext.len()
+        );
+        
+        Ok(())
+    }
+
+    /// Load an encrypted P2P identity from the database.
+    ///
+    /// # EIDOLON FIX: P2P Key Persistence
+    /// This method retrieves and decrypts a previously saved identity.
+    /// Returns None if no identity exists for the given ID.
+    ///
+    /// # Arguments
+    /// * `identity_id` - Unique identifier for this identity
+    ///
+    /// # Returns
+    /// * `Ok(Some([u8; 32]))` - Decrypted 32-byte private key
+    /// * `Ok(None)` - No identity found for this ID
+    /// * `Err(...)` - Database or crypto error
+    pub fn load_peer_identity(
+        &self,
+        identity_id: &str,
+    ) -> Result<Option<[u8; 32]>, StoreError> {
+        let row: Option<(Vec<u8>, Vec<u8>)> = self
+            .conn
+            .query_row(
+                "SELECT payload, nonce FROM memory_snapshots 
+                 WHERE session_id = ?1 AND snapshot_type = ?2",
+                params![
+                    b"__p2p_identity__" as &[u8],
+                    format!("peer_identity:{}", identity_id)
+                ],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        
+        let (ciphertext, nonce_bytes) = match row {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+        
+        if nonce_bytes.len() != 24 {
+            return Err(StoreError::CryptoError("invalid nonce size".into()));
+        }
+        
+        let aead = self.xchacha(&self.master_key);
+        let plaintext = aead
+            .decrypt(
+                XNonce::from_slice(&nonce_bytes),
+                ciphertext.as_slice(),
+            )
+            .map_err(|e| StoreError::CryptoError(format!("peer key decrypt failed: {:?}", e)))?;
+        
+        if plaintext.len() != 32 {
+            return Err(StoreError::CryptoError(format!(
+                "invalid private key size: expected 32, got {}",
+                plaintext.len()
+            )));
+        }
+        
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&plaintext);
+        
+        log::info!("Loaded P2P identity: id={}", identity_id);
+        
+        Ok(Some(key))
+    }
+
+    /// Delete a P2P identity from the database.
+    ///
+    /// Called when rotating keys or cleaning up unused identities.
+    pub fn delete_peer_identity(&self, identity_id: &str) -> Result<bool, StoreError> {
+        let count = self.conn.execute(
+            "DELETE FROM memory_snapshots 
+             WHERE session_id = ?1 AND snapshot_type = ?2",
+            params![
+                b"__p2p_identity__" as &[u8],
+                format!("peer_identity:{}", identity_id)
+            ],
+        )?;
+        Ok(count > 0)
+    }
+
+    /// List all stored P2P identity IDs.
+    pub fn list_peer_identities(&self) -> Result<Vec<String>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT snapshot_type FROM memory_snapshots 
+             WHERE session_id = ?1 AND snapshot_type LIKE 'peer_identity:%'"
+        )?;
+        
+        let ids = stmt
+            .query_map(params![b"__p2p_identity__" as &[u8]], |row| {
+                let t: String = row.get(0)?;
+                Ok(t.strip_prefix("peer_identity:").unwrap_or(&t).to_string())
+            })?
+            .collect::<Result<Vec<String>, _>>()?;
+        
+        Ok(ids)
+    }
+
     pub fn get_last_seq(&self, session_id: &SessionId) -> Result<u64, StoreError> {
         let r: Option<i64> = self
             .conn

@@ -73,6 +73,8 @@ pub mod replay;
 pub mod resonance;
 pub mod safety; // NEW: LTL Safety Monitor + DharmaFilter
 pub mod safety_subsystem; // Phase 2: Extracted from Engine god-object
+pub mod perception_subsystem; // EIDOLON FIX: Phase 2 Engine Decomposition
+pub mod timing_subsystem; // EIDOLON FIX: Phase 2 Engine Decomposition
 pub mod safety_swarm;
 pub mod scientist; // PANDORA PORT: Automatic causal discovery
 pub mod sensory; // NEW: Binaural, Soundscape, Haptics

@@ -89,15 +89,16 @@ fn test_idempotent_insert() {
     // First insert should succeed
     store.append_batch(&sid, &batch).unwrap();
 
-    // Second insert of same sequence should fail with SequenceConflict
+    // Second insert of same sequence should fail with InvalidSequence
+    // because we expect seq 2 but got seq 1
     let result = store.append_batch(&sid, &batch);
     assert!(result.is_err());
     match result.unwrap_err() {
-        StoreError::SequenceConflict { inserted, total } => {
-            assert_eq!(inserted, 0); // INSERT OR IGNORE inserted nothing
-            assert_eq!(total, 1);
+        StoreError::InvalidSequence { expected, got, .. } => {
+            assert_eq!(expected, 2); // We expect seq 2 after inserting seq 1
+            assert_eq!(got, 1);      // But got seq 1 again
         }
-        _ => panic!("Expected SequenceConflict error"),
+        e => panic!("Expected InvalidSequence error, got: {:?}", e),
     }
 }
 

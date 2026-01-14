@@ -5,6 +5,7 @@
 use crate::{P2PError, P2PResult};
 use crate::message::{P2PMessage, MessageType, PatternPayload, TraumaPayload, BeliefPayload};
 use crate::peer::{PeerId, PeerInfo, PeerRegistry, PeerStatus};
+use crate::identity::PeerIdentity;
 
 use tokio::sync::mpsc;
 use std::sync::Arc;
@@ -58,6 +59,8 @@ struct TraumaSyncEntry {
 /// Create a node, start it, and use it to send/receive messages.
 pub struct P2PNode {
     config: P2PConfig,
+    /// Cryptographic identity for message signing
+    identity: PeerIdentity,
     registry: Arc<Mutex<PeerRegistry>>,
     outbox_tx: mpsc::Sender<P2PMessage>,
     #[allow(dead_code)] // Will be used in full network loop implementation
@@ -78,12 +81,14 @@ impl P2PNode {
     pub fn new(config: P2PConfig) -> Self {
         let (outbox_tx, outbox_rx) = mpsc::channel(1024);
         let (inbox_tx, inbox_rx) = mpsc::channel(1024);
+        let identity = PeerIdentity::generate();
         
         Self {
             registry: Arc::new(Mutex::new(PeerRegistry::new(
                 config.max_peers,
                 config.stale_timeout_ms,
             ))),
+            identity,
             outbox_tx,
             outbox_rx: Arc::new(Mutex::new(outbox_rx)),
             inbox_tx,
@@ -125,7 +130,8 @@ impl P2PNode {
         let registry = self.registry.lock().await;
         let peer_count = registry.connected_count();
         
-        let msg = P2PMessage::new(msg_type, self.config.peer_id.as_str(), payload);
+        let msg = P2PMessage::new_unsigned(msg_type, self.config.peer_id.as_str(), payload)
+            .sign_with_identity(&self.identity);
         self.send(msg).await?;
         
         Ok(peer_count)
@@ -206,11 +212,13 @@ impl P2PNode {
         match msg.msg_type {
             MessageType::Ping => {
                 // Respond with pong
-                let pong = P2PMessage::new(
+                let pong = P2PMessage::new_unsigned(
                     MessageType::Pong,
                     self.config.peer_id.as_str(),
                     msg.id.as_bytes().to_vec(), // Echo message ID as payload
-                ).with_target(msg.sender);
+                )
+                .sign_with_identity(&self.identity)
+                .with_target(msg.sender.clone());
                 
                 Ok(Some(pong))
             }
@@ -395,11 +403,13 @@ impl P2PNode {
                 let payload = serde_json::to_vec(&*patterns)
                     .map_err(|e| P2PError::InvalidPayload(e.to_string()))?;
 
-                let response = P2PMessage::new(
+                let response = P2PMessage::new_unsigned(
                     MessageType::Response,
                     self.config.peer_id.as_str(),
                     payload,
-                ).with_target(&msg.sender);
+                )
+                .sign_with_identity(&self.identity)
+                .with_target(&msg.sender);
 
                 Ok(Some(response))
             }
@@ -414,11 +424,13 @@ impl P2PNode {
                 let payload = serde_json::to_vec(&entries)
                     .map_err(|e| P2PError::InvalidPayload(e.to_string()))?;
 
-                let response = P2PMessage::new(
+                let response = P2PMessage::new_unsigned(
                     MessageType::Response,
                     self.config.peer_id.as_str(),
                     payload,
-                ).with_target(&msg.sender);
+                )
+                .sign_with_identity(&self.identity)
+                .with_target(&msg.sender);
 
                 Ok(Some(response))
             }
@@ -446,6 +458,7 @@ impl P2PNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::identity::PeerIdentity;
 
     #[tokio::test]
     async fn test_node_creation() {
@@ -470,11 +483,13 @@ mod tests {
         let node = P2PNode::default_node();
         node.start().await.unwrap();
         
-        let ping = P2PMessage::new(
+        // Create signed ping from remote peer
+        let remote_identity = PeerIdentity::generate();
+        let ping = P2PMessage::new_unsigned(
             MessageType::Ping,
             "remote-peer",
             b"ping".to_vec(),
-        );
+        ).sign_with_identity(&remote_identity);
         
         let response = node.process_message(ping).await.unwrap();
         assert!(response.is_some());
@@ -482,6 +497,7 @@ mod tests {
         let pong = response.unwrap();
         assert_eq!(pong.msg_type, MessageType::Pong);
         assert_eq!(pong.target, Some("remote-peer".to_string()));
+        assert!(pong.verify(), "Response pong must be signed");
     }
 
     #[tokio::test]
@@ -489,15 +505,34 @@ mod tests {
         let node = P2PNode::default_node();
         node.start().await.unwrap();
         
-        let discovery = P2PMessage::new(
+        // Create signed discovery from new peer
+        let remote_identity = PeerIdentity::generate();
+        let discovery = P2PMessage::new_unsigned(
             MessageType::Discovery,
             "new-peer-123",
             b"hello".to_vec(),
-        );
+        ).sign_with_identity(&remote_identity);
         
         node.process_message(discovery).await.unwrap();
         
         // Should have added the peer
         assert_eq!(node.peer_count().await, 1);
+    }
+    
+    #[tokio::test]
+    async fn test_unsigned_message_rejected() {
+        let node = P2PNode::default_node();
+        node.start().await.unwrap();
+        
+        // Create UNSIGNED message (attack simulation)
+        let unsigned = P2PMessage::new_unsigned(
+            MessageType::Ping,
+            "attacker",
+            b"malicious".to_vec(),
+        ); // Note: NOT signed!
+        
+        // Should be rejected
+        let result = node.process_message(unsigned).await;
+        assert!(result.is_err(), "Unsigned messages MUST be rejected");
     }
 }

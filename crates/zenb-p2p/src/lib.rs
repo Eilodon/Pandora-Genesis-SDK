@@ -29,6 +29,8 @@
 pub mod message;
 pub mod peer;
 pub mod node;
+pub mod identity;
+pub mod trust_boundary;
 
 // Zero-copy transport (feature-gated)
 pub mod transport;
@@ -36,6 +38,8 @@ pub mod transport;
 pub use message::{P2PMessage, MessageType};
 pub use peer::{PeerId, PeerInfo, PeerStatus, PeerScore, PeerRegistry};
 pub use node::P2PNode;
+pub use identity::{PeerIdentity, PublicKeyInfo, verify_signature};
+pub use trust_boundary::{AuthenticatedMessage, AuthError, BatchVerify};
 
 /// Result type for P2P operations
 pub type P2PResult<T> = Result<T, P2PError>;
