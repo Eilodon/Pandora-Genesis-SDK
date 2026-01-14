@@ -100,7 +100,7 @@ impl DspProcessor {
             total_noise_power += power;
         }
 
-        // 5. Calculate SNR and BPM
+        // 5. Calculate SNR
         let noise = total_noise_power - max_power;
         let snr = if noise > 0.0 {
             10.0 * (max_power / noise).log10() // dB
@@ -108,9 +108,120 @@ impl DspProcessor {
             0.0
         };
 
-        let bpm = (peak_bin as f32) * bin_res * 60.0;
+        // 6. Parabolic interpolation for sub-bin accuracy (+0.5 bpm)
+        let refined_bin = if peak_bin > 0 && peak_bin + 1 < power_spectrum.len() {
+            let y_m1 = power_spectrum[peak_bin - 1];
+            let y_0 = power_spectrum[peak_bin];
+            let y_p1 = power_spectrum[peak_bin + 1];
+            let denom = y_m1 - 2.0 * y_0 + y_p1;
+            if denom.abs() > 1e-12 {
+                let delta = 0.5 * (y_m1 - y_p1) / denom;
+                if delta.is_finite() && delta.abs() <= 1.0 {
+                    peak_bin as f32 + delta
+                } else {
+                    peak_bin as f32
+                }
+            } else {
+                peak_bin as f32
+            }
+        } else {
+            peak_bin as f32
+        };
+
+        let bpm = refined_bin * bin_res * 60.0;
 
         (bpm, snr)
+    }
+
+    /// Compute peak frequency (Hz) and SNR (dB) in a specified band.
+    ///
+    /// Generalized version of `compute_heart_rate` for any frequency band,
+    /// e.g., respiration (0.1-0.5 Hz).
+    ///
+    /// # Arguments
+    /// * `signal` - Input signal
+    /// * `fs` - Sample rate (Hz)
+    /// * `min_freq` - Minimum frequency (Hz)
+    /// * `max_freq` - Maximum frequency (Hz)
+    ///
+    /// # Returns
+    /// Tuple of (peak frequency in Hz, SNR in dB)
+    pub fn compute_peak_frequency(
+        signal: &Array1<f32>,
+        fs: f32,
+        min_freq: f32,
+        max_freq: f32,
+    ) -> (f32, f32) {
+        let n = signal.len();
+        if n < 32 || fs <= 0.0 {
+            return (0.0, 0.0);
+        }
+
+        // 1. Apply Hamming window
+        let window = Self::hamming_window(n);
+        let windowed: Vec<Complex32> = signal
+            .iter()
+            .zip(window.iter())
+            .map(|(s, w)| Complex32::new(s * w, 0.0))
+            .collect();
+
+        // 2. FFT
+        let mut planner = FftPlanner::new();
+        let fft = planner.plan_fft_forward(n);
+        let mut buffer = windowed;
+        fft.process(&mut buffer);
+
+        // 3. Power spectrum (positive freqs)
+        let half_n = n / 2;
+        let power_spectrum: Vec<f32> = buffer.iter().take(half_n).map(|c| c.norm_sqr()).collect();
+
+        // 4. Peak in band
+        let bin_res = fs / n as f32;
+        let min_bin = (min_freq / bin_res).max(0.0) as usize;
+        let max_bin = (max_freq / bin_res).min(half_n as f32) as usize;
+
+        if min_bin >= max_bin || max_bin == 0 {
+            return (0.0, 0.0);
+        }
+
+        let mut peak_bin = min_bin;
+        let mut max_power = 0.0f32;
+        let mut total_power = 0.0f32;
+
+        for i in min_bin..=max_bin.min(half_n - 1) {
+            let p = power_spectrum[i];
+            total_power += p;
+            if p > max_power {
+                max_power = p;
+                peak_bin = i;
+            }
+        }
+
+        let noise = (total_power - max_power).max(1e-12);
+        let snr = if max_power > 0.0 { 10.0 * (max_power / noise).log10() } else { 0.0 };
+
+        // Parabolic interpolation for refined peak location
+        let refined_bin = if peak_bin > 0 && peak_bin + 1 < power_spectrum.len() {
+            let y_m1 = power_spectrum[peak_bin - 1];
+            let y_0 = power_spectrum[peak_bin];
+            let y_p1 = power_spectrum[peak_bin + 1];
+            let denom = y_m1 - 2.0 * y_0 + y_p1;
+            if denom.abs() > 1e-12 {
+                let delta = 0.5 * (y_m1 - y_p1) / denom;
+                if delta.is_finite() && delta.abs() <= 1.0 {
+                    peak_bin as f32 + delta
+                } else {
+                    peak_bin as f32
+                }
+            } else {
+                peak_bin as f32
+            }
+        } else {
+            peak_bin as f32
+        };
+
+        let hz = refined_bin * bin_res;
+        (hz, snr)
     }
 
     /// Simple bandpass filter (high-pass + low-pass)
