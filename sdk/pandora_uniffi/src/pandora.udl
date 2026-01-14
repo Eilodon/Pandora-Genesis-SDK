@@ -1,5 +1,0 @@
-namespace pandora {
-    string hello(string name);
-    string get_version();
-    string run_gridworld_simulation();
-};
