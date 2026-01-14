@@ -34,6 +34,24 @@
 
 use super::hdc::{HdcConfig, HdcMemory, HdcVector};
 
+/// Cosine similarity between two f32 vectors (ZENITH Tier 3 helper)
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.5; // Neutral on mismatched dimensions
+    }
+    
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    
+    if norm_a > 0.0 && norm_b > 0.0 {
+        ((dot / (norm_a * norm_b)) + 1.0) / 2.0 // Normalize to [0, 1]
+    } else {
+        0.5
+    }
+}
+
+
 /// Configuration for Tiered HDC Memory
 #[derive(Debug, Clone)]
 pub struct TieredHdcConfig {
@@ -121,7 +139,10 @@ struct WorkingEntry {
     value: HdcVector,
     access_count: u32,
     importance: f32, // Computed from access patterns
+    /// ZENITH Tier 3: Optional context vector for context-aware retrieval
+    context: Option<Vec<f32>>,
 }
+
 
 /// Tiered Hyperdimensional Computing Memory
 ///
@@ -188,14 +209,21 @@ impl TieredHdcMemory {
 
     /// Store a key-value pair (enters working memory first)
     pub fn store(&mut self, key: HdcVector, value: HdcVector) {
+        self.store_internal(key, value, None);
+    }
+
+    /// Internal store with optional context
+    fn store_internal(&mut self, key: HdcVector, value: HdcVector, context: Option<Vec<f32>>) {
         // Check if already in working memory (update if so)
         for entry in &mut self.working_entries {
             if entry.key.similarity(&key) > 0.95 {
                 // Update existing entry
                 entry.value = value;
                 entry.access_count += 1;
-                // Inline importance computation to avoid borrow conflict
                 entry.importance = 1.0 + (entry.access_count as f32).ln();
+                if context.is_some() {
+                    entry.context = context;
+                }
                 return;
             }
         }
@@ -211,7 +239,99 @@ impl TieredHdcMemory {
             value,
             access_count: 1,
             importance: 1.0,
+            context,
         });
+    }
+
+    // =========================================================================
+    // ZENITH Tier 3: Context-Aware Memory Operations
+    // =========================================================================
+
+    /// Store with context embedding (ZENITH enhancement)
+    ///
+    /// Context vectors enable:
+    /// - Context-aware retrieval (prioritize memories from similar contexts)
+    /// - Reduced spurious forgetting (per ICLR 2026 research)
+    /// - Context-specific consolidation patterns
+    ///
+    /// # Arguments
+    /// * `key` - Key HDC vector
+    /// * `value` - Value HDC vector
+    /// * `context` - Context embedding (e.g., [task_type, emotional_state, time_of_day])
+    pub fn store_with_context(&mut self, key: HdcVector, value: HdcVector, context: &[f32]) {
+        self.store_internal(key, value, Some(context.to_vec()));
+    }
+
+    /// Retrieve with context awareness (ZENITH enhancement)
+    ///
+    /// Combines content similarity with context similarity:
+    /// `score = context_weight * context_sim + (1 - context_weight) * content_sim`
+    ///
+    /// # Arguments
+    /// * `query` - Query key vector
+    /// * `context` - Current context embedding
+    /// * `context_weight` - Weight for context similarity (0.0-1.0, recommend 0.3-0.5)
+    pub fn retrieve_context_aware(
+        &mut self,
+        query: &HdcVector,
+        context: &[f32],
+        context_weight: f32,
+    ) -> Option<(f32, MemoryTier)> {
+        self.total_retrievals += 1;
+        let ctx_w = context_weight.clamp(0.0, 1.0);
+        let content_w = 1.0 - ctx_w;
+
+        // Search working memory with context scoring
+        let mut best_working_idx: Option<usize> = None;
+        let mut best_working_score = 0.0f32;
+
+        for (i, entry) in self.working_entries.iter().enumerate() {
+            let content_sim = query.similarity(&entry.key);
+            let context_sim = entry
+                .context
+                .as_ref()
+                .map(|c| cosine_similarity(c, context))
+                .unwrap_or(0.5); // Neutral if no context stored
+
+            let combined_score = ctx_w * context_sim + content_w * content_sim;
+
+            if combined_score > best_working_score
+                && content_sim >= self.config.working_config.similarity_threshold
+            {
+                best_working_score = combined_score;
+                best_working_idx = Some(i);
+            }
+        }
+
+        // Search long-term (no context yet - use content only)
+        let long_term_result = self
+            .long_term
+            .retrieve(query)
+            .map(|(_, sim)| (sim * content_w + 0.5 * ctx_w, sim));
+
+        // Determine best
+        match (best_working_idx, long_term_result) {
+            (Some(idx), Some((lt_combined, lt_raw))) => {
+                if best_working_score >= lt_combined {
+                    self.handle_working_hit(idx);
+                    self.successful_retrievals += 1;
+                    Some((best_working_score, MemoryTier::Working))
+                } else {
+                    self.successful_retrievals += 1;
+                    Some((lt_raw, MemoryTier::LongTerm))
+                }
+            }
+            (Some(idx), None) => {
+                self.handle_working_hit(idx);
+                self.successful_retrievals += 1;
+                Some((best_working_score, MemoryTier::Working))
+            }
+            (None, Some((_, lt_raw))) => {
+                self.successful_retrievals += 1;
+                Some((lt_raw, MemoryTier::LongTerm))
+            }
+            (None, None) => None,
+        }
     }
 
     /// Store from feature vectors (convenience wrapper)
@@ -220,6 +340,7 @@ impl TieredHdcMemory {
         let value = self.encode_features(value_features);
         self.store(key, value);
     }
+
 
     /// Retrieve value for given key
     ///
