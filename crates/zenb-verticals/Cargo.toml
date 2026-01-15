@@ -1,0 +1,27 @@
+[package]
+name = "zenb-verticals"
+version = "0.1.0"
+edition = "2021"
+description = "Vertical market modules for AGOLOS platform"
+
+[dependencies]
+zenb-signals = { path = "../zenb-signals" }
+zenb-core = { path = "../zenb-core" }
+
+ndarray = "0.15"
+nalgebra = "0.32"
+
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+rand = "0.8"
+
+[dev-dependencies]
+approx = "0.5"
+
+[features]
+default = ["liveness", "automotive", "retail"]
+liveness = []
+automotive = []
+retail = []
+fintech = []
+education = ["liveness"]
