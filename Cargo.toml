@@ -5,6 +5,7 @@ members = [
     "crates/zenb-store",
     "crates/zenb-projectors",
     "crates/zenb-uniffi",
+    "crates/zenb-verticals",
     "crates/zenb-wasm-demo",
     "crates/zenb-cli",
     "crates/zenb-signals",
