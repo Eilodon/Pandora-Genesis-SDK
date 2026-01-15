@@ -169,6 +169,92 @@ impl DivinePercept {
     pub fn has_raw_signal(&self) -> bool {
         self.raw_signal_buffer.as_ref().map(|b| !b.is_empty()).unwrap_or(false)
     }
+    
+    /// Push a single ROI mean RGB sample (for streaming from mobile)
+    /// 
+    /// # Arguments
+    /// * `r`, `g`, `b` - Mean RGB values from face ROI for this frame
+    /// 
+    /// # Example
+    /// ```ignore
+    /// // Mobile side: compute ROI mean each frame, push to DivinePercept
+    /// for frame in video_stream {
+    ///     let (r, g, b) = compute_roi_mean(&frame, &face_bbox);
+    ///     percept.push_roi_sample(r, g, b);
+    /// }
+    /// ```
+    pub fn push_roi_sample(&mut self, r: f32, g: f32, b: f32) {
+        let buffer = self.raw_signal_buffer.get_or_insert_with(Vec::new);
+        buffer.push(r);
+        buffer.push(g);
+        buffer.push(b);
+    }
+    
+    /// Get the number of RGB samples in the buffer
+    pub fn sample_count(&self) -> usize {
+        self.raw_signal_buffer.as_ref().map(|b| b.len() / 3).unwrap_or(0)
+    }
+    
+    /// Check if buffer has enough samples for processing (typically 3+ seconds)
+    pub fn is_ready_for_processing(&self, min_samples: usize) -> bool {
+        self.sample_count() >= min_samples
+    }
+    
+    /// Clear the raw signal buffer (after processing or to start fresh)
+    pub fn clear_buffer(&mut self) {
+        if let Some(ref mut buffer) = self.raw_signal_buffer {
+            buffer.clear();
+        }
+    }
+    
+    /// Update geometry from external landmarks
+    /// 
+    /// # Arguments
+    /// * `landmarks` - 468 MediaPipe-style landmarks [[x, y, z], ...]
+    /// * `prev_landmarks` - Previous frame landmarks for stability calculation
+    pub fn update_geometry(&mut self, landmarks: Vec<[f32; 3]>, prev_landmarks: Option<&[[f32; 3]]>) {
+        let stability = if let Some(prev) = prev_landmarks {
+            // Calculate ROI stability as inverse of landmark jitter
+            let jitter = Self::compute_landmark_jitter(&landmarks, prev);
+            (1.0 - jitter).clamp(0.0, 1.0)
+        } else {
+            1.0 // First frame, assume stable
+        };
+        
+        self.geometry = Some(FaceGeometry {
+            face_detected: true,
+            roi_stability: stability,
+            mesh_landmarks: Some(landmarks),
+        });
+    }
+    
+    /// Compute landmark jitter (average displacement normalized to face size)
+    fn compute_landmark_jitter(curr: &[[f32; 3]], prev: &[[f32; 3]]) -> f32 {
+        if curr.len() != prev.len() || curr.is_empty() {
+            return 0.0;
+        }
+        
+        // Estimate face size from landmark bounding box
+        let (min_x, max_x, min_y, max_y) = curr.iter().fold(
+            (f32::MAX, f32::MIN, f32::MAX, f32::MIN),
+            |(min_x, max_x, min_y, max_y), p| {
+                (min_x.min(p[0]), max_x.max(p[0]), min_y.min(p[1]), max_y.max(p[1]))
+            },
+        );
+        let face_size = ((max_x - min_x).max(max_y - min_y)).max(1.0);
+        
+        // Average displacement normalized by face size
+        let total_disp: f32 = curr.iter().zip(prev.iter())
+            .map(|(c, p)| {
+                let dx = c[0] - p[0];
+                let dy = c[1] - p[1];
+                (dx * dx + dy * dy).sqrt()
+            })
+            .sum();
+        
+        let avg_disp = total_disp / curr.len() as f32;
+        (avg_disp / face_size).clamp(0.0, 1.0) // Normalize to 0-1
+    }
 }
 
 /// Processed form after sensor consensus (Rupa stage output).
@@ -977,22 +1063,22 @@ pub mod zenb {
         /// # VAJRA-VOID: Tri Giác Thần Thánh
         /// 
         /// When raw signal buffer is available and signal processor is configured,
-        /// extracts HR/HRV using CHROM+POS+PRISM ensemble with SNR-weighted voting.
+        /// extracts HR/HRV/RR using CHROM+POS+PRISM ensemble with SNR-weighted voting.
         pub fn process_divine_percept(&mut self, percept: &DivinePercept) -> ProcessedForm {
             // Try to extract vitals from raw signal if available
             #[cfg(feature = "vajra_void")]
             let extracted_vitals = self.process_raw_signal(percept);
             #[cfg(not(feature = "vajra_void"))]
-            let extracted_vitals: Option<(f32, f32, VitalityMetrics)> = None;
+            let extracted_vitals: Option<(f32, Option<f32>, Option<f32>, f32, VitalityMetrics)> = None;
             
             // Build effective SensorInput, preferring extracted over provided
-            let effective_input = if let Some((hr, snr, vitality)) = extracted_vitals {
+            let effective_input = if let Some((hr, hrv_rmssd, rr_bpm, snr, vitality)) = extracted_vitals {
                 self.last_vitality = Some(vitality);
                 SensorInput {
                     hr_bpm: Some(hr),
-                    hrv_rmssd: percept.hrv_rmssd, // HRV needs separate extraction TODO
-                    rr_bpm: percept.rr_bpm,
-                    quality: (snr / 20.0).clamp(0.0, 1.0), // Convert SNR to quality
+                    hrv_rmssd: hrv_rmssd.or(percept.hrv_rmssd), // Use extracted or fallback to provided
+                    rr_bpm: rr_bpm.or(percept.rr_bpm),          // Use extracted or fallback to provided
+                    quality: (snr / 20.0).clamp(0.0, 1.0),      // Convert SNR to quality
                     motion: percept.motion,
                     timestamp_us: percept.timestamp_us,
                 }
@@ -1005,8 +1091,10 @@ pub mod zenb {
         }
         
         /// Process raw RGB signal buffer through EnsembleProcessor
+        /// 
+        /// Returns: (hr_bpm, hrv_rmssd_opt, rr_opt, snr, vitality)
         #[cfg(feature = "vajra_void")]
-        fn process_raw_signal(&mut self, percept: &DivinePercept) -> Option<(f32, f32, VitalityMetrics)> {
+        fn process_raw_signal(&mut self, percept: &DivinePercept) -> Option<(f32, Option<f32>, Option<f32>, f32, VitalityMetrics)> {
             let buffer = percept.raw_signal_buffer.as_ref()?;
             if buffer.len() < 90 {  // Need at least ~3 seconds at 30fps
                 return None;
@@ -1029,20 +1117,224 @@ pub mod zenb {
             // Process through ensemble
             let result = processor.process_arrays(&r, &g, &b)?;
             
+            // Extract HRV if signal quality is good enough
+            let hrv_rmssd = if result.snr > 3.0 && n_samples >= 150 {
+                // Use green channel as pulse proxy (strongest PPG signal)
+                self.extract_hrv_from_pulse(&g)
+            } else {
+                None
+            };
+            
+            // Extract respiration rate
+            let rr_bpm = if result.snr > 0.0 && n_samples >= 180 {
+                self.extract_respiration(&g)
+            } else {
+                None
+            };
+            
+            // Compute spectral entropy from pulse signal
+            let entropy = self.compute_spectral_entropy(&g);
+            
+            // Compute aura_color from spectral characteristics
+            // Map dominant frequency band to hue, SNR to saturation, amplitude to brightness
+            let aura_color = self.compute_aura_color(&result, &g);
+            
             // Build vitality metrics
             let vitality = VitalityMetrics {
                 snr_db: result.snr,
-                entropy: 0.0, // TODO: compute from signal
-                aura_color: [
-                    r.iter().sum::<f32>() / n_samples as f32,
-                    g.iter().sum::<f32>() / n_samples as f32,
-                    b.iter().sum::<f32>() / n_samples as f32,
-                ],
+                entropy,
+                aura_color,
                 prism_alpha: result.prism_alpha,
                 ensemble_agreement: result.confidence,
             };
             
-            Some((result.bpm, result.snr, vitality))
+            Some((result.bpm, hrv_rmssd, rr_bpm, result.snr, vitality))
+        }
+        
+        /// Extract HRV (RMSSD) from pulse waveform using peak detection
+        #[cfg(feature = "vajra_void")]
+        fn extract_hrv_from_pulse(&self, pulse: &ndarray::Array1<f32>) -> Option<f32> {
+            // Simple peak detection for IBI extraction
+            let n = pulse.len();
+            if n < 60 {
+                return None;
+            }
+            
+            let mean: f32 = pulse.iter().sum::<f32>() / n as f32;
+            let std: f32 = (pulse.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n as f32).sqrt();
+            let threshold = mean + 0.5 * std;
+            
+            // Detect peaks with refractory period (~300ms at 30fps = 9 samples)
+            let refractory = 9usize;
+            let mut peaks = Vec::new();
+            let mut last_peak = 0usize;
+            
+            for i in 1..n - 1 {
+                if pulse[i] > threshold
+                    && pulse[i] > pulse[i - 1]
+                    && pulse[i] > pulse[i + 1]
+                    && (last_peak == 0 || i - last_peak >= refractory)
+                {
+                    peaks.push(i);
+                    last_peak = i;
+                }
+            }
+            
+            if peaks.len() < 3 {
+                return None;
+            }
+            
+            // Compute successive differences
+            let sample_rate = 30.0; // Assume 30 fps
+            let mut successive_diffs = Vec::with_capacity(peaks.len() - 1);
+            for i in 1..peaks.len() {
+                let ibi_ms = (peaks[i] - peaks[i - 1]) as f32 / sample_rate * 1000.0;
+                if i > 1 {
+                    let prev_ibi = (peaks[i - 1] - peaks[i - 2]) as f32 / sample_rate * 1000.0;
+                    successive_diffs.push((ibi_ms - prev_ibi).powi(2));
+                }
+            }
+            
+            if successive_diffs.is_empty() {
+                return None;
+            }
+            
+            // RMSSD = sqrt(mean of squared successive differences)
+            let mean_sq: f32 = successive_diffs.iter().sum::<f32>() / successive_diffs.len() as f32;
+            Some(mean_sq.sqrt())
+        }
+        
+        /// Extract respiration rate from pulse waveform modulation
+        #[cfg(feature = "vajra_void")]
+        fn extract_respiration(&self, pulse: &ndarray::Array1<f32>) -> Option<f32> {
+            // Use amplitude modulation to detect respiration
+            // Respiration modulates PPG amplitude at ~0.1-0.5 Hz
+            let n = pulse.len();
+            if n < 180 {
+                return None;
+            }
+            
+            // Compute envelope via absolute value + smoothing
+            let envelope: Vec<f32> = pulse.iter().map(|x| x.abs()).collect();
+            
+            // Simple moving average (window = 15 samples ~ 0.5s)
+            let window = 15;
+            let mut smoothed = vec![0.0f32; n];
+            for i in 0..n {
+                let start = i.saturating_sub(window / 2);
+                let end = (i + window / 2 + 1).min(n);
+                smoothed[i] = envelope[start..end].iter().sum::<f32>() / (end - start) as f32;
+            }
+            
+            // Count zero-crossings of detrended envelope
+            let mean: f32 = smoothed.iter().sum::<f32>() / n as f32;
+            let mut crossings = 0;
+            let mut prev_sign = smoothed[0] > mean;
+            for &v in &smoothed[1..] {
+                let sign = v > mean;
+                if sign != prev_sign {
+                    crossings += 1;
+                }
+                prev_sign = sign;
+            }
+            
+            // Zero crossings / 2 = number of cycles, convert to BPM
+            let duration_min = n as f32 / 30.0 / 60.0; // Assuming 30 fps
+            let cycles = crossings as f32 / 2.0;
+            let brpm = cycles / duration_min;
+            
+            if brpm > 5.0 && brpm < 40.0 {
+                Some(brpm)
+            } else {
+                None
+            }
+        }
+        
+        /// Compute spectral entropy from signal (0 = pure tone, 1 = white noise)
+        #[cfg(feature = "vajra_void")]
+        fn compute_spectral_entropy(&self, signal: &ndarray::Array1<f32>) -> f32 {
+            let n = signal.len();
+            if n < 32 {
+                return 0.5; // Default mid-entropy for insufficient data
+            }
+            
+            // Compute power spectrum
+            let mut planner = rustfft::FftPlanner::new();
+            let fft = planner.plan_fft_forward(n);
+            
+            let windowed: Vec<num_complex::Complex32> = signal.iter()
+                .map(|&x| num_complex::Complex32::new(x, 0.0))
+                .collect();
+            let mut buffer = windowed;
+            fft.process(&mut buffer);
+            
+            // Power spectrum (positive frequencies only)
+            let half_n = n / 2;
+            let powers: Vec<f32> = buffer.iter().take(half_n).map(|c| c.norm_sqr()).collect();
+            
+            // Normalize to probability distribution
+            let total: f32 = powers.iter().sum();
+            if total < 1e-10 {
+                return 0.5;
+            }
+            
+            let probs: Vec<f32> = powers.iter().map(|p| p / total).collect();
+            
+            // Shannon entropy: H = -sum(p * log(p))
+            let entropy: f32 = probs.iter()
+                .filter(|&&p| p > 1e-10)
+                .map(|&p| -p * p.ln())
+                .sum();
+            
+            // Normalize by max entropy (uniform distribution)
+            let max_entropy = (half_n as f32).ln();
+            if max_entropy < 1e-10 {
+                return 0.5;
+            }
+            
+            (entropy / max_entropy).clamp(0.0, 1.0)
+        }
+        
+        /// Compute aura_color from spectral characteristics
+        /// Maps: HR frequency → Hue, SNR → Saturation, Amplitude → Value
+        #[cfg(feature = "vajra_void")]
+        fn compute_aura_color(&self, result: &zenb_signals::EnsembleResult, _signal: &ndarray::Array1<f32>) -> [f32; 3] {
+            // Map HR (40-180 BPM) to hue (0-360°)
+            // Low HR = blue/purple, High HR = red/orange
+            let hr_norm = ((result.bpm - 40.0) / 140.0).clamp(0.0, 1.0);
+            let hue = hr_norm * 240.0; // Blue (240°) to Red (0°) via green
+            
+            // Map SNR to saturation (higher SNR = more vivid)
+            let sat = ((result.snr + 5.0) / 25.0).clamp(0.2, 1.0);
+            
+            // Map confidence to brightness
+            let val = result.confidence.clamp(0.3, 1.0);
+            
+            // HSV to RGB conversion
+            Self::hsv_to_rgb(hue, sat, val)
+        }
+        
+        /// Convert HSV to RGB
+        fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
+            let c = v * s;
+            let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+            let m = v - c;
+            
+            let (r, g, b) = if h < 60.0 {
+                (c, x, 0.0)
+            } else if h < 120.0 {
+                (x, c, 0.0)
+            } else if h < 180.0 {
+                (0.0, c, x)
+            } else if h < 240.0 {
+                (0.0, x, c)
+            } else if h < 300.0 {
+                (x, 0.0, c)
+            } else {
+                (c, 0.0, x)
+            };
+            
+            [(r + m) * 255.0, (g + m) * 255.0, (b + m) * 255.0]
         }
         
         /// Phase 2A: Process time-series with FastCWT for amplitude+phase extraction
