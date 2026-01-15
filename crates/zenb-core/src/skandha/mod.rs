@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 /// Raw sensory input (Rupa stage input).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct SensorInput {
     pub hr_bpm: Option<f32>,
     pub hrv_rmssd: Option<f32>,
@@ -166,7 +166,7 @@ impl DivinePercept {
 }
 
 /// Processed form after sensor consensus (Rupa stage output).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct ProcessedForm {
     /// Consensus sensor values
     pub values: [f32; 5],
@@ -179,10 +179,10 @@ pub struct ProcessedForm {
 }
 
 /// Affective state (Vedana stage output).
-/// 
+///
 /// # VAJRA-VOID Enhancement
 /// Includes karma weight from early Dharma check in Vedana stage.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AffectiveState {
     /// Valence (-1 negative to +1 positive)
     pub valence: f32,
@@ -212,7 +212,7 @@ impl Default for AffectiveState {
 }
 
 /// Perceived pattern (Sanna stage output).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct PerceivedPattern {
     /// Recalled pattern from memory
     pub pattern_id: u64,
@@ -225,7 +225,7 @@ pub struct PerceivedPattern {
 }
 
 /// Formed intent (Sankhara stage output).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FormedIntent {
     /// Proposed action type
     pub action: IntentAction,
@@ -264,7 +264,7 @@ pub enum IntentAction {
 }
 
 /// Final synthesized output (Vinnana stage output).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct SynthesizedState {
     /// The processed physiological form (preserved from Rupa)
     pub form: ProcessedForm,
@@ -281,7 +281,7 @@ pub struct SynthesizedState {
 }
 
 /// Control output from synthesis.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ControlOutput {
     pub target_bpm: f32,
     pub confidence: f32,

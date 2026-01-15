@@ -80,6 +80,10 @@ pub mod scientist; // PANDORA PORT: Automatic causal discovery
 pub mod sensory; // NEW: Binaural, Soundscape, Haptics
 pub mod skandha; // PANDORA PORT: Five Skandhas cognitive pipeline
 pub mod thermo_logic; // TIER 3: Thermodynamic Logic (GENERIC framework)
+
+// B.ONE V3: Epistemological Reasoning System
+pub mod philosophical_state; // Meta-level consciousness state (YÊN/ĐỘNG/HỖN LOẠN)
+pub mod universal_flow; // Vô Cực Stream - Central consciousness bus
 pub mod timestamp;
 pub mod trauma_cache;
 pub mod uncertain; // NEW: Uncertainty quantification
@@ -256,3 +260,21 @@ pub use simulation::{
 
 // SDK PORT: Prometheus metrics (re-exports convenience functions)
 pub use monitoring::{gather_metrics, register_metrics};
+
+// ============================================================================
+// B.ONE V3: EPISTEMOLOGICAL REASONING SYSTEM
+// ============================================================================
+
+// Philosophical State Machine (YÊN/ĐỘNG/HỖN LOẠN)
+pub use philosophical_state::{
+    compute_coherence, compute_coherence_from_votes, LogVerbosity, PhilosophicalProcessingConfig,
+    PhilosophicalState, PhilosophicalStateMonitor, PhilosophicalStateThresholds,
+    StateTransitionDirection,
+};
+
+// Universal Flow Stream (Vô Cực Stream)
+pub use universal_flow::{
+    ConsciousnessAspect, ConsciousnessReports, FlowEnrichment, FlowEvent, FlowEventId,
+    FlowPayload, FlowStreamStats, GemReport, MinhGioiReport, PhaQuanReport, SkandhaStage,
+    SystemHealth, SystemObservation, UniversalFlowStream, VedanaType,
+};
