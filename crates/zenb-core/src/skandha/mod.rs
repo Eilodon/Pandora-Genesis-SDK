@@ -71,6 +71,95 @@ pub struct VitalityMetrics {
     pub ensemble_agreement: f32,
 }
 
+/// Configuration for physiological signal quality gating
+#[cfg(feature = "vajra_void")]
+pub mod physio_config {
+    /// Minimum SNR (dB) for HR extraction
+    pub const HR_MIN_SNR: f32 = 0.0;
+    /// Minimum SNR (dB) for HRV extraction (higher quality needed)
+    pub const HRV_MIN_SNR: f32 = 3.0;
+    /// Minimum SNR (dB) for RR extraction
+    pub const RR_MIN_SNR: f32 = 1.0;
+    
+    /// Minimum samples for HR (2s at 30fps)
+    pub const HR_MIN_SAMPLES: usize = 60;
+    /// Minimum samples for HRV (5s at 30fps for at least 3 beats)
+    pub const HRV_MIN_SAMPLES: usize = 150;
+    /// Minimum samples for RR (6s at 30fps for 1-2 breath cycles)
+    pub const RR_MIN_SAMPLES: usize = 180;
+    
+    /// Maximum motion level (0-1) for reliable extraction
+    pub const MAX_MOTION: f32 = 0.5;
+    /// Motion penalty factor per unit motion
+    pub const MOTION_PENALTY: f32 = 0.3;
+    
+    /// EMA smoothing factor for HR (0 = no smoothing, 1 = max smoothing)
+    pub const HR_EMA_ALPHA: f32 = 0.3;
+    /// EMA smoothing factor for HRV
+    pub const HRV_EMA_ALPHA: f32 = 0.4;
+    /// EMA smoothing factor for RR
+    pub const RR_EMA_ALPHA: f32 = 0.5;
+    
+    /// Valid HR range (BPM)
+    pub const HR_MIN: f32 = 40.0;
+    pub const HR_MAX: f32 = 200.0;
+    
+    /// Valid HRV RMSSD range (ms)
+    pub const HRV_MIN: f32 = 5.0;
+    pub const HRV_MAX: f32 = 200.0;
+    
+    /// Valid RR range (breaths per minute)
+    pub const RR_MIN: f32 = 4.0;
+    pub const RR_MAX: f32 = 40.0;
+}
+
+/// Result of physiological signal extraction with confidence scores
+#[cfg(feature = "vajra_void")]
+#[derive(Debug, Clone)]
+pub struct PhysioResult {
+    /// Heart rate in BPM
+    pub hr_bpm: f32,
+    /// HR confidence (0-1)
+    pub hr_confidence: f32,
+    
+    /// HRV RMSSD in ms (None if quality insufficient)
+    pub hrv_rmssd: Option<f32>,
+    /// HRV confidence (0-1)
+    pub hrv_confidence: f32,
+    
+    /// Respiratory rate in BPM (None if quality insufficient)
+    pub rr_bpm: Option<f32>,
+    /// RR confidence (0-1)
+    pub rr_confidence: f32,
+    
+    /// Raw SNR from ensemble processor
+    pub snr: f32,
+    /// Motion level at time of extraction (0-1)
+    pub motion: f32,
+    /// Vitality metrics
+    pub vitality: VitalityMetrics,
+    
+    /// Quality gate status flags
+    pub quality_flags: PhysioQualityFlags,
+}
+
+/// Quality gate status flags for physiological extraction
+#[cfg(feature = "vajra_void")]
+#[derive(Debug, Clone, Default)]
+pub struct PhysioQualityFlags {
+    /// SNR below threshold
+    pub low_snr: bool,
+    /// High motion detected
+    pub high_motion: bool,
+    /// Insufficient samples
+    pub insufficient_samples: bool,
+    /// Out of valid range
+    pub out_of_range: bool,
+    /// Low ensemble agreement
+    pub low_agreement: bool,
+}
+
+
 /// Enhanced sensory input with raw signal buffer for advanced processing.
 /// 
 /// # VAJRA-VOID: Tri Giác Thần Thánh (Divine Perception)
@@ -950,7 +1039,17 @@ pub mod zenb {
         pub fcwt: Option<zenb_signals::FastCWT>,
         /// Last processed vitality metrics
         pub last_vitality: Option<VitalityMetrics>,
+        /// EMA smoothed HR value
+        #[cfg(feature = "vajra_void")]
+        pub hr_ema: Option<f32>,
+        /// EMA smoothed HRV value
+        #[cfg(feature = "vajra_void")]
+        pub hrv_ema: Option<f32>,
+        /// EMA smoothed RR value
+        #[cfg(feature = "vajra_void")]
+        pub rr_ema: Option<f32>,
     }
+
     
     impl std::fmt::Debug for ZenbRupa {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -970,6 +1069,12 @@ pub mod zenb {
                 #[cfg(feature = "vajra_void")]
                 fcwt: None,
                 last_vitality: None,
+                #[cfg(feature = "vajra_void")]
+                hr_ema: None,
+                #[cfg(feature = "vajra_void")]
+                hrv_ema: None,
+                #[cfg(feature = "vajra_void")]
+                rr_ema: None,
             }
         }
     }
@@ -983,6 +1088,9 @@ pub mod zenb {
                 signal_processor: Some(zenb_signals::EnsembleProcessor::new()),
                 fcwt: Some(zenb_signals::FastCWT::new()),
                 last_vitality: None,
+                hr_ema: None,
+                hrv_ema: None,
+                rr_ema: None,
             }
         }
         
@@ -994,6 +1102,9 @@ pub mod zenb {
                 signal_processor: None,
                 fcwt: Some(zenb_signals::FastCWT::new()),
                 last_vitality: None,
+                hr_ema: None,
+                hrv_ema: None,
+                rr_ema: None,
             }
         }
         
@@ -1162,6 +1273,157 @@ pub mod zenb {
             };
             
             Some((result.bpm, hrv_rmssd, rr_bpm, result.snr, vitality))
+        }
+        
+        /// Process raw RGB signal buffer with quality gating, motion detection, and EMA smoothing.
+        /// 
+        /// Returns PhysioResult with confidence scores and quality flags.
+        /// This is the preferred API for production use (Week 2-3 roadmap).
+        #[cfg(feature = "vajra_void")]
+        pub fn process_raw_signal_v2(&mut self, percept: &DivinePercept) -> Option<PhysioResult> {
+            use physio_config::*;
+            
+            let buffer = percept.raw_signal_buffer.as_ref()?;
+            let n_samples = buffer.len() / 3;
+            
+            // Initialize quality flags
+            let mut quality_flags = PhysioQualityFlags::default();
+            
+            // Check minimum buffer length
+            if n_samples < HR_MIN_SAMPLES {
+                quality_flags.insufficient_samples = true;
+                return None; // Not enough data even for HR
+            }
+            
+            // Motion gating
+            let motion = percept.motion;
+            if motion > MAX_MOTION {
+                quality_flags.high_motion = true;
+            }
+            let motion_factor = (1.0 - motion * MOTION_PENALTY).clamp(0.0, 1.0);
+            
+            let processor = self.signal_processor.as_mut()?;
+            
+            // Deinterleave RGB
+            let mut r = ndarray::Array1::zeros(n_samples);
+            let mut g = ndarray::Array1::zeros(n_samples);
+            let mut b = ndarray::Array1::zeros(n_samples);
+            
+            for i in 0..n_samples {
+                r[i] = buffer[i * 3];
+                g[i] = buffer[i * 3 + 1];
+                b[i] = buffer[i * 3 + 2];
+            }
+            
+            // Process through ensemble
+            let result = processor.process_arrays(&r, &g, &b)?;
+            
+            // Check SNR
+            if result.snr < HR_MIN_SNR {
+                quality_flags.low_snr = true;
+            }
+            
+            // Check ensemble agreement
+            if result.confidence < 0.5 {
+                quality_flags.low_agreement = true;
+            }
+            
+            let sample_rate = if percept.sample_rate > 0.0 { percept.sample_rate } else { 30.0 };
+            
+            // --- HR Extraction ---
+            let raw_hr = result.bpm;
+            let hr_in_range = raw_hr >= HR_MIN && raw_hr <= HR_MAX;
+            if !hr_in_range {
+                quality_flags.out_of_range = true;
+            }
+            
+            let hr_confidence = if hr_in_range && !quality_flags.low_snr {
+                let snr_factor = (result.snr / 10.0).clamp(0.0, 1.0);
+                (snr_factor * result.confidence * motion_factor).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            
+            // Apply EMA smoothing to HR
+            let hr_bpm = if hr_in_range {
+                let smoothed = match self.hr_ema {
+                    Some(prev) => prev * HR_EMA_ALPHA + raw_hr * (1.0 - HR_EMA_ALPHA),
+                    None => raw_hr,
+                };
+                self.hr_ema = Some(smoothed);
+                smoothed
+            } else {
+                self.hr_ema.unwrap_or(60.0) // Fallback to baseline
+            };
+            
+            // --- HRV Extraction ---
+            let (hrv_rmssd, hrv_confidence) = if n_samples >= HRV_MIN_SAMPLES 
+                && result.snr >= HRV_MIN_SNR 
+                && !quality_flags.high_motion 
+            {
+                match self.extract_hrv_from_pulse(&g, sample_rate) {
+                    Some(raw_hrv) if raw_hrv >= HRV_MIN && raw_hrv <= HRV_MAX => {
+                        let conf = (result.snr / 10.0).clamp(0.3, 1.0) * motion_factor;
+                        // EMA smoothing
+                        let smoothed = match self.hrv_ema {
+                            Some(prev) => prev * HRV_EMA_ALPHA + raw_hrv * (1.0 - HRV_EMA_ALPHA),
+                            None => raw_hrv,
+                        };
+                        self.hrv_ema = Some(smoothed);
+                        (Some(smoothed), conf)
+                    }
+                    _ => (None, 0.0),
+                }
+            } else {
+                (None, 0.0)
+            };
+            
+            // --- RR Extraction ---
+            let (rr_bpm, rr_confidence) = if n_samples >= RR_MIN_SAMPLES 
+                && result.snr >= RR_MIN_SNR 
+                && motion < MAX_MOTION // RR very sensitive to motion
+            {
+                match self.extract_respiration(&g, sample_rate) {
+                    Some(raw_rr) if raw_rr >= RR_MIN && raw_rr <= RR_MAX => {
+                        let conf = (result.snr / 5.0).clamp(0.2, 0.9) * motion_factor;
+                        // EMA smoothing
+                        let smoothed = match self.rr_ema {
+                            Some(prev) => prev * RR_EMA_ALPHA + raw_rr * (1.0 - RR_EMA_ALPHA),
+                            None => raw_rr,
+                        };
+                        self.rr_ema = Some(smoothed);
+                        (Some(smoothed), conf)
+                    }
+                    _ => (None, 0.0),
+                }
+            } else {
+                (None, 0.0)
+            };
+            
+            // Build vitality metrics
+            let entropy = self.compute_spectral_entropy(&g);
+            let aura_color = self.compute_aura_color(&result, &g);
+            
+            let vitality = VitalityMetrics {
+                snr_db: result.snr,
+                entropy,
+                aura_color,
+                prism_alpha: result.prism_alpha,
+                ensemble_agreement: result.confidence,
+            };
+            
+            Some(PhysioResult {
+                hr_bpm,
+                hr_confidence,
+                hrv_rmssd,
+                hrv_confidence,
+                rr_bpm,
+                rr_confidence,
+                snr: result.snr,
+                motion,
+                vitality,
+                quality_flags,
+            })
         }
         
         /// Extract HRV (RMSSD) from pulse waveform using peak detection
