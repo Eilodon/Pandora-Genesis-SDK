@@ -68,3 +68,7 @@ gpu_metal = []
 [[bench]]
 name = "forensic_bench"
 harness = false
+
+[[example]]
+name = "b1_v3_demonstration"
+path = "examples/b1_v3_demonstration.rs"
