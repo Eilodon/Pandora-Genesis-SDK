@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
-zenb-core = { path = "../zenb-core" }
+zenb-core = { path = "../zenb-core", features = ["vajra_void"] }
 zenb-store = { path = "../zenb-store" }
 zenb-projectors = { path = "../zenb-projectors" }
 serde_json = "1.0"

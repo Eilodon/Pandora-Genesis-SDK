@@ -248,7 +248,7 @@ impl Runtime {
 
             let _sig = zenb_core::safety_swarm::trauma_sig_hash(
                 self.engine.last_goal,
-                self.engine.skandha_pipeline.vedana.mode() as u8,
+                self.engine.vinnana.pipeline.vedana.mode() as u8,
                 self.engine.last_pattern_id,
                 &self.engine.context,
             );
@@ -301,9 +301,9 @@ impl Runtime {
         self.last_estimate = Some(est.clone());
         
         // PHASE 5: Sync PhilosophicalState from Engine to FlowStream
-        self.flow_stream.state_monitor = self.engine.philosophical_state.clone();
+        self.flow_stream.state_monitor = self.engine.vinnana.philosophical_state.clone();
         
-        if let Some(state) = self.engine.skandha_state.clone() {
+        if let Some(state) = self.engine.vinnana.last_state.clone() {
             self.flow_stream.emit_synthesis(state, ts_us);
         }
         // downsample persist
@@ -430,11 +430,11 @@ impl Runtime {
         let cycles = self.engine.tick(dt_us);
         
         // PHASE 5: Sync PhilosophicalState from Engine to FlowStream
-        self.flow_stream.state_monitor = self.engine.philosophical_state.clone();
+        self.flow_stream.state_monitor = self.engine.vinnana.philosophical_state.clone();
         
         self.flow_stream.update_state(
             self.engine.prediction_error(),
-            self.engine.skandha_pipeline.vedana.confidence(),
+            self.engine.vinnana.pipeline.vedana.confidence(),
             ts_us,
         );
         if cycles > 0 {
@@ -487,17 +487,17 @@ impl Runtime {
 
                 // Persist BeliefUpdatedV2 alongside control decisions (1-2Hz)
                 let seq = seq + 1;
-                let fe = self.engine.skandha_pipeline.vedana.free_energy_ema();
-                let lr = self.engine.skandha_pipeline.vedana.fep_state().lr;
+                let fe = self.engine.vinnana.pipeline.vedana.free_energy_ema();
+                let lr = self.engine.vinnana.pipeline.vedana.fep_state().lr;
                 let res = self.engine.resonance_score_ema;
                 let env_b = Envelope {
                     session_id: self.session_id.clone(),
                     seq,
                     ts_us,
                     event: Event::BeliefUpdatedV2 {
-                        p: *self.engine.skandha_pipeline.vedana.probabilities(),
-                        conf: self.engine.skandha_pipeline.vedana.confidence(),
-                        mode: self.engine.skandha_pipeline.vedana.mode() as u8,
+                        p: *self.engine.vinnana.pipeline.vedana.probabilities(),
+                        conf: self.engine.vinnana.pipeline.vedana.confidence(),
+                        mode: self.engine.vinnana.pipeline.vedana.mode() as u8,
                         free_energy_ema: fe,
                         lr,
                         resonance_score: res,
@@ -906,6 +906,78 @@ impl ZenbCoreApi {
         Ok(())
     }
     
+    /// Report action outcome with IntentId for karmic traceability (V2 API).
+    /// 
+    /// This is the preferred FFI for V3 Karmic Feedback Loop.
+    /// Mobile should pass the `intent_id` from the `ControlDecision` that was
+    /// returned by `make_decision`.
+    /// 
+    /// # Arguments
+    /// * `intent_id` - The intent_id from the original ControlDecision
+    /// * `action_id` - Optional action identifier
+    /// * `success` - Whether the action led to positive outcome
+    /// * `result_type` - Classification (e.g., "Success", "UserCancelled", "Error")
+    /// * `action_type` - Type of action (e.g., "BreathGuidance", "Notification")
+    pub fn report_outcome_v2(
+        rt: &RwLock<Runtime>,
+        intent_id: u64,
+        action_id: Option<String>,
+        success: bool,
+        result_type: String,
+        action_type: String,
+    ) -> Result<(), ZenbError> {
+        let mut rt = rt.write().map_err(|_| ZenbError::RuntimeError("Lock poisoned".to_string()))?;
+        
+        let ts_us = chrono::Utc::now().timestamp_micros();
+        
+        // Calculate severity for failures
+        let severity = if !success {
+            match result_type.as_str() {
+                "UserCancelled" => 2.0,
+                "Error" => 1.5,
+                "Timeout" => 1.0,
+                "Rejected" => 2.5,
+                _ => 1.0,
+            }
+        } else {
+            0.0
+        };
+
+        // V2: Learn with IntentId tracing
+        rt.engine.learn_from_outcome_v2(
+            intent_id,
+            success,
+            action_type.clone(),
+            ts_us,
+            severity,
+        );
+
+        // Persist the outcome event for audit trail
+        let seq = match rt.buf.back() {
+            Some(e) => e.seq + 1,
+            None => 1,
+        };
+        let env = Envelope {
+            session_id: rt.session_id.clone(),
+            seq,
+            ts_us,
+            event: Event::Tombstone {},
+            meta: serde_json::json!({
+                "event_type": "ActionOutcomeV2",
+                "intent_id": intent_id,
+                "action_id": action_id,
+                "success": success,
+                "result_type": result_type,
+                "action_type": action_type,
+                "severity": severity,
+            }),
+        };
+
+        rt.push_buf(env);
+
+        Ok(())
+    }
+    
     // =========================================================================
     // VAJRA-VOID: Consciousness API
     // =========================================================================
@@ -955,7 +1027,7 @@ impl ZenbCoreApi {
     pub fn get_karmic_alignment(&self) -> KarmicAlignment {
         if let Ok(rt) = self.runtime.read() {
             // Get last skandha state if available
-            let (karma_weight, is_karmic_debt) = if let Some(ref _state) = rt.engine.skandha_state {
+            let (karma_weight, is_karmic_debt) = if let Some(ref _state) = rt.engine.vinnana.last_state {
                 // TODO: Extract actual karma values when integrated into pipeline
                 (1.0, false)
             } else {
@@ -992,12 +1064,12 @@ impl ZenbCoreApi {
     
     // Helper to extract synthesized result from runtime
     fn extract_synthesized_result(&self, rt: &Runtime) -> Result<SynthesizedResult, ZenbError> {
-        let belief = rt.engine.skandha_pipeline.vedana.to_5mode_array().to_vec();
-        let mode = rt.engine.skandha_pipeline.vedana.mode() as u8;
-        let confidence = rt.engine.skandha_pipeline.vedana.confidence();
+        let belief = rt.engine.vinnana.pipeline.vedana.to_5mode_array().to_vec();
+        let mode = rt.engine.vinnana.pipeline.vedana.mode() as u8;
+        let confidence = rt.engine.vinnana.pipeline.vedana.confidence();
         
         // Get action and alignment from last skandha state
-        let (action_type, alignment, is_sanctioned) = if let Some(ref state) = rt.engine.skandha_state {
+        let (action_type, alignment, is_sanctioned) = if let Some(ref state) = rt.engine.vinnana.last_state {
             let action = format!("{:?}", zenb_core::skandha::IntentAction::Observe);
             (action, state.confidence, true)
         } else {
@@ -1014,6 +1086,7 @@ impl ZenbCoreApi {
         })
     }
 }
+
 
 // ============================================================================
 // VAJRA-VOID: UniFFI Structs for Consciousness API

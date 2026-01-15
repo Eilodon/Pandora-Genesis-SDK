@@ -104,6 +104,10 @@ pub struct DivinePercept {
     /// Used by EnsembleProcessor for CHROM/POS/PRISM extraction
     pub raw_signal_buffer: Option<Vec<f32>>,
     
+    /// Sample rate of raw signal in Hz (default: 30.0)
+    /// Must be set correctly for accurate HR/HRV/RR extraction
+    pub sample_rate: f32,
+    
     // === NEW: Geometry from face mesh/vision (HÌNH) ===
     /// Face detection and mesh geometry
     pub geometry: Option<FaceGeometry>,
@@ -123,6 +127,7 @@ impl From<SensorInput> for DivinePercept {
             motion: input.motion,
             timestamp_us: input.timestamp_us,
             raw_signal_buffer: None,
+            sample_rate: 30.0, // Default FPS
             geometry: None,
             vitality: None,
         }
@@ -139,6 +144,7 @@ impl From<&SensorInput> for DivinePercept {
             motion: input.motion,
             timestamp_us: input.timestamp_us,
             raw_signal_buffer: None,
+            sample_rate: 30.0, // Default FPS
             geometry: None,
             vitality: None,
         }
@@ -1095,8 +1101,12 @@ pub mod zenb {
         /// Returns: (hr_bpm, hrv_rmssd_opt, rr_opt, snr, vitality)
         #[cfg(feature = "vajra_void")]
         fn process_raw_signal(&mut self, percept: &DivinePercept) -> Option<(f32, Option<f32>, Option<f32>, f32, VitalityMetrics)> {
+            // Minimum samples needed for reliable processing (~3s at 30fps)
+            const MIN_SAMPLES: usize = 90;
+            const MIN_BUFFER_LEN: usize = MIN_SAMPLES * 3; // RGB interleaved
+            
             let buffer = percept.raw_signal_buffer.as_ref()?;
-            if buffer.len() < 90 {  // Need at least ~3 seconds at 30fps
+            if buffer.len() < MIN_BUFFER_LEN {
                 return None;
             }
             
@@ -1117,17 +1127,20 @@ pub mod zenb {
             // Process through ensemble
             let result = processor.process_arrays(&r, &g, &b)?;
             
+            // Use provided sample rate (with fallback)
+            let sample_rate = if percept.sample_rate > 0.0 { percept.sample_rate } else { 30.0 };
+            
             // Extract HRV if signal quality is good enough
             let hrv_rmssd = if result.snr > 3.0 && n_samples >= 150 {
                 // Use green channel as pulse proxy (strongest PPG signal)
-                self.extract_hrv_from_pulse(&g)
+                self.extract_hrv_from_pulse(&g, sample_rate)
             } else {
                 None
             };
             
             // Extract respiration rate
             let rr_bpm = if result.snr > 0.0 && n_samples >= 180 {
-                self.extract_respiration(&g)
+                self.extract_respiration(&g, sample_rate)
             } else {
                 None
             };
@@ -1153,7 +1166,7 @@ pub mod zenb {
         
         /// Extract HRV (RMSSD) from pulse waveform using peak detection
         #[cfg(feature = "vajra_void")]
-        fn extract_hrv_from_pulse(&self, pulse: &ndarray::Array1<f32>) -> Option<f32> {
+        fn extract_hrv_from_pulse(&self, pulse: &ndarray::Array1<f32>, sample_rate: f32) -> Option<f32> {
             // Simple peak detection for IBI extraction
             let n = pulse.len();
             if n < 60 {
@@ -1164,8 +1177,8 @@ pub mod zenb {
             let std: f32 = (pulse.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n as f32).sqrt();
             let threshold = mean + 0.5 * std;
             
-            // Detect peaks with refractory period (~300ms at 30fps = 9 samples)
-            let refractory = 9usize;
+            // Detect peaks with refractory period (~300ms = sample_rate * 0.3)
+            let refractory = (sample_rate * 0.3).max(1.0) as usize;
             let mut peaks = Vec::new();
             let mut last_peak = 0usize;
             
@@ -1184,8 +1197,7 @@ pub mod zenb {
                 return None;
             }
             
-            // Compute successive differences
-            let sample_rate = 30.0; // Assume 30 fps
+            // Compute successive differences (sample_rate passed as param)
             let mut successive_diffs = Vec::with_capacity(peaks.len() - 1);
             for i in 1..peaks.len() {
                 let ibi_ms = (peaks[i] - peaks[i - 1]) as f32 / sample_rate * 1000.0;
@@ -1206,7 +1218,7 @@ pub mod zenb {
         
         /// Extract respiration rate from pulse waveform modulation
         #[cfg(feature = "vajra_void")]
-        fn extract_respiration(&self, pulse: &ndarray::Array1<f32>) -> Option<f32> {
+        fn extract_respiration(&self, pulse: &ndarray::Array1<f32>, sample_rate: f32) -> Option<f32> {
             // Use amplitude modulation to detect respiration
             // Respiration modulates PPG amplitude at ~0.1-0.5 Hz
             let n = pulse.len();
@@ -1239,7 +1251,7 @@ pub mod zenb {
             }
             
             // Zero crossings / 2 = number of cycles, convert to BPM
-            let duration_min = n as f32 / 30.0 / 60.0; // Assuming 30 fps
+            let duration_min = n as f32 / sample_rate / 60.0;
             let cycles = crossings as f32 / 2.0;
             let brpm = cycles / duration_min;
             
