@@ -20,6 +20,7 @@ use rustfft::FftPlanner;
 use std::f32::consts::PI;
 
 use super::apon::{AponNoiseEstimator, AponResult};
+use crate::dsp::temporal_normalization;
 
 /// PRISM processing result
 #[derive(Debug, Clone)]
@@ -140,8 +141,10 @@ impl PrismProcessor {
         // Final signal with smoothed alpha
         let final_signal = self.mix_signal(&r_norm, &g_norm, &b_norm, smoothed_alpha);
 
-        // Apply adaptive temporal filtering
-        let filtered_signal = self.adaptive_temporal_filter(&final_signal, best_snr);
+        // Apply SOTA temporal normalization (Phase 3 optimization)
+        // Adjust window size based on SNR: low SNR = larger window to smooth more
+        let tn_window = if best_snr > 5.0 { 15 } else { 30 };
+        let filtered_signal = temporal_normalization(&final_signal, tn_window);
 
         // Extract heart rate
         let (bpm, snr) = self.extract_heart_rate(&filtered_signal);
@@ -192,7 +195,10 @@ impl PrismProcessor {
             self.alpha_history.iter().sum::<f32>() / self.alpha_history.len() as f32;
 
         let final_signal = self.mix_signal(&r_norm, &g_norm, &b_norm, smoothed_alpha);
-        let filtered_signal = self.adaptive_temporal_filter(&final_signal, best_snr);
+        
+        // SOTA temporal normalization
+        let tn_window = if best_snr > 5.0 { 15 } else { 30 };
+        let filtered_signal = temporal_normalization(&final_signal, tn_window);
         let (bpm, snr) = self.extract_heart_rate(&filtered_signal);
         let confidence = self.snr_to_confidence(snr);
 
@@ -325,44 +331,6 @@ impl PrismProcessor {
         }
     }
 
-    /// Adaptive temporal filtering based on SNR
-    fn adaptive_temporal_filter(&self, signal: &Array1<f32>, snr: f32) -> Array1<f32> {
-        // Adjust filter aggressiveness based on SNR
-        // High SNR → gentle filtering (preserve detail)
-        // Low SNR → aggressive filtering (remove noise)
-        let hp_alpha = if snr > 10.0 {
-            0.98 // Gentle high-pass
-        } else if snr > 5.0 {
-            0.95 // Moderate
-        } else {
-            0.90 // Aggressive (more DC removal)
-        };
-
-        let lp_alpha = if snr > 10.0 {
-            0.3 // Gentle low-pass (preserve high freq)
-        } else if snr > 5.0 {
-            0.2 // Moderate
-        } else {
-            0.1 // Aggressive (more smoothing)
-        };
-
-        let mut filtered = signal.to_vec();
-
-        // High-pass filter (remove DC drift)
-        let mut hp_prev = 0.0;
-        for i in 1..filtered.len() {
-            let new_val = hp_alpha * (hp_prev + filtered[i] - filtered[i - 1]);
-            hp_prev = new_val;
-            filtered[i] = new_val;
-        }
-
-        // Low-pass filter (remove high-freq noise)
-        for i in 1..filtered.len() {
-            filtered[i] = lp_alpha * filtered[i] + (1.0 - lp_alpha) * filtered[i - 1];
-        }
-
-        Array1::from(filtered)
-    }
 
     /// Extract heart rate from filtered signal
     fn extract_heart_rate(&mut self, signal: &Array1<f32>) -> (f32, f32) {

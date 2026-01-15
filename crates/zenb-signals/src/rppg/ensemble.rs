@@ -15,6 +15,7 @@ use ndarray::Array1;
 
 use super::legacy::{RppgMethod, RppgProcessor};
 use super::prism::PrismProcessor;
+use crate::dsp::{compute_frame_motion, MotionDetector, MotionState};
 
 /// Individual algorithm result for voting
 #[derive(Debug, Clone)]
@@ -39,6 +40,8 @@ pub struct EnsembleResult {
     pub method_count: usize,
     /// PRISM optimal alpha (if used)
     pub prism_alpha: Option<f32>,
+    /// Detected motion state
+    pub motion_state: MotionState,
 }
 
 /// Ensemble configuration
@@ -82,6 +85,10 @@ pub struct EnsembleProcessor {
     chrom_processor: RppgProcessor,
     /// PRISM processor
     prism_processor: PrismProcessor,
+    /// Motion detector for mode switching
+    motion_detector: MotionDetector,
+    /// Last RGB sample (for motion calculation)
+    last_rgb: Option<[f32; 3]>,
 }
 
 impl EnsembleProcessor {
@@ -104,12 +111,24 @@ impl EnsembleProcessor {
                 config.sample_rate,
             ),
             prism_processor: PrismProcessor::new(),
+            motion_detector: MotionDetector::new(),
+            last_rgb: None,
             config,
         }
     }
 
     /// Add RGB sample to all processors
     pub fn add_sample(&mut self, r: f32, g: f32, b: f32) {
+        // Calculate motion if we have a previous sample
+        if let Some([lr, lg, lb]) = self.last_rgb {
+            let curr_mean = (r + g + b) / 3.0;
+            let prev_mean = (lr + lg + lb) / 3.0;
+            // Use 128.0 as nominal baseline guess for normalization
+            let motion = compute_frame_motion(prev_mean, curr_mean, 128.0);
+            self.motion_detector.update(motion);
+        }
+        self.last_rgb = Some([r, g, b]);
+
         self.pos_processor.add_sample(r, g, b);
         self.chrom_processor.add_sample(r, g, b);
     }
@@ -129,6 +148,8 @@ impl EnsembleProcessor {
         self.pos_processor.reset();
         self.chrom_processor.reset();
         self.prism_processor.reset();
+        self.motion_detector.reset();
+        self.last_rgb = None;
     }
 
     /// Process using buffer-based approach (legacy compatible)
@@ -251,6 +272,12 @@ impl EnsembleProcessor {
         results: &[AlgorithmResult],
         prism_alpha: Option<f32>,
     ) -> EnsembleResult {
+        // Check motion state
+        let high_motion = self.motion_detector.is_motion_active();
+        
+        // If high motion, we might want to trust POS/CHROM more than PRISM
+        // or just accept that all confidences will be lower.
+        // For now, let's just use the SNR weights which should naturally reflect quality.
         if results.is_empty() {
             return EnsembleResult {
                 bpm: 0.0,
@@ -258,6 +285,7 @@ impl EnsembleProcessor {
                 snr: 0.0,
                 method_count: 0,
                 prism_alpha,
+                motion_state: if high_motion { MotionState::Dynamic } else { MotionState::Stationary },
             };
         }
 
@@ -288,6 +316,7 @@ impl EnsembleProcessor {
             snr: avg_snr,
             method_count: results.len(),
             prism_alpha,
+            motion_state: if high_motion { MotionState::Dynamic } else { MotionState::Stationary },
         }
     }
 

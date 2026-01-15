@@ -29,7 +29,6 @@
 use crate::dsp::{DspProcessor, FilterConfig};
 use crate::wavelet::FastCWT;
 use ndarray::Array1;
-use std::f32::consts::PI;
 
 /// Respiration estimation configuration.
 #[derive(Debug, Clone)]
