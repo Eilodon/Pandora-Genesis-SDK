@@ -4,6 +4,12 @@
 //! - `FaceDetector` trait for pluggable face detection backends
 //! - `FaceDetection` struct with bounding box and optional landmarks
 //! - ROI extraction utilities for rPPG processing
+//! - `Frame` struct for image processing (basic ops available always)
+//! - `VideoPipeline` for real-time video processing
+//!
+//! # Features
+//!
+//! - `image-processing`: Enables `image` crate integration for file I/O
 //!
 //! # Design
 //!
@@ -14,20 +20,27 @@
 //! # Example
 //!
 //! ```ignore
-//! use zenb_signals::vision::{FaceDetection, extract_roi_grid};
+//! use zenb_signals::vision::{VideoPipeline, Frame};
 //!
-//! let detection = FaceDetection {
-//!     bbox: [100.0, 50.0, 200.0, 250.0],
-//!     landmarks: None,
-//!     confidence: 0.95,
-//! };
+//! let mut pipeline = VideoPipeline::new();
 //!
-//! let grid = extract_roi_grid(&frame, width, height, &detection, 3, 3);
+//! // Option 1: Process raw frame data
+//! let result = pipeline.process_raw(&frame_bytes, 640, 480, timestamp_us);
+//!
+//! // Option 2: Inject pre-computed signal (from mobile SDK)
+//! let result = pipeline.inject_signal([r, g, b], timestamp_us, face_detected);
+//!
+//! if let Some(hr) = result.heart_rate_bpm {
+//!     println!("Heart rate: {:.1} BPM", hr);
+//! }
 //! ```
 
 mod face_roi;
+mod image_ops;
 mod landmark_roi;
+mod video_pipeline;
 
+// Face detection and ROI extraction
 pub use face_roi::{
     extract_roi_grid, extract_roi_mean_rgb,
     FaceDetection, FaceDetector, ExternalLandmarkDetector,
@@ -36,3 +49,9 @@ pub use landmark_roi::{
     forehead_roi, left_cheek_roi, right_cheek_roi,
     Polygon, compute_polygon_mean_rgb, FOREHEAD_LANDMARKS, CHEEK_LEFT_LANDMARKS, CHEEK_RIGHT_LANDMARKS,
 };
+
+// Image processing
+pub use image_ops::{Frame, rgba_to_rgb, nv21_to_rgb};
+
+// Video pipeline
+pub use video_pipeline::{VideoPipeline, VideoConfig, PipelineResult};

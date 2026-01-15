@@ -57,6 +57,7 @@ mod fatigue_stress;
 pub use landmarks::{
     CanonicalLandmarks, normalize_to_canonical,
     indices as landmark_indices,
+    get_point, landmark_distance, landmark_angle,
 };
 pub use measurements::FaceMeasurements;
 pub use face_shape::{FaceShape, FaceShapeResult, ShapeClassifier};

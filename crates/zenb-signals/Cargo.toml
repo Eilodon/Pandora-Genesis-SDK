@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 parallel = ["rayon"]
+image-processing = ["dep:image"]
 
 [dependencies]
 # N-dimensional arrays (like NumPy)
@@ -24,5 +25,9 @@ log = "0.4"
 # Parallel processing (optional)
 rayon = { version = "1.10", optional = true }
 
+# Image processing (optional)
+image = { version = "0.25", optional = true, default-features = false, features = ["jpeg", "png"] }
+
 [dev-dependencies]
 approx = "0.5"  # For floating-point comparisons in tests
+
