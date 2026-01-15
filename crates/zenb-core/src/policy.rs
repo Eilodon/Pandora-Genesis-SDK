@@ -192,16 +192,19 @@ impl ActionPolicy {
                 target_rate_bpm: current_bpm,
                 confidence: default_confidence,
                 recommended_poll_interval_ms: 1000, // Standard poll
+                intent_id: None,
             },
             ActionPolicy::GuidanceBreath(params) => crate::domain::ControlDecision {
                 target_rate_bpm: params.target_bpm,
                 confidence: 0.9, // High confidence in explicit guidance
                 recommended_poll_interval_ms: 500, // Faster poll for breath guidance
+                intent_id: None,
             },
             ActionPolicy::DigitalIntervention(_) => crate::domain::ControlDecision {
                 target_rate_bpm: current_bpm, // Digital action doesn't change breath target
                 confidence: 0.8,
                 recommended_poll_interval_ms: 2000, // Slower poll for digital actions (longer duration)
+                intent_id: None,
             },
         }
     }

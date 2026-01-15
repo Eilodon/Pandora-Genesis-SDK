@@ -299,6 +299,10 @@ impl Runtime {
             .engine
             .ingest_sensor_with_context(&features, ts_us, ctx);
         self.last_estimate = Some(est.clone());
+        
+        // PHASE 5: Sync PhilosophicalState from Engine to FlowStream
+        self.flow_stream.state_monitor = self.engine.philosophical_state.clone();
+        
         if let Some(state) = self.engine.skandha_state.clone() {
             self.flow_stream.emit_synthesis(state, ts_us);
         }
@@ -424,6 +428,10 @@ impl Runtime {
 
         // engine tick; get cycles
         let cycles = self.engine.tick(dt_us);
+        
+        // PHASE 5: Sync PhilosophicalState from Engine to FlowStream
+        self.flow_stream.state_monitor = self.engine.philosophical_state.clone();
+        
         self.flow_stream.update_state(
             self.engine.prediction_error(),
             self.engine.skandha_pipeline.vedana.confidence(),

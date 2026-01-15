@@ -462,6 +462,7 @@ mod tests {
                     target_rate_bpm: 6.0,
                     confidence: 0.9,
                     recommended_poll_interval_ms: 500,
+                    intent_id: None,
                 },
             },
             meta: serde_json::json!({}),

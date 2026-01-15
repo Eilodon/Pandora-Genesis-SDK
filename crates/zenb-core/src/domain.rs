@@ -444,6 +444,11 @@ pub struct ControlDecision {
     pub target_rate_bpm: f32,
     pub confidence: f32,
     pub recommended_poll_interval_ms: u64,
+    
+    /// B.ONE V3: Intent ID for karmic feedback loop
+    /// This allows mobile to trace action outcomes back to the decision context
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub intent_id: Option<u64>,
 }
 
 #[derive(Error, Debug)]

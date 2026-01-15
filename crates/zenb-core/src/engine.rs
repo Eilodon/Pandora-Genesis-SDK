@@ -1,10 +1,10 @@
 use crate::breath_engine::BreathEngine;
 use crate::config::ZenbConfig;
 use crate::controller::AdaptiveController;
-use crate::domain::ControlDecision;
+
 use crate::estimator::Estimate;
 use crate::resonance::ResonanceTracker;
-use crate::safety::RuntimeState;
+
 
 // Phase 2 Decomposition: Extracted subsystems
 
@@ -27,8 +27,7 @@ pub struct Engine {
 
     pub context: crate::belief::Context,
     pub config: ZenbConfig,
-    pub last_sf: Option<crate::belief::SensorFeatures>,
-    pub last_phys: Option<crate::belief::PhysioState>,
+    // PHASE 3: Removed last_sf and last_phys - redundant with skandha_state.form
     pub resonance_tracker: ResonanceTracker,
     pub last_resonance_score: f32,
     pub resonance_score_ema: f32,
@@ -39,15 +38,7 @@ pub struct Engine {
     // === Causal Subsystem (Phase 6) ===
     pub causal: crate::causal_subsystem::CausalSubsystem,
 
-    // --- EFE / META-LEARNING ---
-    /// Current EFE precision (beta) for policy selection
-    pub efe_precision_beta: f32,
 
-    /// Meta-learner for adapting beta
-    pub efe_meta_learner: crate::policy::BetaMetaLearner,
-
-    /// Last chosen policy info (for learning)
-    pub last_selected_policy: Option<crate::policy::PolicyEvaluation>,
 
     // === SOTA Features ===
     // === SKANDHA CORE (The Brain) ===
@@ -93,12 +84,7 @@ pub struct Engine {
     // === WEEK 2: Automatic Scientist Integration ===
     /// Automatic Scientist for causal hypothesis discovery
 
-    // === POLICY ADAPTER: Learning from Outcomes ===
-    /// Policy adapter for catastrophe detection and stagnation escape
-    pub policy_adapter: crate::policy::PolicyAdapter,
 
-    /// Last executed policy (for outcome learning)
-    pub last_executed_policy: Option<crate::policy::ActionPolicy>,
 
     // === TIER 3: Thermodynamic Logic (GENERIC Framework) ===
     /// Thermodynamic engine for GENERIC dynamics
@@ -161,8 +147,7 @@ impl Engine {
                 recent_sessions: 0,
             },
             config: cfg.clone(),
-            last_sf: None,
-            last_phys: None,
+            // PHASE 3: Removed last_sf and last_phys initialization
             resonance_tracker: ResonanceTracker::default(),
             last_resonance_score: 1.0,
             resonance_score_ema: 1.0,
@@ -174,11 +159,7 @@ impl Engine {
             // Causal Subsystem
             causal: crate::causal_subsystem::CausalSubsystem::new(&cfg),
 
-            // EFE Initialization
-            efe_precision_beta: cfg.features.efe_precision_beta.unwrap_or(4.0),
-            efe_meta_learner: crate::policy::BetaMetaLearner::default(),
 
-            last_selected_policy: None,
 
             // SKANDHA CORE (Unified)
             skandha_pipeline: crate::skandha::zenb::zenb_pipeline_unified(&cfg),
@@ -219,10 +200,7 @@ impl Engine {
 
             // WEEK 2: Automatic Scientist
 
-            // POLICY ADAPTER: Learning from Outcomes
-            policy_adapter: crate::policy::PolicyAdapter::new(1.0),
 
-            last_executed_policy: None,
 
             // TIER 3: Thermodynamic Logic (GENERIC Framework)
             thermo_engine: {
@@ -321,21 +299,8 @@ impl Engine {
                     confidence: synthesized.confidence,
                 };
 
-                // Sync legacy fields for compatibility
-                self.last_sf = Some(crate::belief::SensorFeatures {
-                    hr_bpm: estimate.hr_bpm,
-                    rmssd: estimate.rmssd,
-                    rr_bpm: estimate.rr_bpm,
-                    quality: input.quality,
-                    motion: input.motion,
-                });
-
-                self.last_phys = Some(crate::belief::PhysioState {
-                    hr_bpm: estimate.hr_bpm,
-                    rr_bpm: estimate.rr_bpm,
-                    rmssd: estimate.rmssd,
-                    confidence: estimate.confidence,
-                });
+                // PHASE 3: Removed last_sf and last_phys assignments
+                // Data available in skandha_state.form and estimate
 
                 // Store energy for diagnostics
                 self.last_sheaf_energy = synthesized.form.energy;
@@ -510,7 +475,6 @@ impl Engine {
         severity: f32,
     ) {
         // Update belief engine (Active Inference learning)
-        // Update belief engine (Active Inference learning)
         self.skandha_pipeline
             .vedana
             .process_feedback(success, &mut self.config.fep);
@@ -557,68 +521,22 @@ impl Engine {
                 self.safety.trauma_cache_mut().update(context_hash, hit);
             }
         }
-
-        // SOTA: Meta-learning for EFE precision
-        // Adapt Beta based on exploration/exploitation outcome
-        if let Some(last_policy) = &self.last_selected_policy {
-            // If epistemic value dominates, it was an exploratory action
-            let was_exploratory = last_policy.epistemic_value > last_policy.pragmatic_value;
-
-            let old_beta = self.efe_precision_beta;
-            self.efe_precision_beta = self.efe_meta_learner.update_beta(
-                self.efe_precision_beta,
-                was_exploratory,
-                success,
-            );
-
-            if (self.efe_precision_beta - old_beta).abs() > 0.001 {
-                log::info!(
-                    "EFE Adaptation: Beta {:.3} -> {:.3} (Success: {}, Explored: {})",
-                    old_beta,
-                    self.efe_precision_beta,
-                    success,
-                    was_exploratory
-                );
-            }
-        }
-
+        
         // PANDORA PORT: Update confidence tracker based on outcome
         self.decision_confidence.update(success);
 
         // PANDORA PORT: Adapt belief threshold based on performance
-        // Compute performance delta: positive if success, negative if failure
         let performance_delta = if success { 0.1 } else { -0.1 };
         self.skandha_pipeline
             .vedana
             .adapt_threshold(performance_delta);
 
-        // === POLICY ADAPTER: Learning from Outcomes ===
-        // Update PolicyAdapter if enabled and we have a last executed policy
-        if self.config.features.policy_adapter_enabled.unwrap_or(false) {
-            if let Some(ref policy) = self.last_executed_policy {
-                // Convert success to reward: success=1.0, failure=-severity
-                let reward = if success { 1.0 } else { -severity };
-
-                // Generate state hash from belief mode
-                let state_hash = format!("{:?}", self.skandha_pipeline.vedana.mode());
-
-                // Update adapter and get exploration boost
-                let exploration_boost =
-                    self.policy_adapter
-                        .update_with_outcome(&state_hash, policy, reward, success);
-
-                // Apply exploration boost to EFE precision (inverse relationship)
-                // Higher exploration = lower precision (more uniform sampling)
-                self.efe_precision_beta = (self.efe_precision_beta / exploration_boost)
-                    .max(0.1)
-                    .min(10.0);
-
-                log::debug!(
-                    "Policy outcome: success={}, reward={:.2}, exploration_boost={:.1}x, new_beta={:.2}",
-                    success, reward, exploration_boost, self.efe_precision_beta
-                );
-            }
-        }
+        // === UNIFIED SANKHARA LEARNING ===
+        // Delegate EFE meta-learning and policy adaptation to Sankhara
+        let reward = if success { 1.0 } else { -severity };
+        let state_hash = format!("{:?}", self.skandha_pipeline.vedana.mode());
+        
+        self.skandha_pipeline.sankhara.apply_feedback(success, reward, &state_hash);
     }
 
     /// Get circuit breaker statistics for monitoring.
@@ -730,328 +648,19 @@ impl Engine {
         )
     }
 
-    /// PR3: Make a control decision from estimate with INTRINSIC SAFETY.
-    /// Safety cannot be bypassed - Engine always uses internal trauma_cache.
-    /// If cache is empty/uninitialized, returns SafeFallback decision.
-    ///
-    /// Returns: (ControlDecision, should_persist, policy_info, deny_reason)
+
+
     pub fn make_control(
         &mut self,
-        est: &Estimate,
+        est: &crate::estimator::Estimate,
         ts_us: i64,
     ) -> (
-        ControlDecision,
+        crate::domain::ControlDecision,
         bool,
         Option<(u8, u32, f32)>,
         Option<String>,
     ) {
-        // Run control-tick belief update (1-2Hz) using cached latest sensor features
-        if let (Some(sf), Some(phys)) = (self.last_sf, self.last_phys) {
-            // PR4: Use dt_sec helper to prevent wraparound if clocks go backwards
-            // Update control timestamp and get dt
-            let dt_sec = match self.timestamp.update_control(ts_us) {
-                Ok(dt) => dt,
-                Err(e) => {
-                    log::error!("Control loop timestamp error: {}", e);
-                    // Fallback to minimal +ve step to avoid division by zero
-                    0.001
-                }
-            };
-
-            let guide_phase = self.breath.guide_phase_norm();
-            let guide_bpm = {
-                let total_us = self.breath.pm.durations.total_us();
-                if total_us == 0 {
-                    0.0
-                } else {
-                    60_000_000f32 / (total_us as f32)
-                }
-            };
-            let res = self.resonance_tracker.update(
-                ts_us,
-                guide_phase,
-                guide_bpm,
-                phys.rr_bpm,
-                &self.config,
-            );
-            self.last_resonance_score = res.resonance_score;
-
-            let tau_res = 6.0f32;
-            let alpha = if dt_sec <= 0.0 {
-                0.0
-            } else {
-                (dt_sec / (tau_res + dt_sec)).clamp(0.0, 1.0)
-            };
-            self.resonance_score_ema = (self.resonance_score_ema * (1.0 - alpha)
-                + res.resonance_score * alpha)
-                .clamp(0.0, 1.0);
-
-            let _out = self.skandha_pipeline.vedana.update_fep(
-                &sf,
-                &phys,
-                &self.context,
-                dt_sec,
-                res,
-                &self.config,
-            );
-            // State update is handled internally
-
-            let current_fep = self.skandha_pipeline.vedana.free_energy_ema();
-            if current_fep > self.free_energy_peak {
-                self.free_energy_peak = current_fep;
-            }
-        }
-
-        // propose base target from belief mode
-        let base = match self.skandha_pipeline.vedana.mode() {
-            crate::belief::BeliefBasis::Calm => 6.0,
-            crate::belief::BeliefBasis::Stress => 8.0,
-            crate::belief::BeliefBasis::Focus => 5.0,
-            crate::belief::BeliefBasis::Sleepy => 6.0,
-            crate::belief::BeliefBasis::Energize => 7.0,
-        };
-        // ADAPTIVE BOUNDS: Use platform-aware, auto-calibrating thresholds
-        let rr_min = self.rr_min_threshold.get();
-        let rr_max = self.rr_max_threshold.get();
-        let mut proposed = est.rr_bpm.unwrap_or(base).clamp(rr_min, rr_max);
-
-        // --- EFE POLICY SELECTION ---
-        if self.config.features.use_efe_selection {
-            use crate::policy::{ActionPolicy, EFECalculator, PolicyLibrary};
-
-            // 1. Instantiate Calculator with current Beta
-            let efe_calc = EFECalculator::new(self.efe_precision_beta);
-
-            // 2. Define Candidate Policies
-            let policies = vec![
-                PolicyLibrary::calming_breath(),
-                PolicyLibrary::energizing_breath(),
-                PolicyLibrary::focus_mode(),
-                PolicyLibrary::observe(),
-            ];
-
-            // 3. Predict future state (from Causal Graph)
-            // For now, we use current belief as proxy for immediate prediction
-            // In future, CausalGraph::predict_state() would be called here
-            let predicted_state = self.skandha_pipeline.vedana.to_5mode_array();
-            let predicted_uncertainty = self.skandha_pipeline.vedana.confidence();
-
-            // 4. Compute EFE for each policy
-            let mut evaluations: Vec<crate::policy::PolicyEvaluation> = policies
-                .into_iter()
-                .map(|policy| {
-                    efe_calc.compute_efe(
-                        &policy,
-                        &self.skandha_pipeline.vedana.to_5mode_array(),
-                        self.skandha_pipeline.vedana.uncertainty(),
-                        &predicted_state,
-                        crate::belief::uncertainty_from_confidence(predicted_uncertainty),
-                    )
-                })
-                .collect();
-
-            // 5. Select Policy (Softmax)
-            // Use deterministic RNG seed from timestamp for reproducibility
-            let rng_value = ((ts_us % 1000) as f32) / 1000.0;
-            efe_calc.compute_selection_probabilities(&mut evaluations);
-            let selected_policy_ref = efe_calc.sample_policy(&evaluations, rng_value);
-
-            // 6. Apply Selection
-            // Store for learning loop
-            // We need to clone it to store it (sample_policy returns ref)
-            let selected_clone = evaluations
-                .iter()
-                .find(|e| e.policy.description() == selected_policy_ref.description())
-                .cloned();
-            self.last_selected_policy = selected_clone;
-
-            // Store the ActionPolicy for outcome learning
-            self.last_executed_policy = Some(selected_policy_ref.clone());
-
-            // Check if policy is masked by PolicyAdapter
-            if self.config.features.policy_adapter_enabled.unwrap_or(false)
-                && self.policy_adapter.is_policy_masked(selected_policy_ref)
-            {
-                log::warn!(
-                    "PolicyAdapter MASKED policy: {}, falling back to NoAction",
-                    selected_policy_ref.description()
-                );
-                // Override with safe fallback
-                let fallback = crate::policy::PolicyLibrary::observe();
-                let decision = fallback.to_control_decision(proposed, est.confidence);
-                proposed = decision.target_rate_bpm;
-            } else {
-                // Convert to BPM target
-                // Use current proposed as fallback
-                let decision = selected_policy_ref.to_control_decision(proposed, est.confidence);
-                proposed = decision.target_rate_bpm;
-            }
-
-            // Handle Side Effects (e.g. Digital Interventions)
-            if let ActionPolicy::DigitalIntervention(di) = selected_policy_ref {
-                // In a full implementation, this would emit a separate event or side-effect
-                // For now, we just log it as the primary decision driver
-                // (Engine currently focused on Breath, but this lays groundwork for multi-modal)
-                log::info!("EFE Selected Digital Intervention: {:?}", di);
-            }
-        }
-
-        // VAJRA-001: Use Skandha decision if available
-        // This overrides EFE logic with the unified pipeline's decision (which may include its own EFE)
-        if self.config.features.vajra_enabled {
-            if let Some(ref s) = self.skandha_state {
-                if let Some(ref d) = s.decision {
-                    proposed = d.target_bpm;
-                    // Also use confidence from Skandha
-                    log::debug!(
-                        "Vajra-001: Using Skandha decision {:.2} (conf={:.2})",
-                        proposed,
-                        d.confidence
-                    );
-                }
-            }
-        }
-
-        // VAJRA-001: Dharma Filter - phase-based ethical action filtering
-        if self.config.features.vajra_enabled {
-            use crate::safety::ComplexDecision;
-
-            // Convert proposed BPM to complex decision
-            let baseline_bpm = 6.0;
-            let action = ComplexDecision::from_bpm_target(proposed, baseline_bpm);
-
-            // Apply Dharma filter
-            match action.filter_with(&self.skandha_pipeline.sankhara.dharma) {
-                Some(sanctioned) => {
-                    let new_proposed = sanctioned.to_bpm(baseline_bpm);
-                    if (new_proposed - proposed).abs() > 0.1 {
-                        log::info!(
-                            "DharmaFilter: Scaled action from {:.2} to {:.2} BPM (alignment={:.3})",
-                            proposed,
-                            new_proposed,
-                            self.skandha_pipeline
-                                .sankhara
-                                .dharma
-                                .check_alignment(action.vector)
-                        );
-                    }
-                    // ADAPTIVE BOUNDS: Reuse calibrated thresholds after dharma scaling
-                    proposed = new_proposed.clamp(rr_min, rr_max);
-                }
-                None => {
-                    // Dharma veto - fall back to baseline
-                    log::warn!(
-                        "DharmaFilter: Action VETOED (proposed={:.2} BPM, phase={:.3} rad)",
-                        proposed,
-                        action.phase()
-                    );
-                    proposed = baseline_bpm;
-                }
-            }
-        }
-
-        let patch = crate::safety_swarm::PatternPatch {
-            target_bpm: proposed,
-            hold_sec: 30.0,
-            pattern_id: self.last_pattern_id,
-            goal: self.last_goal,
-        };
-
-        // build guards
-        let decide = {
-            let mut guards: Vec<Box<dyn crate::safety_swarm::Guard + '_>> = Vec::new();
-            guards.push(Box::new(crate::safety_swarm::TraumaGuard {
-                source: self.safety.trauma_cache(),
-                hard_th: self.config.safety.trauma_hard_th,
-                soft_th: self.config.safety.trauma_soft_th,
-            }));
-            // Fix: Use controller state for rate limiting (stateless guard needs history)
-            let last_patch_sec = self
-                .controller
-                .last_decision_ts_us
-                .map(|last| crate::domain::dt_sec(ts_us, last));
-
-            guards.push(Box::new(crate::safety_swarm::ConfidenceGuard {
-                min_conf: 0.2,
-            }));
-            guards.push(Box::new(crate::safety_swarm::BreathBoundsGuard {
-                clamp: crate::safety_swarm::Clamp {
-                    rr_min: 4.0,
-                    rr_max: 12.0,
-                    hold_max_sec: 60.0,
-                    max_delta_rr_per_min: 6.0,
-                },
-            }));
-            guards.push(Box::new(crate::safety_swarm::RateLimitGuard {
-                min_interval_sec: 10.0,
-                last_patch_sec,
-            }));
-            guards.push(Box::new(crate::safety_swarm::ComfortGuard));
-            guards.push(Box::new(crate::safety_swarm::ResourceGuard));
-
-            crate::safety_swarm::decide(
-                guards.as_slice(),
-                &patch,
-                &self.skandha_pipeline.vedana.state(),
-                &crate::belief::PhysioState {
-                    hr_bpm: est.hr_bpm,
-                    rr_bpm: est.rr_bpm,
-                    rmssd: est.rmssd,
-                    confidence: est.confidence,
-                },
-                &self.context,
-                ts_us,
-            )
-        };
-
-        // CRITICAL: Causal Veto Check (happens AFTER safety guards but BEFORE final decision)
-        // This prevents actions that historically fail in this context
-        const MIN_SUCCESS_PROB: f32 = 0.3;
-        const HIGH_SUCCESS_PROB: f32 = 0.8;
-
-        // LTL Safety Monitor Check
-        // Verify tempo bounds, panic halt, and safety lock invariants
-        let session_duration = self.timestamp.session_duration(ts_us);
-
-        let runtime_state = RuntimeState {
-            tempo_scale: proposed / 6.0, // Normalize to baseline 6 BPM
-            status: "RUNNING".to_string(),
-            session_duration,
-            prediction_error: self.skandha_pipeline.vedana.free_energy_ema(),
-            last_update_timestamp: ts_us as u64,
-        };
-
-        if let Err(violations) = self.safety.monitor_mut().check(&runtime_state) {
-            let reason = format!("ltl_violation:{}", violations[0].property_name);
-            eprintln!("ENGINE_DENY: LTL safety violation: {:?}", violations);
-
-            let poll_interval = crate::controller::compute_poll_interval(
-                &mut self.controller.poller,
-                self.skandha_pipeline.vedana.free_energy_ema(),
-                self.skandha_pipeline.vedana.confidence(),
-                false,
-                &self.context,
-            );
-
-            // Shield tempo to safe bounds
-            let safe_tempo = self.safety.monitor().shield_tempo(proposed / 6.0) * 6.0;
-
-            return (
-                ControlDecision {
-                    target_rate_bpm: safe_tempo,
-                    confidence: est.confidence * 0.3, // Heavily reduced confidence
-                    recommended_poll_interval_ms: poll_interval,
-                },
-                false,
-                Some((
-                    self.skandha_pipeline.vedana.mode() as u8,
-                    0,
-                    self.skandha_pipeline.vedana.confidence(),
-                )),
-                Some(reason),
-            );
-        }
-
+        // Calculate Causal Probability
         let context_state = self.causal.graph.extract_state_values(
             self.skandha_pipeline.vedana.state(),
             self.causal.last_observation.as_ref(), // Use cached latest observation
@@ -1066,123 +675,115 @@ impl Engine {
             .graph
             .predict_success_probability(&context_state, &breath_action);
 
-        match decide {
-            Err(s) => {
-                // Denied by safety guards -> freeze and surface reason
-                let reason = s.to_string();
-                eprintln!("ENGINE_DENY: safety_guard reason={}", reason);
-                let poll_interval = crate::controller::compute_poll_interval(
-                    &mut self.controller.poller,
-                    self.skandha_pipeline.vedana.free_energy_ema(),
+        // Build GuardConfig
+        let last_patch_sec = self
+            .controller
+            .last_decision_ts_us
+            .map(|last| crate::domain::dt_sec(ts_us, last));
+
+        let guard_config = crate::skandha::sankhara::GuardConfig {
+            trauma_hard_th: self.config.safety.trauma_hard_th,
+            trauma_soft_th: self.config.safety.trauma_soft_th,
+            min_confidence: 0.2,
+            rr_min: self.rr_min_threshold.get(),
+            rr_max: self.rr_max_threshold.get(),
+            hold_max_sec: 60.0,
+            max_delta_rr_per_min: 6.0,
+            min_interval_sec: 10.0,
+            last_patch_sec,
+        };
+
+        // DELIBERATE (Unified Sankhara)
+        let deliberation = self.skandha_pipeline.sankhara.deliberate(
+            est,
+            self.skandha_pipeline.vedana.state(),
+            &self.context,
+            &guard_config,
+            ts_us,
+            self.safety.trauma_cache(),
+            Some(success_prob.value),
+            self.last_pattern_id as i64,
+            self.last_goal as i64,
+        );
+
+        // LTL Monitor Verification
+        // Verify tempo bounds, panic halt, and safety lock invariants
+        let proposed = deliberation.decision.target_rate_bpm;
+        let session_duration = self.timestamp.session_duration(ts_us);
+
+        // Required import if not present, but using implicit if available
+        use crate::safety::RuntimeState;
+
+        let runtime_state = RuntimeState {
+            tempo_scale: proposed / 6.0,
+            status: "RUNNING".to_string(),
+            session_duration,
+            prediction_error: self.skandha_pipeline.vedana.free_energy_ema(),
+            last_update_timestamp: ts_us as u64,
+        };
+
+        if let Err(violations) = self.safety.monitor_mut().check(&runtime_state) {
+            let reason = format!("ltl_violation:{}", violations[0].property_name);
+            eprintln!("ENGINE_DENY: LTL safety violation: {:?}", violations);
+
+            // Calculate safe poll interval from Controller logic (Engine owns poll logic configuration)
+            let poll_interval = crate::controller::compute_poll_interval(
+                &mut self.controller.poller,
+                self.skandha_pipeline.vedana.free_energy_ema(),
+                self.skandha_pipeline.vedana.confidence(),
+                false,
+                &self.context,
+            );
+
+            // Shield tempo to safe bounds
+            let safe_tempo = self.safety.monitor().shield_tempo(proposed / 6.0) * 6.0;
+
+            return (
+                crate::domain::ControlDecision {
+                    target_rate_bpm: safe_tempo,
+                    confidence: est.confidence * 0.3, 
+                    recommended_poll_interval_ms: poll_interval,
+                    intent_id: None, // LTL fallback has no intent
+                },
+                false, 
+                Some((
+                    self.skandha_pipeline.vedana.mode() as u8,
+                    deliberation.meta.guard_bits,
                     self.skandha_pipeline.vedana.confidence(),
-                    false,
-                    &self.context,
-                );
-                (
-                    ControlDecision {
-                        target_rate_bpm: self.controller.last_decision_bpm.unwrap_or(proposed),
-                        confidence: est.confidence,
-                        recommended_poll_interval_ms: poll_interval,
-                    },
-                    false,
-                    Some((
-                        self.skandha_pipeline.vedana.mode() as u8,
-                        0,
-                        self.skandha_pipeline.vedana.confidence(),
-                    )),
-                    Some(reason),
-                )
-            }
-            Ok((applied, bits)) => {
-                // Safety guards passed - now apply causal veto
-                if success_prob.value < MIN_SUCCESS_PROB {
-                    // CAUSAL VETO: Action historically fails in this context
-                    eprintln!(
-                        "DEBUG: Action Vetoed by Causal Graph (Prob: {:.3}, Conf: {:.3})",
-                        success_prob.value, success_prob.confidence
-                    );
-                    eprintln!(
-                        "ENGINE_DENY: causal_veto_low_prob prob={:.3} conf={:.3} mode={:?}",
-                        success_prob.value,
-                        success_prob.confidence,
-                        self.skandha_pipeline.vedana.mode()
-                    );
-
-                    // Fallback to safe default: maintain last decision or use gentle baseline
-                    let fallback_bpm = self.controller.last_decision_bpm.unwrap_or(6.0);
-                    let poll_interval = crate::controller::compute_poll_interval(
-                        &mut self.controller.poller,
-                        self.skandha_pipeline.vedana.free_energy_ema(),
-                        self.skandha_pipeline.vedana.confidence(),
-                        false,
-                        &self.context,
-                    );
-
-                    return (
-                        ControlDecision {
-                            target_rate_bpm: fallback_bpm,
-                            confidence: est.confidence * 0.5, // Reduced confidence for vetoed action
-                            recommended_poll_interval_ms: poll_interval,
-                        },
-                        false,
-                        Some((
-                            self.skandha_pipeline.vedana.mode() as u8,
-                            0,
-                            self.skandha_pipeline.vedana.confidence(),
-                        )),
-                        Some(format!("causal_veto_low_prob_{:.2}", success_prob.value)),
-                    );
-                }
-
-                // Action approved by both safety guards and causal graph
-                let final_bpm = applied.target_bpm;
-                let changed = match self.controller.last_decision_bpm {
-                    Some(prev) => {
-                        (prev - final_bpm).abs() > self.controller.cfg.decision_epsilon_bpm
-                    }
-                    None => true,
-                } && match self.controller.last_decision_ts_us {
-                    Some(last_ts) => {
-                        (ts_us - last_ts) >= self.controller.cfg.min_decision_interval_us
-                    }
-                    None => true,
-                };
-                if changed {
-                    self.controller.last_decision_bpm = Some(final_bpm);
-                    self.controller.last_decision_ts_us = Some(ts_us);
-                }
-
-                // Causal boost: high-success actions get confidence boost
-                let confidence_boost = if success_prob.value > HIGH_SUCCESS_PROB {
-                    1.2 // 20% confidence boost for historically successful actions
-                } else {
-                    1.0
-                };
-
-                let poll_interval = crate::controller::compute_poll_interval(
-                    &mut self.controller.poller,
-                    self.skandha_pipeline.vedana.free_energy_ema(),
-                    self.skandha_pipeline.vedana.confidence(),
-                    changed,
-                    &self.context,
-                );
-                let boosted_confidence = (est.confidence * confidence_boost).min(1.0);
-                (
-                    ControlDecision {
-                        target_rate_bpm: final_bpm,
-                        confidence: boosted_confidence,
-                        recommended_poll_interval_ms: poll_interval,
-                    },
-                    changed,
-                    Some((
-                        self.skandha_pipeline.vedana.mode() as u8,
-                        bits,
-                        self.skandha_pipeline.vedana.confidence(),
-                    )),
-                    None,
-                )
-            }
+                )),
+                Some(reason),
+            );
         }
+
+        // Apply Decision
+        let final_bpm = deliberation.decision.target_rate_bpm;
+        let changed = match self.controller.last_decision_bpm {
+            Some(prev) => (prev - final_bpm).abs() > self.controller.cfg.decision_epsilon_bpm,
+            None => true,
+        } && match self.controller.last_decision_ts_us {
+            Some(last_ts) => (ts_us - last_ts) >= self.controller.cfg.min_decision_interval_us,
+            None => true,
+        };
+        
+        if changed {
+            self.controller.last_decision_bpm = Some(final_bpm);
+            self.controller.last_decision_ts_us = Some(ts_us);
+        }
+
+        // B.ONE V3: Attach intent_id to decision for karmic traceability
+        let mut final_decision = deliberation.decision.clone();
+        final_decision.intent_id = Some(deliberation.intent_id.raw());
+
+        (
+            final_decision,
+            changed,
+            Some((
+                self.skandha_pipeline.vedana.mode() as u8,
+                deliberation.meta.guard_bits,
+                self.skandha_pipeline.vedana.confidence(),
+            )),
+            deliberation.adjustment_reason,
+        )
     }
 }
 
@@ -1298,11 +899,11 @@ impl Engine {
                 
                 // Boost learning rate for belief updates (done via EFE precision)
                 // Higher precision = more exploitation of known good states
-                self.efe_precision_beta = (self.efe_precision_beta * 1.02).min(10.0);
+                self.skandha_pipeline.sankhara.efe_precision_beta = (self.skandha_pipeline.sankhara.efe_precision_beta * 1.02).min(10.0);
                 
                 log::debug!(
                     "Thermo: CONSERVATIVE mode (entropy={:.3}), beta={:.2}",
-                    entropy, self.efe_precision_beta
+                    entropy, self.skandha_pipeline.sankhara.efe_precision_beta
                 );
             }
             // Normal entropy: Balanced mode
@@ -1420,7 +1021,7 @@ impl Engine {
                 self.decision_confidence.decay(0.8);
                 
                 // 3. Increase EFE precision beta (more exploitation of known-good states)
-                self.efe_precision_beta = (self.efe_precision_beta * 0.9).max(0.5);
+                self.skandha_pipeline.sankhara.efe_precision_beta = (self.skandha_pipeline.sankhara.efe_precision_beta * 0.9).max(0.5);
             }
         }
         
@@ -1523,6 +1124,6 @@ mod tests {
         let (dec, _persist, policy, deny) = eng.make_control(&est, 0);
         assert!(dec.confidence >= 0.0);
         assert!(policy.is_some());
-        assert!(deny.is_none());
+        assert!(deny.is_none(), "Denied with reason: {:?}", deny);
     }
 }

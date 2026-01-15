@@ -32,12 +32,12 @@ fn test_efe_policy_selection_flow() {
     // But I DID update `last_selected_policy` in Engine.
 
     assert!(
-        engine.last_selected_policy.is_some(),
+        engine.skandha_pipeline.sankhara.last_executed_policy.is_some(),
         "EFE selection should populate last_selected_policy"
     );
 
-    let selected = engine.last_selected_policy.as_ref().unwrap();
-    println!("Selected Policy: {}", selected.policy.description());
+    let selected = engine.skandha_pipeline.sankhara.last_executed_policy.as_ref().unwrap();
+    println!("Selected Policy: {}", selected.description());
 
     // B. Check that decision reflects the policy
     // For Calming Breath, target BPM is 6.0
@@ -49,12 +49,12 @@ fn test_efe_policy_selection_flow() {
 
     // C. Verify Beta Adaptation Logic (triggered via learn_from_outcome)
     // Simulate Success
-    let _old_beta = engine.efe_precision_beta;
+    let _old_beta = engine.skandha_pipeline.sankhara.efe_precision_beta;
     engine.learn_from_outcome(true, "test_action".to_string(), 2_000_000, 0.0);
 
     // Beta should change (logic: success rate high -> slight increase? or if exploration low...)
     assert!(
-        engine.efe_meta_learner.success_rate_ema > 0.5,
+        engine.skandha_pipeline.sankhara.meta_learner.success_rate_ema > 0.5,
         "Success rate should increase"
     );
 }

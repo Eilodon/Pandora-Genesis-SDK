@@ -31,7 +31,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::belief::BeliefBasis;
-use crate::domain::{ControlDecision, Event, SessionId};
+use crate::domain::{ControlDecision, Envelope, Event, SessionId};
 use crate::philosophical_state::{PhilosophicalState, PhilosophicalStateMonitor};
 use crate::skandha::{
     AffectiveState, FormedIntent, PerceivedPattern, ProcessedForm, SensorInput, SynthesizedState,
@@ -62,6 +62,87 @@ pub struct FlowEvent {
     pub enrichment: FlowEnrichment,
     /// Lineage: events that contributed to this one
     pub lineage: Vec<FlowEventId>,
+}
+
+impl FlowEvent {
+    /// Convert FlowEvent to legacy Envelope format for persistence.
+    /// 
+    /// # B.ONE V3: Di Hồn Đại Pháp
+    /// This is the bridge function for the transition period where we:
+    /// 1. Use FlowStream as the primary consciousness bus
+    /// 2. Still persist to EventStore in Envelope format
+    /// 3. Encode rich metadata (enrichment, lineage, stage) into envelope.meta
+    /// 
+    /// # Arguments
+    /// * `seq` - Sequence number for this envelope
+    /// 
+    /// # Returns
+    /// Envelope ready for persistence via AsyncWorker
+    pub fn to_envelope(&self, seq: u64) -> Envelope {
+        // Convert FlowPayload to Event
+        let event = self.payload_to_event();
+        
+        // Encode rich metadata into JSON
+        let meta = serde_json::json!({
+            "flow_event_id": self.id.0,
+            "skandha_stage": self.skandha_stage.vietnamese_name(),
+            "stage_index": self.skandha_stage as u8,
+            "enrichment": {
+                "vedana_type": self.enrichment.vedana_type.map(|v| v.vietnamese_name()),
+                "karma_weight": self.enrichment.karma_weight,
+                "pattern_similarity": self.enrichment.pattern_similarity,
+                "dharma_alignment": self.enrichment.dharma_alignment,
+                "confidence": self.enrichment.confidence,
+                "philosophical_state": self.enrichment.philosophical_state.map(|s| s.vietnamese_name()),
+            },
+            "lineage": self.lineage.iter().map(|id| id.0).collect::<Vec<_>>(),
+        });
+        
+        Envelope {
+            session_id: self.session_id.clone(),
+            seq,
+            ts_us: self.timestamp_us,
+            event,
+            meta,
+        }
+    }
+    
+    /// Map FlowPayload to legacy Event enum.
+    fn payload_to_event(&self) -> Event {
+        match &self.payload {
+            FlowPayload::RawSensor(input) => Event::SensorFeaturesIngested {
+                features: vec![
+                    input.hr_bpm.unwrap_or(0.0),
+                    input.hrv_rmssd.unwrap_or(0.0),
+                    input.rr_bpm.unwrap_or(0.0),
+                    input.quality,
+                    input.motion,
+                ],
+                downsampled: false,
+            },
+            FlowPayload::Decision(decision) => Event::ControlDecisionMade {
+                decision: decision.clone(),
+            },
+            FlowPayload::Synthesized(state) => Event::BeliefUpdatedV2 {
+                p: state.belief,
+                conf: state.confidence,
+                mode: state.mode,
+                free_energy_ema: state.free_energy,
+                lr: 0.1, // Default learning rate
+                resonance_score: 1.0, // Default resonance
+            },
+            FlowPayload::Affective(_) | 
+            FlowPayload::ProcessedForm(_) | 
+            FlowPayload::Pattern(_) | 
+            FlowPayload::Intent(_) => {
+                // Intermediate Skandha stages don't map to legacy events
+                // Use Tombstone with metadata
+                Event::Tombstone {}
+            },
+            FlowPayload::SystemObservation(_) => Event::Tombstone {},
+            FlowPayload::DomainEvent(event) => event.clone(),
+        }
+    }
 }
 
 /// Unique identifier for flow events.

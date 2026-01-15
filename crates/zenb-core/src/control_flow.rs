@@ -203,6 +203,7 @@ pub fn create_zenb_pipeline() -> ControlFlowGraph {
                             target_rate_bpm: 6.0,
                             confidence: 0.8,
                             recommended_poll_interval_ms: 1000,
+                            intent_id: None,
                         },
                         should_persist: false,
                         policy_info: None,

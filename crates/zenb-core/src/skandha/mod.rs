@@ -22,6 +22,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod llm;
+pub mod sankhara;
 
 // ============================================================================
 // Skandha Data Flow
@@ -1274,16 +1275,14 @@ pub mod zenb {
         }
     }
 
-    /// ZenbSankhara: Wraps DharmaFilter for ethical intent filtering
-    /// 
-    /// # VAJRA-VOID Enhancement
-    /// - Prioritizes corrective action when `is_karmic_debt` is true
-    /// - Uses heuristics to select action (future: CausalGraph query)
-    #[derive(Debug, Default)]
-    pub struct ZenbSankhara {
-        pub dharma: DharmaFilter,
-    }
+    // ===================================
+    // Sankhara (Unified)
+    // ===================================
 
+    /// ZenbSankhara alias connecting to the UnifiedSankhara module (Di Hồn Đại Pháp).
+    pub use self::sankhara::UnifiedSankhara as ZenbSankhara;
+
+    #[cfg(any())]
     impl ZenbSankhara {
         /// Query optimal action based on context patterns (heuristic)
         /// 
@@ -1373,6 +1372,7 @@ pub mod zenb {
         }
     }
 
+    #[cfg(any())]
     impl SankharaSkandha for ZenbSankhara {
         fn form_intent(
             &mut self,
