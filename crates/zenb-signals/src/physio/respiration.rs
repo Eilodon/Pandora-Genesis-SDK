@@ -177,7 +177,7 @@ impl RespirationEstimator {
             self.cfg.max_freq,
         );
 
-        if snr_db > -10.0 {
+        if hz > 0.0 && snr_db > -10.0 {
             Some((hz * 60.0, snr_db))
         } else {
             None
@@ -212,7 +212,7 @@ impl RespirationEstimator {
             self.cfg.max_freq,
         );
 
-        if snr_db > -10.0 {
+        if hz > 0.0 && snr_db > -10.0 {
             Some((hz * 60.0, snr_db))
         } else {
             None
@@ -257,7 +257,7 @@ impl RespirationEstimator {
             self.cfg.max_freq,
         );
 
-        if snr_db > -10.0 {
+        if hz > 0.0 && snr_db > -10.0 {
             Some((hz * 60.0, snr_db))
         } else {
             None
@@ -303,7 +303,7 @@ impl RespirationEstimator {
             self.cfg.max_freq,
         );
 
-        if snr_db > -10.0 {
+        if hz > 0.0 && snr_db > -10.0 {
             Some((hz * 60.0, snr_db))
         } else {
             None
@@ -405,6 +405,7 @@ impl Default for RespirationEstimator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f32::consts::PI;
 
     fn generate_pulse_with_resp_modulation(
         n: usize,

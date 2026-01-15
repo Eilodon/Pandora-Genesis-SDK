@@ -77,6 +77,7 @@ impl FaceDetector for ExternalLandmarkDetector {
 /// # Arguments
 /// * `frame` - Raw frame bytes (RGB888)
 /// * `width` - Frame width in pixels
+/// * `height` - Frame height in pixels
 /// * `x`, `y` - Top-left corner of ROI
 /// * `roi_w`, `roi_h` - ROI dimensions
 ///
@@ -85,6 +86,7 @@ impl FaceDetector for ExternalLandmarkDetector {
 pub fn extract_roi_mean_rgb(
     frame: &[u8],
     width: u32,
+    height: u32,
     x: u32,
     y: u32,
     roi_w: u32,
@@ -97,7 +99,7 @@ pub fn extract_roi_mean_rgb(
     
     for dy in 0..roi_h {
         let row_y = y + dy;
-        if row_y >= width { continue; }  // bounds check
+        if row_y >= height { continue; }  // Fixed: check against height, not width
         
         for dx in 0..roi_w {
             let row_x = x + dx;
@@ -144,6 +146,11 @@ pub fn extract_roi_grid(
     grid_rows: usize,
     grid_cols: usize,
 ) -> Vec<RoiSignal> {
+    // Guard against zero dimensions
+    if grid_rows == 0 || grid_cols == 0 {
+        return vec![];
+    }
+    
     let [bbox_x, bbox_y, bbox_w, bbox_h] = detection.bbox;
     
     let cell_w = bbox_w / grid_cols as f32;
@@ -160,7 +167,7 @@ pub fn extract_roi_grid(
             
             // Bounds check
             if x + w <= frame_width && y + h <= frame_height {
-                let rgb = extract_roi_mean_rgb(frame, frame_width, x, y, w, h);
+                let rgb = extract_roi_mean_rgb(frame, frame_width, frame_height, x, y, w, h);
                 signals.push(RoiSignal {
                     r: ndarray::Array1::from(vec![rgb[0]]),
                     g: ndarray::Array1::from(vec![rgb[1]]),
@@ -196,7 +203,7 @@ mod tests {
             128, 64, 32,  128, 64, 32,  128, 64, 32,  128, 64, 32,
         ];
         
-        let rgb = extract_roi_mean_rgb(&frame, 4, 0, 0, 2, 2);
+        let rgb = extract_roi_mean_rgb(&frame, 4, 4, 0, 0, 2, 2);
         assert!((rgb[0] - 128.0).abs() < 0.01);
         assert!((rgb[1] - 64.0).abs() < 0.01);
         assert!((rgb[2] - 32.0).abs() < 0.01);

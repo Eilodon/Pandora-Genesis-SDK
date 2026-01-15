@@ -238,7 +238,7 @@ impl PrismProcessor {
         let steps = if range.is_some() {
             5  // Reduced from 11 to 5 steps
         } else {
-            self.config.alpha_steps
+            self.config.alpha_steps.max(1)  // Guard against alpha_steps=0
         };
 
         for i in 0..=steps {

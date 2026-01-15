@@ -60,6 +60,11 @@ impl DspProcessor {
     /// Tuple of (BPM, SNR in dB)
     pub fn compute_heart_rate(signal: &Array1<f32>, fs: f32) -> (f32, f32) {
         let n = signal.len();
+        
+        // Guard against too-short signals
+        if n < 2 || fs <= 0.0 {
+            return (0.0, 0.0);
+        }
 
         // 1. Apply Hamming window
         let window = Self::hamming_window(n);
@@ -224,31 +229,55 @@ impl DspProcessor {
         (hz, snr)
     }
 
-    /// Simple bandpass filter (high-pass + low-pass)
+    /// Bandpass filter using simple IIR approximation
     ///
-    /// Reference: RPPGProcessor.ts:208-237
+    /// Implements a first-order high-pass followed by first-order low-pass
+    /// with cutoff frequencies derived from FilterConfig.
     ///
     /// # Arguments
     /// * `signal` - Input signal
-    /// * `config` - Filter configuration
+    /// * `config` - Filter configuration with min_freq (highpass) and max_freq (lowpass)
     ///
     /// # Returns
     /// Filtered signal
-    pub fn bandpass_filter(signal: &Array1<f32>, _config: &FilterConfig) -> Array1<f32> {
-        let mut filtered = signal.to_vec();
-
-        // High-pass component (remove DC)
-        let hp_alpha = 0.95;
-        let mut hp_prev = 0.0;
-        for i in 1..filtered.len() {
-            filtered[i] = hp_alpha * (hp_prev + filtered[i] - filtered[i - 1]);
-            hp_prev = filtered[i];
+    pub fn bandpass_filter(signal: &Array1<f32>, config: &FilterConfig) -> Array1<f32> {
+        let n = signal.len();
+        if n < 2 {
+            return signal.clone();
         }
 
-        // Low-pass component (remove high-freq noise)
-        let lp_alpha = 0.2;
-        for i in 1..filtered.len() {
-            filtered[i] = lp_alpha * filtered[i] + (1.0 - lp_alpha) * filtered[i - 1];
+        let mut filtered = signal.to_vec();
+        let fs = config.sample_rate;
+
+        // Compute IIR coefficients from cutoff frequencies
+        // High-pass: alpha_hp = 1 / (1 + 2*pi*fc/fs) approximately
+        // For first-order IIR: y[n] = alpha * (y[n-1] + x[n] - x[n-1])
+        let hp_rc = 1.0 / (2.0 * PI * config.min_freq.max(0.01));
+        let hp_dt = 1.0 / fs;
+        let hp_alpha = hp_rc / (hp_rc + hp_dt);
+
+        // Low-pass: alpha_lp = dt / (rc + dt)
+        let lp_rc = 1.0 / (2.0 * PI * config.max_freq.max(0.1));
+        let lp_dt = 1.0 / fs;
+        let lp_alpha = lp_dt / (lp_rc + lp_dt);
+
+        // High-pass filter (remove frequencies below min_freq)
+        let mut hp_prev_in = filtered[0];
+        let mut hp_prev_out = 0.0;
+        for i in 1..n {
+            let hp_out = hp_alpha * (hp_prev_out + filtered[i] - hp_prev_in);
+            hp_prev_in = filtered[i];
+            hp_prev_out = hp_out;
+            filtered[i] = hp_out;
+        }
+        filtered[0] = 0.0; // First sample has no previous
+
+        // Low-pass filter (remove frequencies above max_freq)
+        let mut lp_prev = filtered[0];
+        for i in 1..n {
+            let lp_out = lp_alpha * filtered[i] + (1.0 - lp_alpha) * lp_prev;
+            lp_prev = lp_out;
+            filtered[i] = lp_out;
         }
 
         Array1::from(filtered)

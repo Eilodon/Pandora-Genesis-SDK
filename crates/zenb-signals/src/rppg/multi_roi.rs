@@ -219,8 +219,10 @@ impl MultiRoiProcessor {
         let valid_results: Vec<&RoiResult> = results.iter().filter(|r| r.is_valid).collect();
         
         if valid_results.is_empty() {
-            // Fall back to best available result
-            let best = results.iter().max_by(|a, b| a.snr.partial_cmp(&b.snr).unwrap());
+            // Fall back to best available result (handle NaN gracefully)
+            let best = results.iter().max_by(|a, b| {
+                a.snr.partial_cmp(&b.snr).unwrap_or(std::cmp::Ordering::Equal)
+            });
             
             return match best {
                 Some(r) => MultiRoiResult {
