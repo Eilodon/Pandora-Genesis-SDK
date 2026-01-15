@@ -6,35 +6,36 @@
 //! - ROI extraction utilities for rPPG processing
 //! - `Frame` struct for image processing (basic ops available always)
 //! - `VideoPipeline` for real-time video processing
+//! - `BlazeFaceDetector` for pure-Rust face detection (with Candle)
 //!
 //! # Features
 //!
 //! - `image-processing`: Enables `image` crate integration for file I/O
+//! - `candle-detection`: Enables BlazeFace with Candle ML framework (GPU support)
 //!
 //! # Design
 //!
 //! The module is designed as a pure-Rust interface that allows clients
 //! to inject face detection results from external sources (MediaPipe,
-//! ARKit, etc.) without adding native dependencies.
+//! ARKit, etc.) without adding native dependencies. With `candle-detection`,
+//! full inference can run locally.
 //!
 //! # Example
 //!
 //! ```ignore
-//! use zenb_signals::vision::{VideoPipeline, Frame};
+//! use zenb_signals::vision::{VideoPipeline, BlazeFaceDetector};
 //!
 //! let mut pipeline = VideoPipeline::new();
 //!
-//! // Option 1: Process raw frame data
+//! // Set up BlazeFace detector
+//! let detector = BlazeFaceDetector::new();
+//! pipeline.set_face_detector(Box::new(detector));
+//!
+//! // Process frames
 //! let result = pipeline.process_raw(&frame_bytes, 640, 480, timestamp_us);
-//!
-//! // Option 2: Inject pre-computed signal (from mobile SDK)
-//! let result = pipeline.inject_signal([r, g, b], timestamp_us, face_detected);
-//!
-//! if let Some(hr) = result.heart_rate_bpm {
-//!     println!("Heart rate: {:.1} BPM", hr);
-//! }
 //! ```
 
+mod blazeface;
 mod face_roi;
 mod image_ops;
 mod landmark_roi;
@@ -55,3 +56,6 @@ pub use image_ops::{Frame, rgba_to_rgb, nv21_to_rgb};
 
 // Video pipeline
 pub use video_pipeline::{VideoPipeline, VideoConfig, PipelineResult};
+
+// BlazeFace detector (works without candle feature, but uses heuristics only)
+pub use blazeface::{BlazeFaceDetector, BlazeFaceConfig, BlazeFaceDetection};

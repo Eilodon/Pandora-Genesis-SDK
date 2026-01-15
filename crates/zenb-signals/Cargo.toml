@@ -7,6 +7,7 @@ edition = "2021"
 default = []
 parallel = ["rayon"]
 image-processing = ["dep:image"]
+candle-detection = ["dep:candle-core", "dep:candle-nn", "dep:safetensors", "dep:hf-hub"]
 
 [dependencies]
 # N-dimensional arrays (like NumPy)
@@ -28,6 +29,11 @@ rayon = { version = "1.10", optional = true }
 # Image processing (optional)
 image = { version = "0.25", optional = true, default-features = false, features = ["jpeg", "png"] }
 
+# Candle ML framework (optional) - pure Rust, GPU support
+candle-core = { version = "0.8", optional = true }
+candle-nn = { version = "0.8", optional = true }
+safetensors = { version = "0.6", optional = true }
+hf-hub = { version = "0.4", optional = true }
+
 [dev-dependencies]
 approx = "0.5"  # For floating-point comparisons in tests
-
