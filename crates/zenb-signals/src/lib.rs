@@ -79,6 +79,7 @@ pub use wavelet::{FastCWT, FastCwtConfig};
 
 // Physiological estimators
 pub use physio::{HrvConfig, HrvEstimator, HrvMetrics, HrvResult};
+pub use physio::{HrvBaseline, HrvTrendConfig, HrvTrendResult, HrvTrendTracker, TrendDirection};
 pub use physio::{MethodResults, RespirationConfig, RespirationEstimator, RespirationResult};
 
 // Beauty module exports (Mắt Thần Hình)
