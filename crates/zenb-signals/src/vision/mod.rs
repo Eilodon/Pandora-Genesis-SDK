@@ -7,6 +7,7 @@
 //! - `Frame` struct for image processing (basic ops available always)
 //! - `VideoPipeline` for real-time video processing
 //! - `BlazeFaceDetector` for pure-Rust face detection (with Candle)
+//! - `GpuDevice` for GPU acceleration (CUDA/Metal/CPU)
 //!
 //! # Features
 //!
@@ -18,25 +19,27 @@
 //! The module is designed as a pure-Rust interface that allows clients
 //! to inject face detection results from external sources (MediaPipe,
 //! ARKit, etc.) without adding native dependencies. With `candle-detection`,
-//! full inference can run locally.
+//! full inference can run locally with GPU acceleration.
 //!
 //! # Example
 //!
 //! ```ignore
-//! use zenb_signals::vision::{VideoPipeline, BlazeFaceDetector};
+//! use zenb_signals::vision::{VideoPipeline, BlazeFaceDetector, get_best_device};
+//!
+//! // Auto-detect best GPU
+//! let device = get_best_device();
+//! println!("Using: {:?}", device.backend());
 //!
 //! let mut pipeline = VideoPipeline::new();
-//!
-//! // Set up BlazeFace detector
 //! let detector = BlazeFaceDetector::new();
 //! pipeline.set_face_detector(Box::new(detector));
 //!
-//! // Process frames
 //! let result = pipeline.process_raw(&frame_bytes, 640, 480, timestamp_us);
 //! ```
 
 mod blazeface;
 mod face_roi;
+pub mod gpu;
 mod image_ops;
 mod landmark_roi;
 mod video_pipeline;
@@ -59,3 +62,10 @@ pub use video_pipeline::{VideoPipeline, VideoConfig, PipelineResult};
 
 // BlazeFace detector (works without candle feature, but uses heuristics only)
 pub use blazeface::{BlazeFaceDetector, BlazeFaceConfig, BlazeFaceDetection};
+
+// GPU acceleration
+pub use gpu::{GpuDevice, GpuBackend, GpuInfo, GpuMetrics, get_best_device, list_devices};
+
+// GPU-accelerated ops (candle feature only)
+#[cfg(feature = "candle-detection")]
+pub use gpu::{GpuImageOps, BatchProcessor};
