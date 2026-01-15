@@ -15,8 +15,13 @@
 //! - Sanna ≈ `HolographicMemory` (pattern recall)
 //! - Sankhara ≈ `DharmaFilter` (ethical action filtering)
 //! - Vinnana ≈ `Engine` (synthesis)
+//!
+//! # LLM Integration
+//! - `llm`: LLM-augmented Skandha implementations for text processing
 
 use serde::{Deserialize, Serialize};
+
+pub mod llm;
 
 // ============================================================================
 // Skandha Data Flow

@@ -67,6 +67,10 @@ vajra_debug = []
 gpu_cuda = []
 # GPU FFT: Metal backend for Apple GPUs - PLACEHOLDER (cubecl-metal not on crates.io)
 gpu_metal = []
+# LLM Integration: OpenAI API provider - PLACEHOLDER (requires async-openai)
+llm-openai = []
+# LLM Integration: Local llama.cpp provider - PLACEHOLDER (requires llama_cpp)
+llm-llama = []
 
 [[bench]]
 name = "forensic_bench"

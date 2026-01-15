@@ -12,9 +12,13 @@
 //! - [`biofeedback`]: Reference implementation for breath guidance, HRV tracking,
 //!   and physiological signal processing.
 //! - [`trading`]: Example domain for market analysis and algorithmic trading.
+//! - [`text`]: Natural language processing with LLM integration.
 
 pub mod biofeedback;
 pub mod trading;
+pub mod text;
 
 pub use biofeedback::BiofeedbackDomain;
 pub use trading::TradingDomain;
+pub use text::TextDomain;
+

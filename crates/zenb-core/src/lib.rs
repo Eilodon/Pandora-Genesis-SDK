@@ -93,6 +93,7 @@ pub mod validation; // Phase 2.4: Consolidated timestamp tracking
 pub mod learning;   // Priority Experience Buffer + PrefixSpan pattern mining
 pub mod simulation; // Grid World test environment
 pub mod monitoring; // Prometheus metrics (feature-gated)
+pub mod llm;        // LLM Provider abstraction for generative model integration
 
 #[cfg(test)]
 pub mod tests_config;
