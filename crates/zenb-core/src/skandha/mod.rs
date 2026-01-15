@@ -1625,14 +1625,22 @@ pub mod zenb {
             // Predict optimal breath rate using LTC
             let predicted_bpm = self.breath_predictor.predict(&ltc_inputs, self.last_dt);
 
-            // Map affect to belief distribution
-            let mut belief = [0.2f32; 5];
+            // FIX: Create sharper belief distribution based on affect
+            // The actual belief update is done in BeliefSubsystem (Vedana stage)
+            // This just creates a reasonable integration of the synthesized state
+            let mut belief = [0.1f32; 5];  // Start lower baseline
+            
+            // Primary mode determination with stronger weights
             if affect.arousal < 0.3 && affect.valence > 0.2 {
-                belief[0] = 0.6; // Calm
+                belief[0] = 0.6; // Calm - strong signal
             } else if affect.arousal > 0.6 {
-                belief[1] = 0.5; // Stress
+                belief[1] = 0.55; // Stress
             } else if affect.valence > 0.3 {
                 belief[2] = 0.5; // Focus
+            } else if affect.arousal < 0.2 {
+                belief[3] = 0.45; // Sleepy (low arousal, neutral valence)
+            } else {
+                belief[4] = 0.4; // Energize (default active state)
             }
 
             // Normalize

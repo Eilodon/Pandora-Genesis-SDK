@@ -67,6 +67,7 @@ impl MemoryBackend {
 
 /// Performance metrics for a backend on a task type
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // energy_estimate reserved for future routing optimization
 struct BackendPerformance {
     success_rate: f32,
     avg_latency_us: f32,

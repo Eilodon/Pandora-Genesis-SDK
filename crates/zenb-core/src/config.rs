@@ -71,12 +71,19 @@ pub struct FeatureConfig {
     pub thermo_temperature: Option<f32>,
 
     /// VAJRA V5: Entropy threshold for Dissipative mode (high entropy → exploration)
+    /// Raised from 1.5 to 2.0 to prevent premature memory decay
     #[serde(default)]
     pub entropy_high_threshold: Option<f32>,
 
     /// VAJRA V5: Entropy threshold for Conservative mode (low entropy → exploitation)
+    /// Lowered from 0.5 to 0.3 to allow more exploitation
     #[serde(default)]
     pub entropy_low_threshold: Option<f32>,
+
+    /// VAJRA V5: Base memory decay rate in Dissipative mode
+    /// Higher = slower decay (more memory retention). Default: 0.995
+    #[serde(default)]
+    pub memory_decay_base: Option<f32>,
 
     /// Psychoacoustic calibration profile
     pub audio_profile: AudioProfile,
@@ -248,8 +255,9 @@ impl Default for FeatureConfig {
             policy_adapter_enabled: None, // Default: disabled for safe rollout
             thermo_enabled: None,         // Default: disabled for safe rollout
             thermo_temperature: None,     // Default: 1.0 if enabled
-            entropy_high_threshold: None, // Default: 1.5 (Dissipative mode trigger)
-            entropy_low_threshold: None,  // Default: 0.5 (Conservative mode trigger)
+            entropy_high_threshold: Some(2.0), // FIXED: Was 1.5, too sensitive
+            entropy_low_threshold: Some(0.3),  // FIXED: Was 0.5, allow more exploitation
+            memory_decay_base: Some(0.995),    // FIXED: Slower decay for better convergence
             audio_profile: AudioProfile::default(),
         }
     }

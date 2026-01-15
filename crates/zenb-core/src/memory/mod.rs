@@ -33,6 +33,7 @@ pub mod router; // ZENITH Tier 1: Adaptive memory routing
 pub mod saccade; // VAJRA V5: Predictive memory addressing
 pub mod shared; // Thread-safe wrapper (Arc<RwLock>)
 pub mod tiered_hdc; // LifeHD pattern: Two-tier memory with consolidation
+pub mod traits; // [NEW] Unified trait system for memory backends
 pub mod uncertainty; // ZENITH Tier 4: Uncertainty-aware retrieval
 pub mod zenith; // ZENITH Unified API
 
@@ -47,5 +48,6 @@ pub use router::{AdaptiveMemoryRouter, MemoryBackend, RouterConfig, RouterStats,
 pub use saccade::{SaccadeConfig, SaccadeLinker, SaccadeStats};
 pub use shared::SharedMemory;
 pub use tiered_hdc::{MemoryTier, MultiSimilarity, TieredHdcConfig, TieredHdcMemory, TieredHdcStats};
+pub use traits::{BackendType, MemoryBackend as MemoryBackendTrait, TierStats, TieredBackend, UncertaintyAwareBackend};
 pub use uncertainty::{UncertaintyAwareRetrieval, UncertaintyRetrievalConfig, UncertainRetrievalResult};
 pub use zenith::{ZenithConfig, ZenithMemory, ZenithRetrievalResult, ZenithStats};

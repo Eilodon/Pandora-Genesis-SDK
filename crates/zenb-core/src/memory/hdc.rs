@@ -628,6 +628,23 @@ impl HdcVector {
     pub fn as_slice(&self) -> &[u64] {
         &self.data
     }
+
+    /// Convert to f32 vector (for MemoryBackendTrait compatibility)
+    /// 
+    /// Maps each bit to 1.0 or 0.0.
+    pub fn to_f32_vec(&self) -> Vec<f32> {
+        let mut result = Vec::with_capacity(self.dim);
+        for word in &self.data {
+            for bit_idx in 0..64 {
+                if result.len() >= self.dim {
+                    break;
+                }
+                let bit = (word >> bit_idx) & 1;
+                result.push(bit as f32);
+            }
+        }
+        result
+    }
 }
 
 /// Bundle multiple vectors using majority voting
@@ -882,6 +899,12 @@ impl HdcMemory {
         self.values.clear();
         self.retrieval_count = 0;
         self.successful_recalls = 0;
+    }
+
+    /// Get number of stored patterns
+    #[inline]
+    pub fn pattern_count(&self) -> usize {
+        self.keys.len()
     }
 
     /// Apply decay to memory (probabilistic pattern removal)

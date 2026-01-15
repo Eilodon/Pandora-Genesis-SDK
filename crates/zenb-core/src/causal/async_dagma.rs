@@ -27,7 +27,7 @@
 //! ```
 
 use nalgebra::DMatrix;
-use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -54,13 +54,52 @@ pub struct DagmaResult {
     pub duration_ms: u64,
 }
 
+/// Error when submitting to AsyncDagma
+#[derive(Debug, Clone)]
+pub enum SubmitError {
+    /// Channel is full (backpressure active)
+    BackpressureFull,
+    /// Worker thread has disconnected
+    Disconnected,
+}
+
+impl std::fmt::Display for SubmitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BackpressureFull => write!(f, "AsyncDagma channel full (backpressure)"),
+            Self::Disconnected => write!(f, "AsyncDagma worker disconnected"),
+        }
+    }
+}
+
+impl std::error::Error for SubmitError {}
+
+/// Metrics for AsyncDagma performance monitoring
+#[derive(Debug, Clone, Default)]
+pub struct AsyncDagmaMetrics {
+    /// Total requests submitted
+    pub total_submitted: u64,
+    /// Requests dropped due to backpressure
+    pub dropped_backpressure: u64,
+    /// Completed requests
+    pub completed: u64,
+    /// Average duration in milliseconds
+    pub avg_duration_ms: f64,
+    /// Maximum duration in milliseconds
+    pub max_duration_ms: u64,
+}
+
 /// Async DAGMA: Background causal structure learning.
 ///
 /// Spawns a dedicated thread for DAGMA computation, allowing the main
 /// Engine loop to continue without blocking on causal discovery.
+///
+/// # Backpressure
+/// Uses bounded channel (default capacity: 2) to prevent unbounded memory growth.
+/// When channel is full, `try_submit` returns `Err(SubmitError::BackpressureFull)`.
 pub struct AsyncDagma {
-    /// Channel to send requests to background thread
-    tx: Sender<DagmaRequest>,
+    /// Channel to send requests to background thread (bounded)
+    tx: SyncSender<DagmaRequest>,
     /// Channel to receive results from background thread
     rx: Receiver<DagmaResult>,
     /// Handle to background thread (for cleanup)
@@ -71,24 +110,43 @@ pub struct AsyncDagma {
     next_request_id: u64,
     /// Most recent request ID (for ordering)
     pending_request_id: Option<u64>,
+    /// Metrics (shared with caller)
+    metrics: Arc<Mutex<AsyncDagmaMetrics>>,
+    /// Channel capacity for backpressure
+    capacity: usize,
 }
 
 impl AsyncDagma {
+    /// Default channel capacity for backpressure
+    pub const DEFAULT_CAPACITY: usize = 2;
+
     /// Spawn a new async DAGMA worker.
     ///
     /// # Arguments
     /// * `n_vars` - Number of variables in causal graph
     /// * `config` - Optional DAGMA configuration
     pub fn spawn(n_vars: usize, config: Option<DagmaConfig>) -> Self {
-        let (request_tx, request_rx) = channel::<DagmaRequest>();
-        let (result_tx, result_rx) = channel::<DagmaResult>();
+        Self::spawn_with_capacity(n_vars, config, Self::DEFAULT_CAPACITY)
+    }
+
+    /// Spawn a new async DAGMA worker with custom capacity.
+    ///
+    /// # Arguments
+    /// * `n_vars` - Number of variables in causal graph
+    /// * `config` - Optional DAGMA configuration
+    /// * `capacity` - Channel capacity for backpressure (0 = rendezvous, 1+ = bounded)
+    pub fn spawn_with_capacity(n_vars: usize, config: Option<DagmaConfig>, capacity: usize) -> Self {
+        let (request_tx, request_rx) = sync_channel::<DagmaRequest>(capacity);
+        let (result_tx, result_rx) = sync_channel::<DagmaResult>(capacity.max(1));
 
         let dagma = Dagma::new(n_vars, config);
+        let metrics = Arc::new(Mutex::new(AsyncDagmaMetrics::default()));
+        let metrics_clone = Arc::clone(&metrics);
 
         let handle = thread::Builder::new()
             .name("async-dagma".to_string())
             .spawn(move || {
-                Self::worker_loop(dagma, request_rx, result_tx);
+                Self::worker_loop(dagma, request_rx, result_tx, metrics_clone);
             })
             .expect("Failed to spawn DAGMA thread");
 
@@ -99,6 +157,8 @@ impl AsyncDagma {
             latest_result: Arc::new(Mutex::new(None)),
             next_request_id: 0,
             pending_request_id: None,
+            metrics,
+            capacity,
         }
     }
 
@@ -106,7 +166,8 @@ impl AsyncDagma {
     fn worker_loop(
         dagma: Dagma,
         rx: Receiver<DagmaRequest>,
-        tx: Sender<DagmaResult>,
+        tx: SyncSender<DagmaResult>,
+        metrics: Arc<Mutex<AsyncDagmaMetrics>>,
     ) {
         log::info!("AsyncDagma worker started");
 
@@ -127,6 +188,15 @@ impl AsyncDagma {
                 duration_ms,
             };
 
+            // Update metrics
+            if let Ok(mut m) = metrics.lock() {
+                m.completed += 1;
+                m.max_duration_ms = m.max_duration_ms.max(duration_ms);
+                // Rolling average
+                let n = m.completed as f64;
+                m.avg_duration_ms = m.avg_duration_ms * (n - 1.0) / n + duration_ms as f64 / n;
+            }
+
             log::debug!(
                 "AsyncDagma completed request {} in {}ms",
                 request.request_id,
@@ -134,13 +204,16 @@ impl AsyncDagma {
             );
 
             // Send result (ignore error if receiver dropped)
-            let _ = tx.send(result);
+            let _ = tx.try_send(result);
         }
 
         log::info!("AsyncDagma worker stopped");
     }
 
     /// Submit a new learning request (non-blocking).
+    ///
+    /// If the channel is full, this will still succeed by waiting briefly.
+    /// For strict non-blocking, use `try_submit`.
     ///
     /// # Arguments
     /// * `data` - Data matrix (n_samples × n_vars)
@@ -158,14 +231,71 @@ impl AsyncDagma {
             request_id,
         };
 
-        // Non-blocking send (buffer in channel)
+        // Update metrics
+        if let Ok(mut m) = self.metrics.lock() {
+            m.total_submitted += 1;
+        }
+
+        // Blocking send (will wait if channel full)
         if let Err(e) = self.tx.send(request) {
-            log::error!("AsyncDagma: Failed to submit request: {}", e);
+            log::error!("AsyncDagma: Worker disconnected: {}", e);
         } else {
             self.pending_request_id = Some(request_id);
         }
 
         request_id
+    }
+
+    /// Try to submit a new learning request (non-blocking with backpressure).
+    ///
+    /// # Arguments
+    /// * `data` - Data matrix (n_samples × n_vars)
+    /// * `warm_start` - Optional previous weights for faster convergence
+    ///
+    /// # Returns
+    /// - `Ok(request_id)` if submitted successfully
+    /// - `Err(SubmitError::BackpressureFull)` if channel is full
+    /// - `Err(SubmitError::Disconnected)` if worker thread died
+    pub fn try_submit(&mut self, data: DMatrix<f32>, warm_start: Option<&DMatrix<f32>>) -> Result<u64, SubmitError> {
+        let request_id = self.next_request_id;
+
+        let request = DagmaRequest {
+            data,
+            warm_start: warm_start.cloned(),
+            request_id,
+        };
+
+        match self.tx.try_send(request) {
+            Ok(()) => {
+                self.next_request_id += 1;
+                self.pending_request_id = Some(request_id);
+                
+                if let Ok(mut m) = self.metrics.lock() {
+                    m.total_submitted += 1;
+                }
+                
+                Ok(request_id)
+            }
+            Err(TrySendError::Full(_)) => {
+                if let Ok(mut m) = self.metrics.lock() {
+                    m.dropped_backpressure += 1;
+                }
+                Err(SubmitError::BackpressureFull)
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                Err(SubmitError::Disconnected)
+            }
+        }
+    }
+
+    /// Get current metrics.
+    pub fn metrics(&self) -> AsyncDagmaMetrics {
+        self.metrics.lock().ok().map(|m| m.clone()).unwrap_or_default()
+    }
+
+    /// Get channel capacity.
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
     /// Try to get the latest result (non-blocking).

@@ -1263,22 +1263,24 @@ impl Engine {
                 nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
             let entropy = self.thermo_engine.entropy(&state);
             
-            // Get entropy thresholds from config or use defaults
-            let entropy_high = self.config.features.entropy_high_threshold.unwrap_or(1.5);
-            let entropy_low = self.config.features.entropy_low_threshold.unwrap_or(0.5);
+            // Get entropy thresholds from config (FIXED: raised defaults to 2.0/0.3)
+            let entropy_high = self.config.features.entropy_high_threshold.unwrap_or(2.0);
+            let entropy_low = self.config.features.entropy_low_threshold.unwrap_or(0.3);
+            let memory_decay_base = self.config.features.memory_decay_base.unwrap_or(0.995);
 
-            // High entropy (>1.5): Dissipative mode - trigger memory decay for forgetting
+            // High entropy (>2.0): Dissipative mode - trigger memory decay for forgetting
+            // FIXED: Reduced aggressiveness - decay scales more gently
             if entropy > entropy_high {
                 // Apply memory decay to prevent memory overload
-                // Decay rate scales with entropy excess
-                let decay_rate = 0.99 - (entropy - entropy_high) * 0.01;
-                let decay_rate = decay_rate.clamp(0.95, 0.999);
+                // FIXED: Use config base (0.995) and gentler scaling (0.005)
+                let decay_rate = memory_decay_base - (entropy - entropy_high) * 0.005;
+                let decay_rate = decay_rate.clamp(0.98, 0.9999);
                 self.skandha_pipeline.sanna.memory.decay(decay_rate);
                 
-                // Increase temperature for more exploration
+                // Increase temperature for more exploration (gentler: 1.05x instead of 1.1x)
                 let current_temp = self.thermo_engine.config().temperature;
                 if current_temp < 2.0 {
-                    self.thermo_engine.set_temperature((current_temp * 1.1).min(2.0));
+                    self.thermo_engine.set_temperature((current_temp * 1.05).min(2.0));
                 }
                 
                 log::debug!(
@@ -1286,17 +1288,17 @@ impl Engine {
                     entropy, decay_rate
                 );
             }
-            // Low entropy (<0.5): Conservative mode - deep learning
+            // Low entropy (<0.3): Conservative mode - deep learning
             else if entropy < entropy_low {
                 // Decrease temperature for more exploitation
                 let current_temp = self.thermo_engine.config().temperature;
                 if current_temp > 0.1 {
-                    self.thermo_engine.set_temperature((current_temp * 0.9).max(0.1));
+                    self.thermo_engine.set_temperature((current_temp * 0.95).max(0.1));
                 }
                 
                 // Boost learning rate for belief updates (done via EFE precision)
                 // Higher precision = more exploitation of known good states
-                self.efe_precision_beta = (self.efe_precision_beta * 1.05).min(10.0);
+                self.efe_precision_beta = (self.efe_precision_beta * 1.02).min(10.0);
                 
                 log::debug!(
                     "Thermo: CONSERVATIVE mode (entropy={:.3}), beta={:.2}",

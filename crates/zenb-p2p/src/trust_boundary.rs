@@ -21,7 +21,6 @@
 //! process_message(&verified);
 //! ```
 
-use crate::identity::verify_signature;
 use crate::message::P2PMessage;
 
 /// A verified P2P message that has passed cryptographic authentication.

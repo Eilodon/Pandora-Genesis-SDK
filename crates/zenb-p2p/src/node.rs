@@ -48,6 +48,7 @@ impl Default for P2PConfig {
 
 /// Trauma sync entry with receive timestamp
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // received_at_us reserved for future cache expiration
 struct TraumaSyncEntry {
     payload: TraumaPayload,
     received_at_us: i64,

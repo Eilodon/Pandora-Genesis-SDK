@@ -921,3 +921,75 @@ fn test_snapshot_roundtrip() {
     }
 }
 
+// ============================================================================
+// MemoryBackend Trait Implementation
+// ============================================================================
+
+use super::traits::MemoryBackend as MemoryBackendTrait;
+
+/// Thread-safe marker: HolographicMemory uses Arc<dyn Fft> internally
+/// which is Send + Sync. The struct itself needs explicit unsafe impl
+/// because FFT planners don't implement these traits automatically.
+/// 
+/// # Safety
+/// The FFT planners are read-only after construction and can be shared.
+unsafe impl Send for HolographicMemory {}
+unsafe impl Sync for HolographicMemory {}
+
+impl MemoryBackendTrait for HolographicMemory {
+    fn store(&mut self, key: &[f32], value: &[f32], _context: Option<&[f32]>) {
+        // Convert to complex and entangle
+        self.entangle_real(key, value);
+    }
+
+    fn retrieve(&mut self, key: &[f32]) -> Option<(Vec<f32>, f32)> {
+        if self.item_count == 0 {
+            return None;
+        }
+
+        let recalled = self.recall_real(key);
+        
+        // Compute similarity as normalized dot product with recalled value
+        let dot: f32 = key.iter().zip(recalled.iter()).map(|(a, b)| a * b).sum();
+        let norm_key: f32 = key.iter().map(|x| x * x).sum::<f32>().sqrt();
+        let norm_val: f32 = recalled.iter().map(|x| x * x).sum::<f32>().sqrt();
+        
+        let similarity = if norm_key > 0.0 && norm_val > 0.0 {
+            (dot / (norm_key * norm_val)).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        Some((recalled, similarity))
+    }
+
+    fn decay(&mut self, factor: f32) {
+        HolographicMemory::decay(self, factor);
+    }
+
+    fn clear(&mut self) {
+        HolographicMemory::clear(self);
+    }
+
+    fn backend_name(&self) -> &'static str {
+        "Holographic"
+    }
+
+    fn item_count(&self) -> usize {
+        self.item_count
+    }
+
+    fn dimension(&self) -> usize {
+        self.dim
+    }
+
+    fn utilization(&self) -> f32 {
+        let (items, max) = self.capacity_status();
+        if max > 0 {
+            (items as f32 / max as f32).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+}
+

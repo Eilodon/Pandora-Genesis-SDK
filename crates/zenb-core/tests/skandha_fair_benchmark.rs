@@ -133,8 +133,8 @@ fn test_sheaf_consensus_benefit() {
             bio.hr_bpm.unwrap(),
             bio.hrv_rmssd.unwrap(),
             bio.respiratory_rate.unwrap(),
-            0.9, // quality
-            0.1, // motion
+            1.0, // quality - match baseline
+            0.0, // motion - match baseline
         ];
         let est = vajra_engine.ingest_sensor(&features, obs.timestamp_us);
         let _ = vajra_engine.make_control(&est, obs.timestamp_us);
@@ -213,8 +213,8 @@ fn test_convergence_speed() {
             bio.hr_bpm.unwrap(),
             bio.hrv_rmssd.unwrap(),
             bio.respiratory_rate.unwrap(),
-            0.9,
-            0.1,
+            1.0, // quality - same as baseline default
+            0.0, // motion - same as baseline default
         ];
         let est = vajra_engine.ingest_sensor(&features, obs.timestamp_us);
         let _ = vajra_engine.make_control(&est, obs.timestamp_us);
@@ -312,8 +312,8 @@ fn test_pattern_memory_benefit() {
             bio.hr_bpm.unwrap(),
             bio.hrv_rmssd.unwrap(),
             bio.respiratory_rate.unwrap(),
-            0.9,
-            0.1,
+            1.0, // quality
+            0.0, // motion
         ];
         let est = vajra_engine.ingest_sensor(&features, obs.timestamp_us);
         let _ = vajra_engine.make_control(&est, obs.timestamp_us);
@@ -324,8 +324,8 @@ fn test_pattern_memory_benefit() {
         bio.hr_bpm.unwrap(),
         bio.hrv_rmssd.unwrap(),
         bio.respiratory_rate.unwrap(),
-        0.9,
-        0.1,
+        1.0, // quality
+        0.0, // motion
     ];
     let est = vajra_engine.ingest_sensor(&features, test_obs.timestamp_us);
     let _ = vajra_engine.make_control(&est, test_obs.timestamp_us);
@@ -399,8 +399,8 @@ fn test_dharma_ethical_veto() {
         bio.hr_bpm.unwrap(),
         bio.hrv_rmssd.unwrap(),
         bio.respiratory_rate.unwrap(),
-        0.9,
-        0.1,
+        1.0, // quality
+        0.0, // motion
     ];
     let est = vajra_engine.ingest_sensor(&features, extreme_obs.timestamp_us);
     let (vajra_decision, _, _, vajra_deny) =
@@ -459,8 +459,8 @@ fn test_latency_comparison() {
             bio.hr_bpm.unwrap(),
             bio.hrv_rmssd.unwrap(),
             bio.respiratory_rate.unwrap(),
-            0.9,
-            0.1,
+            1.0, // quality
+            0.0, // motion
         ];
         let est = vajra_engine.ingest_sensor(&features, obs.timestamp_us);
         let _ = vajra_engine.make_control(&est, obs.timestamp_us);

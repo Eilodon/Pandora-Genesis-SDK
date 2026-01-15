@@ -965,3 +965,104 @@ mod tests {
         );
     }
 }
+
+// ============================================================================
+// MemoryBackend Trait Implementation
+// ============================================================================
+
+use super::traits::{MemoryBackend as MemoryBackendTrait, TierStats, TieredBackend};
+
+impl MemoryBackendTrait for TieredHdcMemory {
+    fn store(&mut self, key: &[f32], value: &[f32], context: Option<&[f32]>) {
+        let key_hdc = self.encode_features(key);
+        let value_hdc = self.encode_features(value);
+        
+        if let Some(ctx) = context {
+            self.store_with_context(key_hdc, value_hdc, ctx);
+        } else {
+            TieredHdcMemory::store(self, key_hdc, value_hdc);
+        }
+    }
+
+    fn retrieve(&mut self, key: &[f32]) -> Option<(Vec<f32>, f32)> {
+        let query = self.encode_features(key);
+        
+        // Use retrieve_value to get actual HDC vector
+        self.retrieve_value(&query).map(|(value, similarity, _tier)| {
+            // Convert HDC vector back to f32
+            let floats: Vec<f32> = value.to_f32_vec();
+            (floats, similarity)
+        })
+    }
+
+    fn decay(&mut self, factor: f32) {
+        TieredHdcMemory::decay(self, factor);
+    }
+
+    fn clear(&mut self) {
+        TieredHdcMemory::clear(self);
+    }
+
+    fn backend_name(&self) -> &'static str {
+        "TieredHDC"
+    }
+
+    fn item_count(&self) -> usize {
+        self.working_entries.len() + self.long_term.pattern_count()
+    }
+
+    fn dimension(&self) -> usize {
+        self.dim()
+    }
+
+    fn utilization(&self) -> f32 {
+        let working_util = self.working_entries.len() as f32 
+            / self.config.working_config.max_patterns as f32;
+        let lt_util = self.long_term.pattern_count() as f32 
+            / self.config.long_term_config.max_patterns as f32;
+        (working_util * 0.3 + lt_util * 0.7).clamp(0.0, 1.0)
+    }
+}
+
+impl TieredBackend for TieredHdcMemory {
+    fn is_consolidated(&self, key: &[f32]) -> bool {
+        let query = self.encode_features(key);
+        // Check similarity directly via keys without using retrieve (which requires &mut)
+        // This is a read-only approximation - pattern is consolidated if similar key exists
+        // We check working_entries which we have immutable access to
+        !self.working_entries.iter().any(|e| e.key.similarity(&query) > 0.9)
+            && self.long_term.pattern_count() > 0
+    }
+
+    fn consolidate(&mut self, key: &[f32]) -> bool {
+        let query = self.encode_features(key);
+        
+        let idx = self.working_entries
+            .iter()
+            .position(|e| e.key.similarity(&query) > 0.9);
+        
+        if let Some(i) = idx {
+            self.consolidate_entry(i);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn tier_stats(&self) -> TierStats {
+        TierStats {
+            working_count: self.working_entries.len(),
+            long_term_count: self.long_term.pattern_count(),
+            consolidation_count: self.consolidation_count,
+            eviction_count: 0,
+        }
+    }
+
+    fn working_capacity(&self) -> usize {
+        self.config.working_config.max_patterns
+    }
+
+    fn long_term_capacity(&self) -> usize {
+        self.config.long_term_config.max_patterns
+    }
+}

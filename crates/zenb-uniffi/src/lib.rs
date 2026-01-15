@@ -11,8 +11,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use zenb_core::domain::{ControlDecision, Envelope, Event, Observation, SessionId};
-use zenb_core::ZenbConfig;
-use zenb_core::{Engine, Estimate};
+use zenb_core::skandha::SensorInput;
+use zenb_core::universal_flow::UniversalFlowStream;
+use zenb_core::{Engine, Estimate, ZenbConfig};
 use zenb_projectors::{Dashboard, StatsDaily};
 use zenb_store::EventStore;
 
@@ -76,6 +77,7 @@ pub struct Runtime {
     dash: Dashboard,
     stats: StatsDaily,
     engine: Engine,
+    flow_stream: UniversalFlowStream,
     last_sensor_persist_ts_us: Option<i64>,
     last_decision_persist_ts_us: Option<i64>,
     last_deny_persist_ts_us: Option<i64>,
@@ -89,6 +91,17 @@ pub struct Runtime {
 }
 
 impl Runtime {
+    fn build_sensor_input(features: &[f32], ts_us: i64) -> SensorInput {
+        SensorInput {
+            hr_bpm: features.get(0).copied(),
+            hrv_rmssd: features.get(1).copied(),
+            rr_bpm: features.get(2).copied(),
+            quality: features.get(3).copied().unwrap_or(1.0),
+            motion: features.get(4).copied().unwrap_or(0.0),
+            timestamp_us: ts_us,
+        }
+    }
+
     pub fn new<P: AsRef<std::path::Path>>(
         db_path: P,
         master_key: [u8; 32],
@@ -134,6 +147,7 @@ impl Runtime {
 
         // Start async worker AFTER trauma hydration
         let worker = AsyncWorker::start(store);
+        let flow_stream = UniversalFlowStream::with_session(session_id.clone());
 
         let mut rt = Runtime {
             worker,
@@ -142,6 +156,7 @@ impl Runtime {
             dash: Dashboard::default(),
             stats: StatsDaily::default(),
             engine,
+            flow_stream,
             last_sensor_persist_ts_us: None,
             last_decision_persist_ts_us: None,
             last_deny_persist_ts_us: None,
@@ -278,10 +293,15 @@ impl Runtime {
             is_charging,
             recent_sessions,
         };
+        let sensor_input = Self::build_sensor_input(&features, ts_us);
+        self.flow_stream.emit_sensor(sensor_input, ts_us);
         let est = self
             .engine
             .ingest_sensor_with_context(&features, ts_us, ctx);
         self.last_estimate = Some(est.clone());
+        if let Some(state) = self.engine.skandha_state.clone() {
+            self.flow_stream.emit_synthesis(state, ts_us);
+        }
         // downsample persist
         if self
             .last_sensor_persist_ts_us
@@ -404,6 +424,11 @@ impl Runtime {
 
         // engine tick; get cycles
         let cycles = self.engine.tick(dt_us);
+        self.flow_stream.update_state(
+            self.engine.prediction_error(),
+            self.engine.skandha_pipeline.vedana.confidence(),
+            ts_us,
+        );
         if cycles > 0 {
             // persist low-frequency cycle completed event
             let seq = match self.buf.back() {
@@ -491,6 +516,8 @@ impl Runtime {
                 }
             }
 
+            self.flow_stream.emit_rebirth(decision.clone(), ts_us);
+
             // If decision was denied, persist a denial event with downsampling to avoid spam
             if let Some(reason) = deny_reason {
                 let should_persist = self
@@ -564,7 +591,14 @@ impl Runtime {
     }
 
     pub fn get_dashboard(&self) -> Value {
-        serde_json::to_value(&self.dash).unwrap_or(serde_json::json!({}))
+        let mut base = serde_json::to_value(&self.dash).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(obj) = base.as_object_mut() {
+            let flow_stats = serde_json::to_value(self.flow_stream.stats()).unwrap_or_else(|_| serde_json::json!({}));
+            let system_observation = serde_json::to_value(self.flow_stream.create_observation()).unwrap_or_else(|_| serde_json::json!({}));
+            obj.insert("flow_stats".into(), flow_stats);
+            obj.insert("system_observation".into(), system_observation);
+        }
+        base
     }
 }
 

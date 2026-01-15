@@ -198,7 +198,160 @@ impl CausalHypergraph {
         self.hyperedges.clear();
         self.max_order = 2;
     }
+
+    // =========================================================================
+    // Cycle Detection (Phase 1 Enhancement)
+    // =========================================================================
+
+    /// Detect if the hypergraph contains any cycles.
+    ///
+    /// Returns the cycle path if found, or None if acyclic.
+    ///
+    /// # Algorithm
+    /// Uses DFS with color marking:
+    /// - White (unvisited)
+    /// - Gray (in current path)
+    /// - Black (finished)
+    ///
+    /// A back edge (to a Gray node) indicates a cycle.
+    pub fn detect_cycle(&self) -> Option<CyclePath> {
+        use std::collections::{HashMap, HashSet};
+
+        // Build adjacency: target -> set of sources (reverse for cycle detection)
+        // For hyperedges, we consider: each source can "reach" the target
+        let mut out_edges: HashMap<Variable, HashSet<Variable>> = HashMap::new();
+        
+        for edge in &self.hyperedges {
+            for source in &edge.sources {
+                out_edges
+                    .entry(*source)
+                    .or_default()
+                    .insert(edge.target);
+            }
+        }
+
+        // DFS state
+        #[derive(Clone, Copy, PartialEq)]
+        enum Color { White, Gray, Black }
+        
+        let mut color: HashMap<Variable, Color> = HashMap::new();
+        let mut parent: HashMap<Variable, Variable> = HashMap::new();
+
+        // Get all unique variables
+        let mut all_vars: HashSet<Variable> = HashSet::new();
+        for edge in &self.hyperedges {
+            all_vars.insert(edge.target);
+            for s in &edge.sources {
+                all_vars.insert(*s);
+            }
+        }
+
+        // DFS
+        fn dfs(
+            v: Variable,
+            out_edges: &HashMap<Variable, HashSet<Variable>>,
+            color: &mut HashMap<Variable, Color>,
+            parent: &mut HashMap<Variable, Variable>,
+            path: &mut Vec<Variable>,
+        ) -> Option<Vec<Variable>> {
+            color.insert(v, Color::Gray);
+            path.push(v);
+
+            if let Some(neighbors) = out_edges.get(&v) {
+                for &u in neighbors {
+                    match color.get(&u).unwrap_or(&Color::White) {
+                        Color::White => {
+                            parent.insert(u, v);
+                            if let Some(cycle) = dfs(u, out_edges, color, parent, path) {
+                                return Some(cycle);
+                            }
+                        }
+                        Color::Gray => {
+                            // Found cycle! Reconstruct path
+                            let cycle_start_idx = path.iter().position(|&x| x == u).unwrap();
+                            let mut cycle_path = path[cycle_start_idx..].to_vec();
+                            cycle_path.push(u); // Close the cycle
+                            return Some(cycle_path);
+                        }
+                        Color::Black => {} // Already finished, no cycle through here
+                    }
+                }
+            }
+
+            color.insert(v, Color::Black);
+            path.pop();
+            None
+        }
+
+        // Run DFS from each unvisited node
+        for start in all_vars {
+            if color.get(&start).unwrap_or(&Color::White) == &Color::White {
+                let mut path = Vec::new();
+                if let Some(cycle) = dfs(start, &out_edges, &mut color, &mut parent, &mut path) {
+                    return Some(CyclePath { path: cycle });
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Check if the hypergraph is acyclic.
+    pub fn is_acyclic(&self) -> bool {
+        self.detect_cycle().is_none()
+    }
+
+    /// Add hyperedge with cycle check.
+    ///
+    /// Returns Err with the cycle path if adding this edge would create a cycle.
+    pub fn try_add_hyperedge(&mut self, edge: HyperEdge) -> Result<(), CycleError> {
+        // Temporarily add
+        self.add_hyperedge(edge.clone());
+        
+        if let Some(cycle) = self.detect_cycle() {
+            // Remove the edge we just added
+            self.hyperedges.pop();
+            Err(CycleError {
+                message: format!(
+                    "Adding edge {:?} -> {:?} would create cycle",
+                    edge.sources, edge.target
+                ),
+                cycle_path: cycle,
+            })
+        } else {
+            Ok(())
+        }
+    }
 }
+
+/// A cycle path in the hypergraph
+#[derive(Debug, Clone)]
+pub struct CyclePath {
+    /// Sequence of variables forming the cycle (last = first for closed loop)
+    pub path: Vec<Variable>,
+}
+
+impl std::fmt::Display for CyclePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<String> = self.path.iter().map(|v| format!("{:?}", v)).collect();
+        write!(f, "{}", names.join(" → "))
+    }
+}
+
+/// Error when a cycle would be created
+#[derive(Debug, Clone)]
+pub struct CycleError {
+    pub message: String,
+    pub cycle_path: CyclePath,
+}
+
+impl std::fmt::Display for CycleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.message, self.cycle_path)
+    }
+}
+
+impl std::error::Error for CycleError {}
 
 // ============================================================================
 // TESTS
@@ -381,5 +534,83 @@ mod tests {
 
         let rr_edges = graph.edges_involving(Variable::RespiratoryRate);
         assert_eq!(rr_edges.len(), 1); // RR only in first edge
+    }
+
+    // =========================================================================
+    // Cycle Detection Tests
+    // =========================================================================
+
+    #[test]
+    fn test_acyclic_graph() {
+        let mut graph = CausalHypergraph::new();
+
+        // Simple chain: HR -> RR -> HRV (no cycle)
+        graph.add_interaction(
+            vec![Variable::HeartRate],
+            Variable::RespiratoryRate,
+            CausalEdge::zero(),
+        );
+        graph.add_interaction(
+            vec![Variable::RespiratoryRate],
+            Variable::HeartRateVariability,
+            CausalEdge::zero(),
+        );
+
+        assert!(graph.is_acyclic());
+        assert!(graph.detect_cycle().is_none());
+    }
+
+    #[test]
+    fn test_cycle_detection() {
+        let mut graph = CausalHypergraph::new();
+
+        // Create cycle: HR -> RR -> HR
+        graph.add_interaction(
+            vec![Variable::HeartRate],
+            Variable::RespiratoryRate,
+            CausalEdge::zero(),
+        );
+        graph.add_interaction(
+            vec![Variable::RespiratoryRate],
+            Variable::HeartRate,
+            CausalEdge::zero(),
+        );
+
+        assert!(!graph.is_acyclic());
+        let cycle = graph.detect_cycle();
+        assert!(cycle.is_some());
+        
+        let path = cycle.unwrap();
+        println!("Detected cycle: {}", path);
+        assert!(path.path.len() >= 2); // At least HR -> RR -> HR
+    }
+
+    #[test]
+    fn test_try_add_hyperedge_rejects_cycle() {
+        let mut graph = CausalHypergraph::new();
+
+        // Add first edge
+        graph.add_interaction(
+            vec![Variable::HeartRate],
+            Variable::RespiratoryRate,
+            CausalEdge::zero(),
+        );
+
+        // Try to add edge that creates cycle
+        let cyclic_edge = HyperEdge::new(
+            vec![Variable::RespiratoryRate],
+            Variable::HeartRate,
+            CausalEdge::zero(),
+        );
+
+        let result = graph.try_add_hyperedge(cyclic_edge);
+        assert!(result.is_err());
+        
+        let err = result.unwrap_err();
+        println!("Cycle error: {}", err);
+        assert!(err.message.contains("would create cycle"));
+        
+        // Graph should still have only 1 edge
+        assert_eq!(graph.edge_count(), 1);
     }
 }

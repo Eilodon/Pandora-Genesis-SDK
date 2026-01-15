@@ -1,6 +1,5 @@
 //! LlmSanna: LLM-powered pattern recognition for the Sanna (Perception) stage.
 
-use crate::domains::text::TextInput;
 use crate::llm::{GenerationConfig, LlmError, LlmProvider};
 use crate::memory::HolographicMemory;
 use crate::skandha::llm::llm_rupa::{TaskType, TextForm};
@@ -173,7 +172,7 @@ impl<P: LlmProvider> LlmSanna<P> {
 
 // Implement SannaSkandha for compatibility
 impl<P: LlmProvider + 'static> SannaSkandha for LlmSanna<P> {
-    fn perceive(&mut self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern {
+    fn perceive(&mut self, form: &ProcessedForm, _affect: &AffectiveState) -> PerceivedPattern {
         // Compatibility shim - convert ProcessedForm to pattern
         PerceivedPattern {
             pattern_id: self.pattern_count,
@@ -235,6 +234,7 @@ pub enum PatternType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domains::text::TextInput;
     use crate::llm::providers::mock::MockProvider;
     use crate::skandha::llm::llm_rupa::LlmRupa;
 
