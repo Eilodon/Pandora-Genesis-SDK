@@ -91,3 +91,15 @@ pub use beauty::{
     SkinAnalysis, Undertone, SkinDepth,
     CanonicalLandmarks, normalize_to_canonical, landmark_indices,
 };
+
+// Attention metrics (Week 6-8)
+pub use beauty::{
+    AttentionConfig, AttentionMetrics, AttentionTracker,
+    BlinkState, EyeOpenness, GazeDirection,
+};
+
+// Fatigue/Stress fusion (Week 6-8)
+pub use beauty::{
+    FatigueLevel, FatigueStressFusion, FatigueStressResult, FusionBaseline,
+    FusionConfig, FusionInput, Recommendation, RecommendationCategory, StressLevel,
+};

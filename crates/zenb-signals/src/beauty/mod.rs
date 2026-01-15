@@ -51,6 +51,8 @@ mod face_shape;
 mod makeup_plan;
 mod skin_tone;
 mod quality;
+mod attention;
+mod fatigue_stress;
 
 pub use landmarks::{
     CanonicalLandmarks, normalize_to_canonical,
@@ -61,6 +63,15 @@ pub use face_shape::{FaceShape, FaceShapeResult, ShapeClassifier};
 pub use makeup_plan::{MakeupPlan, MakeupZone, ZoneType, ShadeHint, MakeupStyle};
 pub use skin_tone::{SkinAnalysis, Undertone, SkinDepth};
 pub use quality::{BeautyQuality, QualityConfig, compute_quality};
+pub use attention::{
+    AttentionConfig, AttentionMetrics, AttentionTracker,
+    BlinkState, EyeOpenness, GazeDirection,
+};
+pub use fatigue_stress::{
+    FatigueLevel, FatigueStressFusion, FatigueStressResult, FusionBaseline,
+    FusionConfig, FusionInput, Recommendation, RecommendationCategory, StressLevel,
+};
+
 
 
 
