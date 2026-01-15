@@ -38,6 +38,7 @@ pub mod physio;
 pub mod rppg;
 pub mod vision;
 pub mod wavelet;
+pub mod beauty;
 
 // Legacy DSP exports
 pub use dsp::{DspProcessor, FilterConfig};
@@ -79,3 +80,13 @@ pub use wavelet::{FastCWT, FastCwtConfig};
 // Physiological estimators
 pub use physio::{HrvConfig, HrvEstimator, HrvMetrics, HrvResult};
 pub use physio::{MethodResults, RespirationConfig, RespirationEstimator, RespirationResult};
+
+// Beauty module exports (Mắt Thần Hình)
+pub use beauty::{
+    BeautyAnalyzer, BeautyConfig, BeautyInput, BeautyFrameResult, RoiColors,
+    BeautyQuality, QualityConfig, FaceMeasurements,
+    FaceShape, FaceShapeResult, ShapeClassifier,
+    MakeupPlan, MakeupZone, ZoneType, ShadeHint, MakeupStyle,
+    SkinAnalysis, Undertone, SkinDepth,
+    CanonicalLandmarks, normalize_to_canonical, landmark_indices,
+};
