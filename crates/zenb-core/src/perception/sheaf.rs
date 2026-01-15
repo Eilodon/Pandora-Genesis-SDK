@@ -554,6 +554,55 @@ impl Default for SheafPerception {
 }
 
 // ============================================================================
+// RupaSkandha Integration (Sắc Uẩn - Form Processing)
+// ============================================================================
+
+use crate::skandha::{ProcessedForm, RupaSkandha, SensorInput};
+
+/// Implement RupaSkandha for SheafPerception.
+/// 
+/// This bridges the sensor consensus layer into the Ngũ Uẩn pipeline,
+/// making SheafPerception the primary Form (Sắc) processing stage.
+impl RupaSkandha for SheafPerception {
+    /// Process raw sensor input through Sheaf Laplacian diffusion.
+    /// 
+    /// # Sắc Uẩn Processing
+    /// - Converts SensorInput (hr, hrv, rr, quality, motion) to DVector
+    /// - Applies graph diffusion for sensor consensus
+    /// - Returns ProcessedForm with consensus values and anomaly metrics
+    fn process_form(&mut self, input: &SensorInput) -> ProcessedForm {
+        // Convert SensorInput to DVector<f32>
+        // Order: [hr_bpm, hrv_rmssd, rr_bpm, quality, motion]
+        // Note: hr_bpm, hrv_rmssd, rr_bpm are Option<f32>, use defaults if None
+        let raw_values = vec![
+            input.hr_bpm.unwrap_or(70.0),      // Default resting HR
+            input.hrv_rmssd.unwrap_or(50.0),   // Default healthy HRV
+            input.rr_bpm.unwrap_or(15.0),      // Default resting RR
+            input.quality,
+            input.motion,
+        ];
+        let raw_dvec = DVector::from_vec(raw_values);
+        
+        // Process through Sheaf Laplacian diffusion
+        let (diffused, is_anomalous, energy) = self.process(&raw_dvec);
+        
+        // Convert back to fixed array
+        let mut values = [0.0f32; 5];
+        for (i, &v) in diffused.iter().enumerate().take(5) {
+            values[i] = v;
+        }
+        
+        // Create ProcessedForm output
+        ProcessedForm {
+            values,
+            anomaly_score: if is_anomalous { energy } else { 0.0 },
+            energy,
+            is_reliable: !is_anomalous,
+        }
+    }
+}
+
+// ============================================================================
 // TESTS
 // ============================================================================
 

@@ -9,4 +9,4 @@ mod hrv;
 mod respiration;
 
 pub use hrv::{HrvConfig, HrvMetrics, HrvResult, HrvEstimator};
-pub use respiration::{RespirationConfig, RespirationResult, RespirationEstimator};
+pub use respiration::{MethodResults, RespirationConfig, RespirationResult, RespirationEstimator};

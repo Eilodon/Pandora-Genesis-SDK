@@ -291,6 +291,84 @@ pub struct ZenithStats {
     pub uncertainty_enabled: bool,
 }
 
+// ============================================================================
+// SannaSkandha Integration (Tưởng Uẩn - Perception/Memory)
+// ============================================================================
+
+use crate::skandha::{AffectiveState, PerceivedPattern, ProcessedForm, SannaSkandha};
+
+/// Implement SannaSkandha for ZenithMemory.
+/// 
+/// This bridges the ZENITH memory system into the Ngũ Uẩn pipeline,
+/// making ZenithMemory the primary Perception (Tưởng) processing stage.
+/// 
+/// # Tưởng Uẩn Processing
+/// - Uses ProcessedForm values as query for memory retrieval
+/// - Uses AffectiveState (arousal, karma_weight) as context
+/// - Returns PerceivedPattern with recalled pattern ID and similarity
+impl SannaSkandha for ZenithMemory {
+    /// Perceive patterns from processed sensory form.
+    /// 
+    /// # Tưởng Uẩn Flow
+    /// 1. Convert ProcessedForm values to query vector
+    /// 2. Convert AffectiveState to context vector 
+    /// 3. Retrieve from ZENITH memory with uncertainty
+    /// 4. Map retrieval result to PerceivedPattern
+    fn perceive(&mut self, form: &ProcessedForm, affect: &AffectiveState) -> PerceivedPattern {
+        // Build query from ProcessedForm values
+        let query: Vec<f32> = form.values.to_vec();
+        
+        // Build context from AffectiveState
+        // Context: [valence, arousal, confidence, karma_weight, energy]
+        let context = vec![
+            affect.valence,
+            affect.arousal,
+            affect.confidence,
+            affect.karma_weight,
+            form.energy,
+        ];
+        
+        // Retrieve from memory
+        match self.retrieve(&query, &context) {
+            Some(result) => {
+                // Generate pattern_id from similarity hash
+                let pattern_id = (result.similarity * 1_000_000.0) as u64;
+                
+                // Check for trauma association (low similarity + high arousal)
+                let is_trauma = result.similarity < 0.3 && affect.arousal > 0.7;
+                
+                PerceivedPattern {
+                    pattern_id,
+                    similarity: result.similarity,
+                    context: [
+                        context[0],
+                        context[1],
+                        context[2],
+                        context[3],
+                        context[4],
+                    ],
+                    is_trauma_associated: is_trauma,
+                }
+            }
+            None => {
+                // No pattern found - return default with low similarity
+                PerceivedPattern {
+                    pattern_id: 0,
+                    similarity: 0.0,
+                    context: [
+                        affect.valence,
+                        affect.arousal,
+                        affect.confidence,
+                        affect.karma_weight,
+                        form.energy,
+                    ],
+                    is_trauma_associated: false,
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

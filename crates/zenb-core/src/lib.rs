@@ -94,6 +94,7 @@ pub mod learning;   // Priority Experience Buffer + PrefixSpan pattern mining
 pub mod simulation; // Grid World test environment
 pub mod monitoring; // Prometheus metrics (feature-gated)
 pub mod llm;        // LLM Provider abstraction for generative model integration
+pub mod vinnana_controller; // B.ONE V3: Supreme Consciousness Control (P4 Ngũ Uẩn)
 
 #[cfg(test)]
 pub mod tests_config;

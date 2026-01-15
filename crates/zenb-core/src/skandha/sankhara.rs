@@ -797,6 +797,75 @@ impl UnifiedSankhara {
             }
         }
     }
+    
+    /// Apply feedback using IntentId to retrieve exact decision context.
+    /// 
+    /// This is the V2 learning API that enables true karmic feedback loop:
+    /// - Looks up the original TrackedIntent by ID  
+    /// - Reconstructs the exact decision context
+    /// - Updates PolicyAdapter with context-specific state hash
+    /// - Records outcome in IntentTracker for persistence
+    /// 
+    /// # Arguments
+    /// * `intent_id` - The IntentId returned with the original decision
+    /// * `success` - Whether the action led to positive outcome
+    /// * `severity` - Severity of negative outcome (0.0-1.0)
+    /// * `ts_us` - Timestamp of outcome feedback
+    pub fn apply_feedback_v2(&mut self, intent_id: IntentId, success: bool, severity: f32, ts_us: i64) {
+        // 1. Lookup intent in tracker
+        if let Some(intent) = self.intent_tracker.get(intent_id) {
+            // 2. Reconstruct state hash from original context
+            let state_hash = format!("mode_{}_goal_{}_pattern_{}", 
+                intent.context.belief_mode,
+                intent.context.goal_id,
+                intent.context.pattern_id
+            );
+            
+            // 3. Convert IntentAction to ActionPolicy for adapter
+            let policy = self.policy_from_action(&intent.action);
+            
+            // 4. Compute reward
+            let reward = if success { 1.0 } else { -severity };
+            
+            // 5. Update Policy Adapter with exact context
+            let boost = self.policy_adapter.update_with_outcome(&state_hash, &policy, reward, success);
+            
+            // Apply exploration boost
+            self.efe_precision_beta = (self.efe_precision_beta / boost).clamp(0.1, 10.0);
+            
+            // 6. Record outcome in tracker
+            self.intent_tracker.record_outcome(intent_id, success, ts_us);
+            
+            log::info!(
+                "Karmic Feedback: Intent {} -> {} (reward={:.2}, state={})",
+                intent_id.raw(),
+                if success { "SUCCESS" } else { "FAILURE" },
+                reward,
+                state_hash
+            );
+        } else {
+            log::warn!("Intent {} not found in tracker, falling back to legacy learning", intent_id.raw());
+        }
+    }
+    
+    /// Convert IntentAction back to ActionPolicy for policy adapter.
+    fn policy_from_action(&self, action: &IntentAction) -> ActionPolicy {
+        match action {
+            IntentAction::GuideBreath { target_bpm } => {
+                if *target_bpm <= 6 {
+                    PolicyLibrary::calming_breath()
+                } else if *target_bpm >= 8 {
+                    PolicyLibrary::energizing_breath()
+                } else {
+                    PolicyLibrary::focus_mode()
+                }
+            },
+            IntentAction::Observe => PolicyLibrary::observe(),
+            IntentAction::SuggestIntervention => PolicyLibrary::suggest_rest(),
+            IntentAction::Alert => PolicyLibrary::suggest_rest(),
+            IntentAction::SafeFallback => PolicyLibrary::observe(),
+        }
+    }
 }
 
 // Helper to map Policy to IntentAction for tracking

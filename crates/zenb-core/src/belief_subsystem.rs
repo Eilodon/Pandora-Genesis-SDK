@@ -33,7 +33,9 @@ use crate::belief::{
 };
 use crate::config::{BeliefConfig, ZenbConfig};
 use crate::resonance::ResonanceFeatures;
+use crate::safety::DharmaFilter;
 use crate::skandha::{AffectiveState, ProcessedForm, VedanaSkandha};
+use num_complex::Complex32;
 
 /// Encapsulated belief management subsystem.
 ///
@@ -52,6 +54,9 @@ pub struct BeliefSubsystem {
 
     /// Adaptive threshold for mode transitions (hysteresis)
     enter_threshold: AdaptiveThreshold,
+
+    /// Dharma filter for early ethical sensing (Thọ Uẩn - Ethics-by-Design)
+    dharma: DharmaFilter,
 }
 
 impl Default for BeliefSubsystem {
@@ -73,6 +78,7 @@ impl BeliefSubsystem {
                 0.8,  // max threshold
                 0.05, // learning rate
             ),
+            dharma: DharmaFilter::default(),
         }
     }
 
@@ -280,10 +286,15 @@ pub struct BeliefDiagnostics {
 /// This enables the BeliefSubsystem to be used as the Vedana (feeling) stage
 /// in the Skandha pipeline, extracting valence and arousal from sensor data.
 ///
+/// # Ethics-by-Design (B.ONE V3)
+/// The DharmaFilter performs an EARLY ethical check based on the current state,
+/// computing karma_weight as a perception layer, not just a late filter.
+/// This embodies: "Đạo đức là một Tầng Nhận Thức, không phải một Bộ Lọc"
+///
 /// # Mapping from Belief to Affect
 /// - **Valence** = (Calm + Focus) - Stress + 0.5*(Energize - Sleepy)
 /// - **Arousal** = Stress + Energize - 0.5*(Calm + Sleepy)
-/// - **Confidence** = belief state confidence
+/// - **Karma** = DharmaFilter alignment of current state vector
 impl VedanaSkandha for BeliefSubsystem {
     fn extract_affect(&mut self, form: &ProcessedForm) -> AffectiveState {
         // Get current belief probabilities [Calm, Stress, Focus, Sleepy, Energize]
@@ -307,12 +318,34 @@ impl VedanaSkandha for BeliefSubsystem {
             self.state.conf * 0.5
         };
 
+        // =====================================================================
+        // ETHICS-BY-DESIGN: Early DharmaFilter check in Vedana
+        // =====================================================================
+        // Convert current state to Complex32 for phase-based ethics check
+        // Real = homeostatic alignment (Calm - Stress)
+        // Imag = activation level (Energize - Sleepy)
+        let state_real = p[0] - p[1];   // Calm vs Stress
+        let state_imag = p[4] - p[3];   // Energize vs Sleepy
+        let state_vector = Complex32::new(state_real, state_imag);
+        
+        // Compute karma_weight as alignment with Dharma key
+        let alignment = self.dharma.check_alignment(state_vector);
+        // Map from [-1, 1] to [0, 1] for karma_weight
+        let karma_weight = (alignment + 1.0) / 2.0;
+        
+        // Karmic debt: alignment significantly negative
+        let is_karmic_debt = alignment < -0.3;
+        
+        if is_karmic_debt {
+            log::info!("VedanaSkandha: Khổ Thọ detected (karma={:.3})", karma_weight);
+        }
+
         AffectiveState {
             valence,
             arousal,
             confidence: confidence.clamp(0.1, 0.95),
-            karma_weight: 1.0,      // Default: fully aligned (no early filter in basic path)
-            is_karmic_debt: false,  // Will be computed in Phase 3 Dharma integration
+            karma_weight,
+            is_karmic_debt,
         }
     }
 }

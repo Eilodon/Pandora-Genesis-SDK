@@ -3,10 +3,12 @@
 //! Biometric signal processing for ZenB.
 //!
 //! This crate provides:
-//! - **rPPG algorithms**: CHROM, POS, and PRISM (2025 SOTA) for heart rate extraction from RGB video
-//! - **DSP functions**: FFT, filtering, signal quality analysis
-//! - **Wavelet transforms**: Morlet CWT for frequency-band analysis
+//! - **rPPG algorithms**: CHROM, POS, PRISM (2025 SOTA), Multi-ROI, APON
+//! - **DSP functions**: FFT, filtering, signal quality, temporal normalization
+//! - **Wavelet transforms**: Morlet CWT, Fast CWT, ALDTF denoising
 //! - **Physiological estimators**: HRV and respiration from pulse waveforms
+//! - **Motion detection**: Adaptive mode switching for mobile rPPG
+//! - **Vision**: Face detection interface and ROI extraction
 //!
 //! ## Example
 //!
@@ -34,6 +36,7 @@
 pub mod dsp;
 pub mod physio;
 pub mod rppg;
+pub mod vision;
 pub mod wavelet;
 
 // Legacy DSP exports
@@ -45,12 +48,26 @@ pub use dsp::{SignalQuality, SignalQualityAnalyzer, SignalQualityConfig};
 pub use dsp::{HrTracker, HrTrackerConfig, HrTrackedValue};
 pub use dsp::{ExternalQuality, QualityScore, QualityScorer, QualityScorerConfig};
 
+// Temporal normalization & motion detection (SOTA 2026)
+pub use dsp::{combined_detrending, temporal_difference, temporal_normalization, TdConfig, TnConfig};
+pub use dsp::{compute_frame_motion, compute_landmark_motion, MotionDetector, MotionDetectorConfig, MotionState, MotionStatus};
+
 // Legacy rPPG exports
 pub use rppg::{RppgMethod, RppgProcessor, RppgResult};
 
 // New SOTA rPPG exports
+pub use rppg::{AponConfig, AponNoiseEstimator, AponResult};
 pub use rppg::{EnsembleConfig, EnsembleProcessor, EnsembleResult};
+pub use rppg::{MultiRoiConfig, MultiRoiProcessor, MultiRoiResult, RoiResult, RoiSignal};
 pub use rppg::{PrismConfig, PrismProcessor, PrismResult};
+
+// Vision exports
+pub use vision::{
+    FaceDetection, FaceDetector, ExternalLandmarkDetector,
+    extract_roi_grid, extract_roi_mean_rgb,
+    Polygon, forehead_roi, left_cheek_roi, right_cheek_roi,
+    compute_polygon_mean_rgb, FOREHEAD_LANDMARKS, CHEEK_LEFT_LANDMARKS, CHEEK_RIGHT_LANDMARKS,
+};
 
 // Wavelet exports
 pub use wavelet::{BandType, MorletConfig, MorletWavelet, WaveletBands};
@@ -61,5 +78,4 @@ pub use wavelet::{FastCWT, FastCwtConfig};
 
 // Physiological estimators
 pub use physio::{HrvConfig, HrvEstimator, HrvMetrics, HrvResult};
-pub use physio::{RespirationConfig, RespirationEstimator, RespirationResult};
-
+pub use physio::{MethodResults, RespirationConfig, RespirationEstimator, RespirationResult};

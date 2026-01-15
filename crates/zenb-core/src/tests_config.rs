@@ -231,7 +231,7 @@ mod tests {
         assert_eq!(engine.config.breath.default_target_bpm, 5.0);
         assert_eq!(
             engine
-                .skandha_pipeline
+                .vinnana.pipeline
                 .vedana
                 .belief_engine()
                 .smooth_tau_sec,

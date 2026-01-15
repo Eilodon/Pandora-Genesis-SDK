@@ -3,6 +3,10 @@ name = "zenb-signals"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+parallel = ["rayon"]
+
 [dependencies]
 # N-dimensional arrays (like NumPy)
 ndarray = "0.15"
@@ -16,6 +20,9 @@ num-traits = "0.2"
 
 # Logging
 log = "0.4"
+
+# Parallel processing (optional)
+rayon = { version = "1.10", optional = true }
 
 [dev-dependencies]
 approx = "0.5"  # For floating-point comparisons in tests

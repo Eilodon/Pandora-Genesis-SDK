@@ -81,6 +81,7 @@ impl Default for ThermoConfig {
 /// let target = DVector::from_vec(vec![0.3, 0.6, 0.8, 0.9, 0.0]);
 /// let next = engine.step(&state, &target);
 /// ```
+#[derive(Debug)]
 pub struct ThermodynamicEngine {
     /// Poisson bracket operator (antisymmetric)
     poisson_l: DMatrix<f32>,

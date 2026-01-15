@@ -8,6 +8,10 @@
 //! This module embodies coherent perception: seeing reality as it is,
 //! free from the distortions of contradictory sensor data.
 //!
+//! # Skandha Integration
+//! `SheafPerception` implements `RupaSkandha` trait, serving as the
+//! primary Form (Sắc) processing stage in the Ngũ Uẩn pipeline.
+//!
 //! # Sheaf Theory Application
 //! A sheaf is a structure that tracks how local data can be consistently
 //! "glued" into global data. The Sheaf Laplacian measures how much local

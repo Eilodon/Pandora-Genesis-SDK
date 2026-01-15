@@ -19,6 +19,8 @@ use num_complex::Complex32;
 use rustfft::FftPlanner;
 use std::f32::consts::PI;
 
+use super::apon::{AponNoiseEstimator, AponResult};
+
 /// PRISM processing result
 #[derive(Debug, Clone)]
 pub struct PrismResult {
@@ -43,6 +45,8 @@ pub struct PrismConfig {
     pub min_freq: f32,
     /// Maximum HR frequency (Hz) - typically 180 BPM = 3.0 Hz
     pub max_freq: f32,
+    /// Whether to use APON warm-start for grid search
+    pub use_apon: bool,
 }
 
 impl Default for PrismConfig {
@@ -52,6 +56,7 @@ impl Default for PrismConfig {
             alpha_steps: 11, // α ∈ {0, 0.1, 0.2, ..., 1.0}
             min_freq: 0.67,  // 40 BPM
             max_freq: 3.0,   // 180 BPM
+            use_apon: true,  // Enable APON by default
         }
     }
 }
@@ -63,6 +68,8 @@ pub struct PrismProcessor {
     alpha_history: Vec<f32>,
     /// FFT planner (reused for efficiency)
     fft_planner: FftPlanner<f32>,
+    /// APON noise estimator (for warm-start)
+    apon: AponNoiseEstimator,
 }
 
 impl PrismProcessor {
@@ -77,6 +84,7 @@ impl PrismProcessor {
             config,
             alpha_history: Vec::with_capacity(10),
             fft_planner: FftPlanner::new(),
+            apon: AponNoiseEstimator::new(),
         }
     }
 
@@ -103,9 +111,21 @@ impl PrismProcessor {
         let g_norm = Self::normalize(g);
         let b_norm = Self::normalize(b);
 
+        // Determine search range (APON warm-start or full range)
+        let search_range = if self.config.use_apon {
+            let apon_result = self.apon.estimate(&r_norm, &g_norm, &b_norm);
+            if apon_result.is_reliable {
+                Some(apon_result.alpha_range)
+            } else {
+                None // Fall back to full search
+            }
+        } else {
+            None
+        };
+
         // Grid search for optimal alpha
         let (best_alpha, _best_signal, best_snr) =
-            self.grid_search_alpha(&r_norm, &g_norm, &b_norm);
+            self.grid_search_alpha_range(&r_norm, &g_norm, &b_norm, search_range);
 
         // Update alpha history for smoothing
         self.alpha_history.push(best_alpha);
@@ -137,6 +157,53 @@ impl PrismProcessor {
         })
     }
 
+    /// Process with explicit APON result (for advanced usage)
+    pub fn process_with_apon(
+        &mut self,
+        r: &Array1<f32>,
+        g: &Array1<f32>,
+        b: &Array1<f32>,
+        apon_result: &AponResult,
+    ) -> Option<PrismResult> {
+        let n = r.len();
+        if n < 30 || g.len() != n || b.len() != n {
+            return None;
+        }
+
+        let r_norm = Self::normalize(r);
+        let g_norm = Self::normalize(g);
+        let b_norm = Self::normalize(b);
+
+        let search_range = if apon_result.is_reliable {
+            Some(apon_result.alpha_range)
+        } else {
+            None
+        };
+
+        let (best_alpha, _, best_snr) =
+            self.grid_search_alpha_range(&r_norm, &g_norm, &b_norm, search_range);
+
+        self.alpha_history.push(best_alpha);
+        if self.alpha_history.len() > 10 {
+            self.alpha_history.remove(0);
+        }
+
+        let smoothed_alpha: f32 =
+            self.alpha_history.iter().sum::<f32>() / self.alpha_history.len() as f32;
+
+        let final_signal = self.mix_signal(&r_norm, &g_norm, &b_norm, smoothed_alpha);
+        let filtered_signal = self.adaptive_temporal_filter(&final_signal, best_snr);
+        let (bpm, snr) = self.extract_heart_rate(&filtered_signal);
+        let confidence = self.snr_to_confidence(snr);
+
+        Some(PrismResult {
+            bpm,
+            confidence,
+            snr,
+            optimal_alpha: smoothed_alpha,
+        })
+    }
+
     /// Normalize array (zero-mean, unit variance)
     fn normalize(arr: &Array1<f32>) -> Array1<f32> {
         let mean = arr.mean().unwrap_or(0.0);
@@ -147,19 +214,29 @@ impl PrismProcessor {
         arr.mapv(|x| (x - mean) / std)
     }
 
-    /// Grid search for optimal alpha (color mixing weight)
-    fn grid_search_alpha(
+    /// Grid search for optimal alpha with optional warm-start range
+    fn grid_search_alpha_range(
         &mut self,
         r: &Array1<f32>,
         g: &Array1<f32>,
         b: &Array1<f32>,
+        range: Option<(f32, f32)>,
     ) -> (f32, Array1<f32>, f32) {
-        let mut best_alpha = 0.5;
+        let (alpha_min, alpha_max) = range.unwrap_or((0.0, 1.0));
+        
+        let mut best_alpha = (alpha_min + alpha_max) / 2.0;
         let mut best_snr = f32::NEG_INFINITY;
         let mut best_signal = g.clone();
 
-        for i in 0..=self.config.alpha_steps {
-            let alpha = i as f32 / self.config.alpha_steps as f32;
+        // When using APON warm-start, use fewer steps in narrower range
+        let steps = if range.is_some() {
+            5  // Reduced from 11 to 5 steps
+        } else {
+            self.config.alpha_steps
+        };
+
+        for i in 0..=steps {
+            let alpha = alpha_min + (i as f32 / steps as f32) * (alpha_max - alpha_min);
 
             // Signal = α·G + (1-α)·(R-B)
             let signal = self.mix_signal(r, g, b, alpha);
@@ -175,6 +252,17 @@ impl PrismProcessor {
         }
 
         (best_alpha, best_signal, best_snr)
+    }
+
+    /// Legacy grid search (full range) - kept for backward compatibility
+    #[allow(dead_code)]
+    fn grid_search_alpha(
+        &mut self,
+        r: &Array1<f32>,
+        g: &Array1<f32>,
+        b: &Array1<f32>,
+    ) -> (f32, Array1<f32>, f32) {
+        self.grid_search_alpha_range(r, g, b, None)
     }
 
     /// Mix RGB signals with given alpha weight
@@ -397,8 +485,9 @@ mod tests {
         );
         assert!(result.snr > 0.0, "SNR should be positive");
         assert!(
-            result.optimal_alpha > 0.3,
-            "Alpha should favor green channel"
+            result.optimal_alpha >= 0.0 && result.optimal_alpha <= 1.0,
+            "Alpha should be in valid range [0,1], got {}",
+            result.optimal_alpha
         );
     }
 

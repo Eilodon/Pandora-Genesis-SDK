@@ -8,7 +8,10 @@ use crate::resonance::ResonanceTracker;
 
 // Phase 2 Decomposition: Extracted subsystems
 
+use crate::universal_flow::FlowEventId;
+
 use crate::safety_subsystem::SafetySubsystem;
+use crate::vinnana_controller::VinnanaController;
 
 // PANDORA PORT: Resilience and adaptive features
 use crate::adaptive::{AdaptiveThreshold, AnomalyDetector, ConfidenceTracker};
@@ -38,16 +41,11 @@ pub struct Engine {
     // === Causal Subsystem (Phase 6) ===
     pub causal: crate::causal_subsystem::CausalSubsystem,
 
-
-
-    // === SOTA Features ===
-    // === SKANDHA CORE (The Brain) ===
-    /// Unified Skandha Pipeline (Sắc-Thọ-Tưởng-Hành-Thức)
-    /// Now uses BeliefSubsystem as Vedana stage (Single Source of Truth)
-    pub skandha_pipeline: crate::skandha::zenb::ZenbPipelineUnified,
-
-    /// Last synthesized state from Skandha pipeline
-    pub skandha_state: Option<crate::skandha::SynthesizedState>,
+    // === VINNANA CONTROLLER (Thức Uẩn) ===
+    /// Supreme Consciousness Controller - orchestrates all Skandha stages
+    /// Replaces: skandha_pipeline, skandha_state, thermo_engine, saccade,
+    /// saccade_memory, last_predicted_context, prediction_error_ema, philosophical_state
+    pub vinnana: VinnanaController,
 
     // === Timestamp Tracking ===
     pub timestamp: crate::timestamp::TimestampLog,
@@ -78,38 +76,10 @@ pub struct Engine {
     /// Confidence tracker for decision outcomes
     pub decision_confidence: ConfidenceTracker,
 
-    // === Enhanced Observation Buffer ===
-    /// Minimum samples before triggering PC algorithm
-
-    // === WEEK 2: Automatic Scientist Integration ===
-    /// Automatic Scientist for causal hypothesis discovery
-
-
-
-    // === TIER 3: Thermodynamic Logic (GENERIC Framework) ===
-    /// Thermodynamic engine for GENERIC dynamics
-    pub thermo_engine: crate::thermo_logic::ThermodynamicEngine,
-
-    // === NEURAL WIRING: Saccade Memory Linker ===
-    /// Saccade linker for memory coordinate prediction
-    /// Uses LTC network to predict where to look in memory
-    pub saccade: crate::memory::SaccadeLinker,
-    /// Dedicated holographic memory for saccade predictions
-    /// Separate from HDC-based Sanna memory to enable FFT-based recall
-    pub saccade_memory: crate::memory::HolographicMemory,
-    
-    // === VAJRA-VOID: FEP Prediction Loop ===
-    /// Last predicted context values (from previous tick)
-    /// Used for computing prediction error (surprise)
-    pub last_predicted_context: Option<Vec<f32>>,
-    /// Exponential moving average of prediction error
-    /// High values indicate persistent surprise requiring model update
-    pub prediction_error_ema: f32,
-    
-    // === B.ONE V3: Consciousness Operating System ===
-    /// Philosophical State Monitor (YÊN/ĐỘNG/HỖN LOẠN)
-    /// Meta-level consciousness that modulates pipeline processing
-    pub philosophical_state: crate::philosophical_state::PhilosophicalStateMonitor,
+    // === Flow Integration: Event Lineage ===
+    /// Current FlowEventId being processed (for traceability)
+    /// Set by Runtime before calling ingest methods
+    pub current_flow_id: Option<FlowEventId>,
 }
 
 impl Engine {
@@ -159,11 +129,13 @@ impl Engine {
             // Causal Subsystem
             causal: crate::causal_subsystem::CausalSubsystem::new(&cfg),
 
+            // VINNANA CONTROLLER (Thức Uẩn)
+            // Encapsulates: skandha_pipeline, skandha_state, thermo_engine,
+            // saccade, saccade_memory, prediction_error_ema, philosophical_state
+            vinnana: VinnanaController::new(
+                crate::skandha::zenb::zenb_pipeline_unified(&cfg)
+            ),
 
-
-            // SKANDHA CORE (Unified)
-            skandha_pipeline: crate::skandha::zenb::zenb_pipeline_unified(&cfg),
-            skandha_state: None,
             timestamp: crate::timestamp::TimestampLog::new(),
 
             last_sheaf_energy: 0.0,
@@ -196,31 +168,8 @@ impl Engine {
             sensor_anomaly_detector: AnomalyDetector::new(50, 2.5),
             decision_confidence: ConfidenceTracker::new(100),
 
-            // Enhanced Observation Buffer
-
-            // WEEK 2: Automatic Scientist
-
-
-
-            // TIER 3: Thermodynamic Logic (GENERIC Framework)
-            thermo_engine: {
-                let mut engine = crate::thermo_logic::ThermodynamicEngine::default();
-                if let Some(temp) = cfg.features.thermo_temperature {
-                    engine.set_temperature(temp);
-                }
-                engine
-            },
-
-            // NEURAL WIRING: Saccade Memory Linker
-            saccade: crate::memory::SaccadeLinker::default_for_zenb(),
-            saccade_memory: crate::memory::HolographicMemory::default_for_zenb(),
-            
-            // VAJRA-VOID: FEP Prediction Loop
-            last_predicted_context: None,
-            prediction_error_ema: 0.0,
-            
-            // B.ONE V3: Consciousness Operating System
-            philosophical_state: crate::philosophical_state::PhilosophicalStateMonitor::default(),
+            // Flow Integration: Event Lineage
+            current_flow_id: None,
         }
     }
 
@@ -231,6 +180,12 @@ impl Engine {
     /// Update runtime context (call from App layer with current local hour / charging / session info)
     pub fn update_context(&mut self, ctx: crate::belief::Context) {
         self.context = ctx;
+    }
+    
+    /// Set the current FlowEventId for event lineage tracing.
+    /// Called by Runtime before ingesting sensor data.
+    pub fn set_current_flow_id(&mut self, id: Option<FlowEventId>) {
+        self.current_flow_id = id;
     }
 
     /// Convenience: ingest sensor features and update context atomically
@@ -279,15 +234,15 @@ impl Engine {
         // CORE PIPELINE EXECUTION (The Skandha Loop)
         // Wrapped in catch_unwind for resilience
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.skandha_pipeline.process(&input)
+            self.vinnana.pipeline.process(&input)
         }));
 
         match result {
             Ok(synthesized) => {
                 self.circuit_breaker.record_success("skandha_pipeline");
 
-                // Store state for decision loop
-                self.skandha_state = Some(synthesized.clone());
+                // Store state for decision loop (in VinnanaController)
+                self.vinnana.last_state = Some(synthesized.clone());
 
                 // Extract values from trusted Rupa form
                 let form_values = &synthesized.form.values;
@@ -354,25 +309,25 @@ impl Engine {
         // === VAJRA-VOID: FEP COMPARISON (Before updating state) ===
         self.integrate_fep_prediction_loop();
 
-        // === B.ONE V3: UPDATE PHILOSOPHICAL STATE (YÊN/ĐỘNG/HỖN LOẠN) ===
+        // === B.ONE V3: UPDATE PHILOSOPHICAL STATE (YÊNA/ĐỘNG/HỖN LOẠN) ===
         // Compute free energy from prediction error and coherence from Skandha confidence
-        let free_energy = self.prediction_error_ema;
-        let coherence = self.skandha_state.as_ref()
+        let free_energy = self.vinnana.prediction_error_ema;
+        let coherence = self.vinnana.last_state.as_ref()
             .map(|s| s.confidence)
             .unwrap_or(0.8); // Default: moderate coherence
         
-        let phil_state = self.philosophical_state.update_with_timestamp(
+        let phil_state = self.vinnana.philosophical_state.update_with_timestamp(
             free_energy, 
             coherence, 
             dt_us as i64
         );
         
         // Apply processing config based on philosophical state
-        let config = self.philosophical_state.get_processing_config();
-        self.skandha_pipeline.config.refinement_enabled = config.refinement_enabled;
+        let config = self.vinnana.philosophical_state.get_processing_config();
+        self.vinnana.pipeline.config.refinement_enabled = config.refinement_enabled;
         
         // Log state transitions
-        if self.philosophical_state.just_transitioned() {
+        if self.vinnana.philosophical_state.just_transitioned() {
             log::info!(
                 "B.ONE V3: Consciousness state -> {} (FE={:.3}, C={:.3})",
                 phil_state.vietnamese_name(),
@@ -429,7 +384,7 @@ impl Engine {
             bio.and_then(|b| b.hr_bpm).unwrap_or(0.0) / 200.0,
             bio.and_then(|b| b.hrv_rmssd).unwrap_or(0.0) / 100.0,
             bio.and_then(|b| b.respiratory_rate).unwrap_or(0.0) / 20.0,
-            self.skandha_pipeline.vedana.confidence(),
+            self.vinnana.pipeline.vedana.confidence(),
             self.last_resonance_score,
         ];
 
@@ -475,13 +430,13 @@ impl Engine {
         severity: f32,
     ) {
         // Update belief engine (Active Inference learning)
-        self.skandha_pipeline
+        self.vinnana.pipeline
             .vedana
             .process_feedback(success, &mut self.config.fep);
 
         // Update causal graph weights based on outcome
         let context_state = self.causal.graph.extract_state_values(
-            self.skandha_pipeline.vedana.state(),
+            self.vinnana.pipeline.vedana.state(),
             self.causal.last_observation.as_ref(),
             Some(&self.context),
         );
@@ -503,7 +458,7 @@ impl Engine {
             // Compute context hash for trauma registry
             let context_hash = crate::safety_swarm::trauma_sig_hash(
                 self.last_goal,
-                self.skandha_pipeline.vedana.mode() as u8,
+                self.vinnana.pipeline.vedana.mode() as u8,
                 self.last_pattern_id,
                 &self.context,
             );
@@ -527,16 +482,89 @@ impl Engine {
 
         // PANDORA PORT: Adapt belief threshold based on performance
         let performance_delta = if success { 0.1 } else { -0.1 };
-        self.skandha_pipeline
+        self.vinnana.pipeline
             .vedana
             .adapt_threshold(performance_delta);
 
         // === UNIFIED SANKHARA LEARNING ===
         // Delegate EFE meta-learning and policy adaptation to Sankhara
+        // (Legacy path - uses mode hash instead of IntentId)
         let reward = if success { 1.0 } else { -severity };
-        let state_hash = format!("{:?}", self.skandha_pipeline.vedana.mode());
+        let state_hash = format!("{:?}", self.vinnana.pipeline.vedana.mode());
         
-        self.skandha_pipeline.sankhara.apply_feedback(success, reward, &state_hash);
+        self.vinnana.pipeline.sankhara.apply_feedback(success, reward, &state_hash);
+    }
+    
+    /// Learn from action outcome with IntentId traceability (V2 API).
+    /// 
+    /// This is the preferred learning API for the V3 Karmic Feedback Loop.
+    /// It uses IntentId to retrieve the exact decision context from IntentTracker.
+    /// 
+    /// # Arguments
+    /// * `intent_id` - The intent ID returned with the original ControlDecision
+    /// * `success` - Whether the action led to positive outcome
+    /// * `action_type` - String identifier for the action taken (for trauma)
+    /// * `ts_us` - Timestamp of the outcome
+    /// * `severity` - Severity of negative outcome (0.0-1.0)
+    pub fn learn_from_outcome_v2(
+        &mut self,
+        intent_id: u64,
+        success: bool,
+        action_type: String,
+        ts_us: i64,
+        severity: f32,
+    ) {
+        // Update belief engine (Active Inference learning)
+        self.vinnana.pipeline
+            .vedana
+            .process_feedback(success, &mut self.config.fep);
+
+        // Update causal graph weights based on outcome
+        let context_state = self.causal.graph.extract_state_values(
+            self.vinnana.pipeline.vedana.state(),
+            self.causal.last_observation.as_ref(),
+            Some(&self.context),
+        );
+        let action = crate::causal::ActionPolicy {
+            action_type: crate::causal::ActionType::BreathGuidance,
+            intensity: 0.8,
+        };
+        const CAUSAL_LEARNING_RATE: f32 = 0.05;
+        if let Err(e) =
+            self.causal
+                .graph
+                .update_weights(&context_state, &action, success, CAUSAL_LEARNING_RATE)
+        {
+            log::warn!("Causal Update Failed: {}", e);
+        }
+
+        // If failure, record trauma to prevent repeating the same mistake
+        if !success {
+            let context_hash = crate::safety_swarm::trauma_sig_hash(
+                self.last_goal,
+                self.vinnana.pipeline.vedana.mode() as u8,
+                self.last_pattern_id,
+                &self.context,
+            );
+            self.safety.trauma_registry_mut().record_negative_feedback(
+                context_hash,
+                action_type,
+                ts_us,
+                severity,
+            );
+            if let Some(hit) = self.safety.trauma_registry().query(&context_hash) {
+                self.safety.trauma_cache_mut().update(context_hash, hit);
+            }
+        }
+        
+        // PANDORA PORT: Update confidence tracker
+        self.decision_confidence.update(success);
+        let performance_delta = if success { 0.1 } else { -0.1 };
+        self.vinnana.pipeline.vedana.adapt_threshold(performance_delta);
+
+        // === V2: KARMIC FEEDBACK WITH INTENT TRACING ===
+        let intent_id = crate::skandha::sankhara::IntentId::from_raw(intent_id);
+        self.vinnana.pipeline.sankhara.apply_feedback_v2(intent_id, success, severity, ts_us);
     }
 
     /// Get circuit breaker statistics for monitoring.
@@ -547,8 +575,8 @@ impl Engine {
     /// Get current adaptive threshold values for diagnostics.
     pub fn adaptive_thresholds_info(&self) -> (f32, f32, f32) {
         (
-            self.skandha_pipeline.vedana.enter_threshold(),
-            self.skandha_pipeline.vedana.enter_threshold_base(),
+            self.vinnana.pipeline.vedana.enter_threshold(),
+            self.vinnana.pipeline.vedana.enter_threshold_base(),
             self.decision_confidence.success_rate(),
         )
     }
@@ -558,7 +586,7 @@ impl Engine {
     /// Returns the auto-detected or manually set context that determines
     /// the sheaf's anomaly threshold and diffusion rate.
     pub fn sheaf_context(&self) -> crate::perception::PhysiologicalContext {
-        self.skandha_pipeline.rupa.context()
+        self.vinnana.pipeline.rupa.context()
     }
 
     /// Manually override physiological context.
@@ -572,15 +600,15 @@ impl Engine {
     /// engine.set_sheaf_context(PhysiologicalContext::ModerateExercise);
     /// ```
     pub fn set_sheaf_context(&mut self, context: crate::perception::PhysiologicalContext) {
-        self.skandha_pipeline.rupa.set_context(context);
+        self.vinnana.pipeline.rupa.set_context(context);
     }
 
     /// Get sheaf diagnostics: (energy, context, is_adaptive_alpha_enabled)
     pub fn sheaf_diagnostics(&self) -> (f32, crate::perception::PhysiologicalContext, bool) {
         (
             self.last_sheaf_energy,
-            self.skandha_pipeline.rupa.context(),
-            self.skandha_pipeline.rupa.sheaf.is_adaptive_alpha_enabled(),
+            self.vinnana.pipeline.rupa.context(),
+            self.vinnana.pipeline.rupa.sheaf.is_adaptive_alpha_enabled(),
         )
     }
 
@@ -599,16 +627,16 @@ impl Engine {
     /// Updated belief state probabilities
     pub fn thermo_step(&mut self, target: &[f32; 5], steps: usize) -> [f32; 5] {
         if !self.config.features.thermo_enabled.unwrap_or(false) {
-            return *self.skandha_pipeline.vedana.probabilities();
+            return *self.vinnana.pipeline.vedana.probabilities();
         }
 
         // Convert belief state to DVector
         let state =
-            nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
+            nalgebra::DVector::from_vec(self.vinnana.pipeline.vedana.probabilities().to_vec());
         let target_vec = nalgebra::DVector::from_vec(target.to_vec());
 
         // Integrate using GENERIC dynamics
-        let new_state = self.thermo_engine.integrate(&state, &target_vec, steps);
+        let new_state = self.vinnana.thermo.integrate(&state, &target_vec, steps);
 
         // Update belief state
         let mut p = [0.0f32; 5];
@@ -622,9 +650,9 @@ impl Engine {
                 p[i] /= sum;
             }
         }
-        self.skandha_pipeline.vedana.set_probabilities(p);
+        self.vinnana.pipeline.vedana.set_probabilities(p);
 
-        *self.skandha_pipeline.vedana.probabilities()
+        *self.vinnana.pipeline.vedana.probabilities()
     }
 
     /// Get thermodynamic diagnostics.
@@ -633,12 +661,12 @@ impl Engine {
     /// (free_energy, entropy, temperature, enabled)
     pub fn thermo_info(&self) -> (f32, f32, f32, bool) {
         let state =
-            nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
+            nalgebra::DVector::from_vec(self.vinnana.pipeline.vedana.probabilities().to_vec());
         let target = nalgebra::DVector::from_vec([0.5f32; 5].to_vec()); // Neutral target for diagnostics
 
-        let free_energy = self.thermo_engine.free_energy(&state, &target);
-        let entropy = self.thermo_engine.entropy(&state);
-        let temperature = self.thermo_engine.config().temperature;
+        let free_energy = self.vinnana.thermo.free_energy(&state, &target);
+        let entropy = self.vinnana.thermo.entropy(&state);
+        let temperature = self.vinnana.thermo.config().temperature;
 
         (
             free_energy,
@@ -662,7 +690,7 @@ impl Engine {
     ) {
         // Calculate Causal Probability
         let context_state = self.causal.graph.extract_state_values(
-            self.skandha_pipeline.vedana.state(),
+            self.vinnana.pipeline.vedana.state(),
             self.causal.last_observation.as_ref(), // Use cached latest observation
             Some(&self.context),
         );
@@ -694,9 +722,9 @@ impl Engine {
         };
 
         // DELIBERATE (Unified Sankhara)
-        let deliberation = self.skandha_pipeline.sankhara.deliberate(
+        let deliberation = self.vinnana.pipeline.sankhara.deliberate(
             est,
-            self.skandha_pipeline.vedana.state(),
+            self.vinnana.pipeline.vedana.state(),
             &self.context,
             &guard_config,
             ts_us,
@@ -718,7 +746,7 @@ impl Engine {
             tempo_scale: proposed / 6.0,
             status: "RUNNING".to_string(),
             session_duration,
-            prediction_error: self.skandha_pipeline.vedana.free_energy_ema(),
+            prediction_error: self.vinnana.pipeline.vedana.free_energy_ema(),
             last_update_timestamp: ts_us as u64,
         };
 
@@ -729,8 +757,8 @@ impl Engine {
             // Calculate safe poll interval from Controller logic (Engine owns poll logic configuration)
             let poll_interval = crate::controller::compute_poll_interval(
                 &mut self.controller.poller,
-                self.skandha_pipeline.vedana.free_energy_ema(),
-                self.skandha_pipeline.vedana.confidence(),
+                self.vinnana.pipeline.vedana.free_energy_ema(),
+                self.vinnana.pipeline.vedana.confidence(),
                 false,
                 &self.context,
             );
@@ -747,9 +775,9 @@ impl Engine {
                 },
                 false, 
                 Some((
-                    self.skandha_pipeline.vedana.mode() as u8,
+                    self.vinnana.pipeline.vedana.mode() as u8,
                     deliberation.meta.guard_bits,
-                    self.skandha_pipeline.vedana.confidence(),
+                    self.vinnana.pipeline.vedana.confidence(),
                 )),
                 Some(reason),
             );
@@ -778,9 +806,9 @@ impl Engine {
             final_decision,
             changed,
             Some((
-                self.skandha_pipeline.vedana.mode() as u8,
+                self.vinnana.pipeline.vedana.mode() as u8,
                 deliberation.meta.guard_bits,
-                self.skandha_pipeline.vedana.confidence(),
+                self.vinnana.pipeline.vedana.confidence(),
             )),
             deliberation.adjustment_reason,
         )
@@ -820,7 +848,7 @@ impl Engine {
         };
 
         // Execute unified pipeline
-        let result = self.skandha_pipeline.process(&input);
+        let result = self.vinnana.pipeline.process(&input);
 
         // Log synthesis result
         log::debug!(
@@ -847,12 +875,12 @@ impl Engine {
             // Use Skandha pipeline belief output as the TARGET
             // This makes the system evolve toward the inferred belief state
             // rather than arbitrarily toward max entropy
-            let target = if let Some(ref skandha_state) = self.skandha_state {
+            let target = if let Some(ref skandha_state) = self.vinnana.last_state {
                 // Use Skandha's synthesized belief as thermodynamic attractor
                 skandha_state.belief
             } else {
                 // Fallback: use current belief state (no drift)
-                *self.skandha_pipeline.vedana.probabilities()
+                *self.vinnana.pipeline.vedana.probabilities()
             };
 
             // Apply thermodynamic step - system smoothly evolves toward target
@@ -861,8 +889,8 @@ impl Engine {
 
             // === VAJRA V5: Entropy-Based Mode Switching ===
             let state =
-                nalgebra::DVector::from_vec(self.skandha_pipeline.vedana.probabilities().to_vec());
-            let entropy = self.thermo_engine.entropy(&state);
+                nalgebra::DVector::from_vec(self.vinnana.pipeline.vedana.probabilities().to_vec());
+            let entropy = self.vinnana.thermo.entropy(&state);
             
             // Get entropy thresholds from config (FIXED: raised defaults to 2.0/0.3)
             let entropy_high = self.config.features.entropy_high_threshold.unwrap_or(2.0);
@@ -876,12 +904,12 @@ impl Engine {
                 // FIXED: Use config base (0.995) and gentler scaling (0.005)
                 let decay_rate = memory_decay_base - (entropy - entropy_high) * 0.005;
                 let decay_rate = decay_rate.clamp(0.98, 0.9999);
-                self.skandha_pipeline.sanna.memory.decay(decay_rate);
+                self.vinnana.pipeline.sanna.memory.decay(decay_rate);
                 
                 // Increase temperature for more exploration (gentler: 1.05x instead of 1.1x)
-                let current_temp = self.thermo_engine.config().temperature;
+                let current_temp = self.vinnana.thermo.config().temperature;
                 if current_temp < 2.0 {
-                    self.thermo_engine.set_temperature((current_temp * 1.05).min(2.0));
+                    self.vinnana.thermo.set_temperature((current_temp * 1.05).min(2.0));
                 }
                 
                 log::debug!(
@@ -892,27 +920,27 @@ impl Engine {
             // Low entropy (<0.3): Conservative mode - deep learning
             else if entropy < entropy_low {
                 // Decrease temperature for more exploitation
-                let current_temp = self.thermo_engine.config().temperature;
+                let current_temp = self.vinnana.thermo.config().temperature;
                 if current_temp > 0.1 {
-                    self.thermo_engine.set_temperature((current_temp * 0.95).max(0.1));
+                    self.vinnana.thermo.set_temperature((current_temp * 0.95).max(0.1));
                 }
                 
                 // Boost learning rate for belief updates (done via EFE precision)
                 // Higher precision = more exploitation of known good states
-                self.skandha_pipeline.sankhara.efe_precision_beta = (self.skandha_pipeline.sankhara.efe_precision_beta * 1.02).min(10.0);
+                self.vinnana.pipeline.sankhara.efe_precision_beta = (self.vinnana.pipeline.sankhara.efe_precision_beta * 1.02).min(10.0);
                 
                 log::debug!(
                     "Thermo: CONSERVATIVE mode (entropy={:.3}), beta={:.2}",
-                    entropy, self.skandha_pipeline.sankhara.efe_precision_beta
+                    entropy, self.vinnana.pipeline.sankhara.efe_precision_beta
                 );
             }
             // Normal entropy: Balanced mode
             else {
                 // Gradually restore temperature to default
                 let default_temp = self.config.features.thermo_temperature.unwrap_or(1.0);
-                let current_temp = self.thermo_engine.config().temperature;
+                let current_temp = self.vinnana.thermo.config().temperature;
                 let new_temp = current_temp + (default_temp - current_temp) * 0.1;
-                self.thermo_engine.set_temperature(new_temp);
+                self.vinnana.thermo.set_temperature(new_temp);
             }
         }
     }
@@ -934,7 +962,7 @@ impl Engine {
     /// 4. Optionally use prediction to modulate belief (future enhancement)
     fn integrate_saccade_recall(&mut self) {
         // Only proceed if we have a valid skandha state
-        let Some(ref skandha_state) = self.skandha_state else {
+        let Some(ref skandha_state) = self.vinnana.last_state else {
             return;
         };
 
@@ -945,9 +973,9 @@ impl Engine {
         let dt = 0.016f32;
         
         // Recall prediction from saccade linker using dedicated holographic memory
-        let recalled = self.saccade.recall_fast(
+        let recalled = self.vinnana.saccade.recall_fast(
             &context,
-            &self.saccade_memory,
+            &self.vinnana.saccade_memory,
             dt,
         );
         
@@ -971,8 +999,8 @@ impl Engine {
         
         // Learn from current observation for future predictions
         // Use belief probabilities as the "actual coordinates" to learn
-        let actual_coords = self.skandha_pipeline.vedana.probabilities();
-        self.saccade.learn_correction(&context, actual_coords.as_slice());
+        let actual_coords = self.vinnana.pipeline.vedana.probabilities();
+        self.vinnana.saccade.learn_correction(&context, actual_coords.as_slice());
     }
     
     // =========================================================================
@@ -989,19 +1017,19 @@ impl Engine {
     /// 5. Store current state as prediction for next tick
     fn integrate_fep_prediction_loop(&mut self) {
         // Only proceed if we have a valid skandha state
-        let Some(ref skandha_state) = self.skandha_state else {
+        let Some(ref skandha_state) = self.vinnana.last_state else {
             return;
         };
         
         let actual_context = &skandha_state.form.values;
         
         // Compare with last prediction if available
-        if let Some(ref predicted) = self.last_predicted_context {
+        if let Some(ref predicted) = self.vinnana.last_predicted_context {
             let prediction_error = Self::compute_prediction_error(predicted, actual_context);
             
             // Update EMA of prediction error (α = 0.1 for smooth tracking)
             const PREDICTION_EMA_ALPHA: f32 = 0.1;
-            self.prediction_error_ema = (1.0 - PREDICTION_EMA_ALPHA) * self.prediction_error_ema
+            self.vinnana.prediction_error_ema = (1.0 - PREDICTION_EMA_ALPHA) * self.vinnana.prediction_error_ema
                 + PREDICTION_EMA_ALPHA * prediction_error;
             
             // Get surprise threshold from config or use default
@@ -1021,14 +1049,14 @@ impl Engine {
                 self.decision_confidence.decay(0.8);
                 
                 // 3. Increase EFE precision beta (more exploitation of known-good states)
-                self.skandha_pipeline.sankhara.efe_precision_beta = (self.skandha_pipeline.sankhara.efe_precision_beta * 0.9).max(0.5);
+                self.vinnana.pipeline.sankhara.efe_precision_beta = (self.vinnana.pipeline.sankhara.efe_precision_beta * 0.9).max(0.5);
             }
         }
         
         // Store current state as prediction for next tick
         // Simple prediction: assume smooth continuation (persistence model)
         // Future: use causal graph or LTC network for more sophisticated prediction
-        self.last_predicted_context = Some(actual_context.to_vec());
+        self.vinnana.last_predicted_context = Some(actual_context.to_vec());
     }
     
     /// Compute prediction error as Euclidean distance between predicted and actual.
@@ -1045,7 +1073,7 @@ impl Engine {
     /// Future enhancement: Use causal graph for intervention prediction.
     #[allow(dead_code)]
     fn predict_next_context(&self) -> Vec<f32> {
-        if let Some(ref state) = self.skandha_state {
+        if let Some(ref state) = self.vinnana.last_state {
             state.form.values.to_vec()
         } else {
             vec![0.5; 5] // Neutral prediction
@@ -1065,7 +1093,7 @@ impl Engine {
     /// influences the next perception cycle through the causal system.
     fn integrate_data_reincarnation(&mut self, ts_us: i64) {
         // Only proceed if we have a valid synthesized state
-        let Some(ref final_state) = self.skandha_state else {
+        let Some(ref final_state) = self.vinnana.last_state else {
             return;
         };
         
@@ -1103,7 +1131,7 @@ impl Engine {
     
     /// Get current prediction error EMA (for diagnostics).
     pub fn prediction_error(&self) -> f32 {
-        self.prediction_error_ema
+        self.vinnana.prediction_error_ema
     }
 }
 

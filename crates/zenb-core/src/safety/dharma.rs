@@ -34,7 +34,7 @@ use num_complex::Complex32;
 /// This creates a **physically intrinsic** safety mechanism:
 /// harmful actions literally cannot pass the filter because they
 /// destructively interfere with the Dharma reference.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DharmaFilter {
     /// Reference vector defining "good" direction in action space.
     /// All actions are evaluated against this ethical north star.
