@@ -2,12 +2,14 @@ use crate::domain::{CausalBeliefState, Observation};
 use serde::{Deserialize, Serialize};
 
 // Submodules
+pub mod async_dagma; // Async background DAGMA learning
 pub mod dagma; // DAGMA: 5-20x faster than NOTEARS (NeurIPS 2022)
 mod graph_change_detector;
 pub mod hypergraph;
 pub mod intervenable; // NEW: Pearl's do-calculus interventions
 pub mod propagating_effect; // NEW: Monadic causal effects // NEW: Higher-order causal relationships
 
+pub use async_dagma::{AsyncDagma, DagmaRequest, DagmaResult};
 pub use graph_change_detector::GraphChangeDetector;
 
 /// Causal variable nodes representing observable and latent factors in the system.

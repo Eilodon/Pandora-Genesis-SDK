@@ -6,6 +6,7 @@
 //! - **HDC Memory**: Binary hyperdimensional, integer-only, NPU-friendly
 //! - **Tiered HDC Memory**: Two-tier HDC with working + long-term storage (LifeHD pattern)
 //! - **Saccade Linker**: LTC-based predictive memory addressing
+//! - **Shared Memory**: Thread-safe wrapper for concurrent access
 //!
 //! # Mathematical Foundation
 //! Holographic Associative Memory (HAM) stores key-value pairs as interference patterns
@@ -30,6 +31,7 @@ pub mod hologram;
 pub mod krylov; // TIER 4b: Krylov Subspace Acceleration
 pub mod router; // ZENITH Tier 1: Adaptive memory routing
 pub mod saccade; // VAJRA V5: Predictive memory addressing
+pub mod shared; // Thread-safe wrapper (Arc<RwLock>)
 pub mod tiered_hdc; // LifeHD pattern: Two-tier memory with consolidation
 pub mod uncertainty; // ZENITH Tier 4: Uncertainty-aware retrieval
 pub mod zenith; // ZENITH Unified API
@@ -43,8 +45,7 @@ pub use hologram::HolographicMemory;
 pub use krylov::KrylovProjector;
 pub use router::{AdaptiveMemoryRouter, MemoryBackend, RouterConfig, RouterStats, TaskType};
 pub use saccade::{SaccadeConfig, SaccadeLinker, SaccadeStats};
+pub use shared::SharedMemory;
 pub use tiered_hdc::{MemoryTier, MultiSimilarity, TieredHdcConfig, TieredHdcMemory, TieredHdcStats};
 pub use uncertainty::{UncertaintyAwareRetrieval, UncertaintyRetrievalConfig, UncertainRetrievalResult};
 pub use zenith::{ZenithConfig, ZenithMemory, ZenithRetrievalResult, ZenithStats};
-
-
