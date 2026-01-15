@@ -119,6 +119,11 @@ pub struct Engine {
     /// Exponential moving average of prediction error
     /// High values indicate persistent surprise requiring model update
     pub prediction_error_ema: f32,
+    
+    // === B.ONE V3: Consciousness Operating System ===
+    /// Philosophical State Monitor (YÊN/ĐỘNG/HỖN LOẠN)
+    /// Meta-level consciousness that modulates pipeline processing
+    pub philosophical_state: crate::philosophical_state::PhilosophicalStateMonitor,
 }
 
 impl Engine {
@@ -235,6 +240,9 @@ impl Engine {
             // VAJRA-VOID: FEP Prediction Loop
             last_predicted_context: None,
             prediction_error_ema: 0.0,
+            
+            // B.ONE V3: Consciousness Operating System
+            philosophical_state: crate::philosophical_state::PhilosophicalStateMonitor::default(),
         }
     }
 
@@ -381,6 +389,33 @@ impl Engine {
         // === VAJRA-VOID: FEP COMPARISON (Before updating state) ===
         self.integrate_fep_prediction_loop();
 
+        // === B.ONE V3: UPDATE PHILOSOPHICAL STATE (YÊN/ĐỘNG/HỖN LOẠN) ===
+        // Compute free energy from prediction error and coherence from Skandha confidence
+        let free_energy = self.prediction_error_ema;
+        let coherence = self.skandha_state.as_ref()
+            .map(|s| s.confidence)
+            .unwrap_or(0.8); // Default: moderate coherence
+        
+        let phil_state = self.philosophical_state.update_with_timestamp(
+            free_energy, 
+            coherence, 
+            dt_us as i64
+        );
+        
+        // Apply processing config based on philosophical state
+        let config = self.philosophical_state.get_processing_config();
+        self.skandha_pipeline.config.refinement_enabled = config.refinement_enabled;
+        
+        // Log state transitions
+        if self.philosophical_state.just_transitioned() {
+            log::info!(
+                "B.ONE V3: Consciousness state -> {} (FE={:.3}, C={:.3})",
+                phil_state.vietnamese_name(),
+                free_energy,
+                coherence
+            );
+        }
+
         // Update Causal Subsystem
         if self.causal.tick() {
             // Log any new discoveries
@@ -403,6 +438,20 @@ impl Engine {
         
         // === VAJRA-VOID: DATA REINCARNATION (At end of tick) ===
         self.integrate_data_reincarnation(dt_us as i64);
+
+        // VAJRA-VOID Task 2.2: Feature-gated Krylov stability/energy monitor
+        // Detects Hologram memory explosion or NaN corruption (Lanczos instability)
+        #[cfg(feature = "vajra_debug")]
+        {
+            let energy = self.holographic_memory.energy();
+            if energy.is_nan() || energy > 1e6 {
+                log::error!(
+                    "VAJRA PANIC: Hologram energy explosion detected! Energy={}, resetting memory.",
+                    energy
+                );
+                self.holographic_memory.clear();
+            }
+        }
 
         cycles
     }
@@ -1432,11 +1481,15 @@ impl Engine {
         // Virtual HRV: inverse of stress
         let virtual_hrv = (1.0 - stress_belief) * 60.0 + 20.0;
         
+        // VAJRA-VOID: Reduce weight of internal predictions to prevent self-reinforcement
+        // (Đạo đức vật lý: AI không được tin suy nghĩ của mình hơn thực tế từ sensor)
+        const REINCARNATION_WEIGHT: f32 = 0.1;
+        
         let internal_features = [
-            virtual_hr / 200.0,      // Normalized HR
-            virtual_hrv / 100.0,     // Normalized HRV
-            final_state.form.values[2], // Keep actual RR
-            final_state.confidence,  // Use confidence as quality
+            virtual_hr / 200.0 * REINCARNATION_WEIGHT,      // Normalized HR (weighted)
+            virtual_hrv / 100.0 * REINCARNATION_WEIGHT,     // Normalized HRV (weighted)
+            final_state.form.values[2] * REINCARNATION_WEIGHT, // RR (weighted)
+            final_state.confidence * REINCARNATION_WEIGHT,  // Quality (weighted)
             0.0,                     // Zero motion (internal state)
         ];
         

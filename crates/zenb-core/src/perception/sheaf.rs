@@ -448,7 +448,15 @@ impl SheafPerception {
 
         // Reconstruct complex values with diffused amplitude and consensus phase
         // Each sensor's phase is smoothed toward consensus
-        let alpha_phase = 0.3f32; // Phase smoothing factor
+        // VAJRA-VOID: Context-aware phase smoothing
+        let alpha_phase = match self.context {
+            PhysiologicalContext::Sleep => 0.1,           // Preserve subtle signals
+            PhysiologicalContext::Rest => 0.2,
+            PhysiologicalContext::LightActivity => 0.3,
+            PhysiologicalContext::Stress => 0.35,
+            PhysiologicalContext::ModerateExercise => 0.5,
+            PhysiologicalContext::IntenseExercise => 0.6, // Aggressive filtering
+        };
         let result: Vec<Complex32> = (0..self.n_sensors)
             .map(|i| {
                 let amp = diffused_amp[i];

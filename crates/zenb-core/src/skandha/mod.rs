@@ -842,14 +842,25 @@ pub mod zenb {
     /// Optionally includes EnsembleProcessor for raw signal processing.
     /// When `vajra_void` feature is enabled, can process raw RGB buffers
     /// through CHROM/POS/PRISM algorithms.
-    #[derive(Debug)]
     pub struct ZenbRupa {
         pub sheaf: SheafPerception,
         /// Optional signal processor for raw RGB processing (requires `vajra_void` feature)
         #[cfg(feature = "vajra_void")]
         pub signal_processor: Option<zenb_signals::EnsembleProcessor>,
+        /// Phase 2A: FastCWT for wavelet-based amplitude+phase extraction
+        #[cfg(feature = "vajra_void")]
+        pub fcwt: Option<zenb_signals::FastCWT>,
         /// Last processed vitality metrics
         pub last_vitality: Option<VitalityMetrics>,
+    }
+    
+    impl std::fmt::Debug for ZenbRupa {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("ZenbRupa")
+                .field("sheaf", &self.sheaf)
+                .field("last_vitality", &self.last_vitality)
+                .finish_non_exhaustive()
+        }
     }
 
     impl Default for ZenbRupa {
@@ -858,6 +869,8 @@ pub mod zenb {
                 sheaf: SheafPerception::default(),
                 #[cfg(feature = "vajra_void")]
                 signal_processor: None,
+                #[cfg(feature = "vajra_void")]
+                fcwt: None,
                 last_vitality: None,
             }
         }
@@ -870,6 +883,18 @@ pub mod zenb {
             Self {
                 sheaf: SheafPerception::default(),
                 signal_processor: Some(zenb_signals::EnsembleProcessor::new()),
+                fcwt: Some(zenb_signals::FastCWT::new()),
+                last_vitality: None,
+            }
+        }
+        
+        /// Create ZenbRupa with FastCWT only (for time-series wavelet processing)
+        #[cfg(feature = "vajra_void")]
+        pub fn with_fcwt() -> Self {
+            Self {
+                sheaf: SheafPerception::default(),
+                signal_processor: None,
+                fcwt: Some(zenb_signals::FastCWT::new()),
                 last_vitality: None,
             }
         }
@@ -1000,7 +1025,7 @@ pub mod zenb {
             
             // Build vitality metrics
             let vitality = VitalityMetrics {
-                snr_db: result.snr_db,
+                snr_db: result.snr,
                 entropy: 0.0, // TODO: compute from signal
                 aura_color: [
                     r.iter().sum::<f32>() / n_samples as f32,
@@ -1011,7 +1036,107 @@ pub mod zenb {
                 ensemble_agreement: result.confidence,
             };
             
-            Some((result.bpm, result.snr_db, vitality))
+            Some((result.bpm, result.snr, vitality))
+        }
+        
+        /// Phase 2A: Process time-series with FastCWT for amplitude+phase extraction
+        ///
+        /// # VAJRA-VOID: Wavelet-Based Perception Enhancement
+        ///
+        /// Uses Continuous Wavelet Transform to extract amplitude and phase at 
+        /// target frequencies (HR band ~0.75-2.5 Hz), enabling phase-aware 
+        /// anomaly detection in SheafPerception.
+        ///
+        /// # Arguments
+        /// * `signal` - Raw time series (e.g., HR, HRV, or PPG waveform)
+        /// * `target_freq` - Target frequency in Hz (e.g., 1.0 for ~60 BPM)
+        ///
+        /// # Returns
+        /// Tuple of (amplitude, phase) at the target frequency, or None if unavailable
+        #[cfg(feature = "vajra_void")]
+        pub fn process_timeseries_cwt(&mut self, signal: &[f32], target_freq: f32) -> Option<(f32, f32)> {
+            let fcwt = self.fcwt.as_mut()?;
+            
+            if signal.len() < 30 {
+                return None; // Need at least 1 second at 30 Hz
+            }
+            
+            // Compute CWT at target frequency
+            let scale = fcwt.config().omega0 * fcwt.config().sample_rate / (2.0 * std::f32::consts::PI * target_freq);
+            let scales = [scale];
+            
+            let cwt_result = fcwt.cwt(signal, &scales);
+            if cwt_result.is_empty() || cwt_result[0].is_empty() {
+                return None;
+            }
+            
+            // Extract amplitude and phase at each time point, take median for robustness
+            let coeffs = &cwt_result[0];
+            let mid_idx = coeffs.len() / 2;
+            
+            let amplitude = coeffs[mid_idx].norm();
+            let phase = coeffs[mid_idx].arg(); // Phase in radians [-π, π]
+            
+            Some((amplitude, phase))
+        }
+        
+        /// Phase 2A: Process multi-sensor form with wavelet pre-processing
+        ///
+        /// When fCWT is available, extracts amplitude+phase from raw time series
+        /// and feeds Complex32 values to SheafPerception for phase-aware consensus.
+        #[cfg(feature = "vajra_void")]
+        pub fn process_form_with_cwt(
+            &mut self,
+            hr_signal: Option<&[f32]>,
+            hrv_signal: Option<&[f32]>,
+            rr_signal: Option<&[f32]>,
+            input: &SensorInput,
+        ) -> ProcessedForm {
+            use num_complex::Complex32;
+            
+            // Try to extract amplitude+phase from raw signals
+            let hr_cwt = hr_signal.and_then(|s| self.process_timeseries_cwt(s, 1.0)); // ~60 BPM
+            let hrv_cwt = hrv_signal.and_then(|s| self.process_timeseries_cwt(s, 0.1)); // ~6 cycles/min
+            let rr_cwt = rr_signal.and_then(|s| self.process_timeseries_cwt(s, 0.2)); // ~12 breaths/min
+            
+            // If we have wavelet data, use process_complex for phase-aware consensus
+            if hr_cwt.is_some() || hrv_cwt.is_some() || rr_cwt.is_some() {
+                let (hr_amp, hr_phase) = hr_cwt.unwrap_or((input.hr_bpm.unwrap_or(60.0) / 200.0, 0.0));
+                let (hrv_amp, hrv_phase) = hrv_cwt.unwrap_or((input.hrv_rmssd.unwrap_or(50.0) / 100.0, 0.0));
+                let (rr_amp, rr_phase) = rr_cwt.unwrap_or((input.rr_bpm.unwrap_or(12.0) / 20.0, 0.0));
+                
+                // Build complex input: amplitude * e^(i*phase)
+                let complex_sensors = vec![
+                    Complex32::from_polar(hr_amp, hr_phase),
+                    Complex32::from_polar(hrv_amp, hrv_phase),
+                    Complex32::from_polar(rr_amp, rr_phase),
+                    Complex32::new(input.quality, 0.0),
+                    Complex32::new(input.motion, 0.0),
+                ];
+                
+                // Process through sheaf with phase information
+                // Returns: (Vec<Complex32>, is_anomalous, energy, phase_anomaly)
+                let (consensus_vec, is_anomalous, energy, _phase) = self.sheaf.process_complex(&complex_sensors);
+                
+                // Extract real values for ProcessedForm (fixed-size array)
+                let values: [f32; 5] = [
+                    consensus_vec.first().map(|c| c.re).unwrap_or(0.0),
+                    consensus_vec.get(1).map(|c| c.re).unwrap_or(0.0),
+                    consensus_vec.get(2).map(|c| c.re).unwrap_or(0.0),
+                    consensus_vec.get(3).map(|c| c.re).unwrap_or(0.0),
+                    consensus_vec.get(4).map(|c| c.re).unwrap_or(0.0),
+                ];
+                
+                return ProcessedForm {
+                    values,
+                    anomaly_score: if is_anomalous { 1.0 } else { 0.0 },
+                    energy,
+                    is_reliable: !is_anomalous,
+                };
+            }
+            
+            // Fall back to standard processing
+            self.process_form_internal(input)
         }
 
         /// Internal processing (shared between trait impl and adaptive method)

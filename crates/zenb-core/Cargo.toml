@@ -24,6 +24,7 @@ rand = "0.8"          # Random vector generation
 
 # Vajra-Void: Signal processing integration
 zenb-signals = { path = "../zenb-signals", optional = true }
+ndarray = { version = "0.15", optional = true }  # For array processing in vajra_void
 
 # SDK PORT: Monitoring dependencies
 lazy_static = "1.4"  # Thread-safe metric singletons
@@ -57,9 +58,11 @@ thermodynamic_logic = []
 # Allow dharma key mutation (test/research only - unsafe for production)
 allow_dharma_mutation = []
 # Vajra-Void: Enable advanced signal processing with EnsembleProcessor
-vajra_void = ["zenb-signals"]
+vajra_void = ["zenb-signals", "ndarray"]
 # SDK PORT: Prometheus metrics for production observability
 prometheus = ["dep:prometheus"]
+# VAJRA-VOID: Debug-only safety checks (Krylov energy monitoring, etc.)
+vajra_debug = []
 # GPU FFT: CUDA backend for NVIDIA GPUs - PLACEHOLDER (cubecl not yet stable)
 gpu_cuda = []
 # GPU FFT: Metal backend for Apple GPUs - PLACEHOLDER (cubecl-metal not on crates.io)
