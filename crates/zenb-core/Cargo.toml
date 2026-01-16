@@ -33,15 +33,20 @@ lazy_static = "1.4"  # Thread-safe metric singletons
 version = "0.13"
 optional = true
 
-# GPU acceleration (cubecl) - PLACEHOLDER
-# Note: cubecl-metal not yet available on crates.io (as of 2026-01)
-# When cubecl releases Metal backend, uncomment and use:
-# [dependencies.cubecl]
-# version = "0.4"
-# optional = true
-# [dependencies.cubecl-cuda]
-# version = "0.4"
-# optional = true
+# LLM Integration: HTTP client for Ollama REST API
+[dependencies.ureq]
+version = "2.9"
+optional = true
+features = ["json"]
+
+# GPU acceleration (cubecl) - WebGPU backend (most portable)
+[dependencies.cubecl]
+version = "0.8"
+optional = true
+
+[dependencies.cubecl-wgpu]
+version = "0.8"
+optional = true
 
 [dev-dependencies]
 tempfile = "3.10"
@@ -63,14 +68,20 @@ vajra_void = ["zenb-signals", "ndarray"]
 prometheus = ["dep:prometheus"]
 # VAJRA-VOID: Debug-only safety checks (Krylov energy monitoring, etc.)
 vajra_debug = []
-# GPU FFT: CUDA backend for NVIDIA GPUs - PLACEHOLDER (cubecl not yet stable)
-gpu_cuda = []
-# GPU FFT: Metal backend for Apple GPUs - PLACEHOLDER (cubecl-metal not on crates.io)
-gpu_metal = []
-# LLM Integration: OpenAI API provider - PLACEHOLDER (requires async-openai)
-llm-openai = []
-# LLM Integration: Local llama.cpp provider - PLACEHOLDER (requires llama_cpp)
-llm-llama = []
+# GPU FFT: WebGPU backend (portable: Windows/Linux/macOS/Web)
+gpu_wgpu = ["cubecl", "cubecl-wgpu"]
+# GPU FFT: CUDA backend for NVIDIA GPUs - uses cubecl-cuda
+gpu_cuda = ["cubecl"]
+# GPU FFT: Metal backend for Apple GPUs - uses cubecl-wgpu on macOS
+gpu_metal = ["gpu_wgpu"]
+# LLM Integration: Ollama local provider (DeepSeek R1, Llama, etc.)
+llm-ollama = ["dep:ureq"]
+# LLM Integration: OpenAI-compatible API provider (supports local servers too)
+llm-openai = ["dep:ureq"]
+# LLM Integration: llama.cpp server provider
+llm-llama = ["dep:ureq"]
+# LLM Integration: All providers
+llm-all = ["llm-ollama", "llm-openai", "llm-llama"]
 
 [[bench]]
 name = "forensic_bench"

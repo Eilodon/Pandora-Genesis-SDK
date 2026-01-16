@@ -204,11 +204,11 @@ AGOLOS supports expansion into specialized verticals via `zenb-verticals`:
 
 | Vertical | Status | Key Features |
 |----------|--------|--------------|
-| **Liveness Detection** | 🚧 Planned | rPPG pulse verification, texture analysis, challenge-response |
-| **Driver Monitoring** | 🚧 Planned | PERCLOS drowsiness, gaze distraction, cardiac emergency |
-| **Retail Analytics** | 🚧 Planned | Emotion tracking, engagement scoring, purchase intent |
-| **Fintech Fraud** | 🚧 Planned | Cardiac fingerprinting, stress anomaly, coercion detection |
-| **Exam Proctoring** | 🚧 Planned | Identity verification, gaze tracking, behavior scoring |
+| **Liveness Detection** | ✅ Implemented | rPPG pulse verification, texture analysis, challenge-response, temporal consistency |
+| **Driver Monitoring** | 🔨 In Progress | PERCLOS drowsiness, gaze distraction, cardiac emergency alert |
+| **Retail Analytics** | 📋 Planned | Emotion tracking, engagement scoring, purchase intent |
+| **Fintech Fraud** | 📋 Planned | Cardiac fingerprinting, stress anomaly, coercion detection |
+| **Exam Proctoring** | 📋 Planned | Identity verification, gaze tracking, behavior scoring |
 
 See `docs/VERTICAL_MARKET_PLAN_*.md` for detailed implementation roadmap.
 

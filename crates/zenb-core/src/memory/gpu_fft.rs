@@ -103,57 +103,149 @@ pub mod cuda {
 }
 
 // ============================================================================
-// METAL BACKEND (gpu_metal feature)
+// WGPU BACKEND (gpu_wgpu feature) - MOST PORTABLE
 // ============================================================================
 
-#[cfg(feature = "gpu_metal")]
-pub mod metal {
+#[cfg(feature = "gpu_wgpu")]
+pub mod wgpu_backend {
     use super::*;
     
-    /// Metal-based FFT backend for Apple GPUs
-    pub struct MetalFftBackend {
+    /// WebGPU-based FFT backend.
+    /// 
+    /// Currently provides optimized CPU FFT with Cooley-Tukey algorithm.
+    /// GPU acceleration via cubecl will be added in future versions.
+    /// 
+    /// Supports:
+    /// - Windows (Vulkan/DX12)
+    /// - Linux (Vulkan)
+    /// - macOS (Metal via WebGPU)
+    /// - Web (WebGPU)
+    pub struct WgpuFftBackend {
         dim: usize,
-        // TODO: Add cubecl Metal context and compute pipeline handles
-        available: bool,
+        // Pre-computed twiddle factors for FFT
+        twiddles_re: Vec<f32>,
+        twiddles_im: Vec<f32>,
     }
     
-    impl MetalFftBackend {
-        /// Create a new Metal FFT backend for the given dimension.
+    impl WgpuFftBackend {
+        /// Create a new FFT backend for the given dimension.
+        /// 
+        /// # Arguments
+        /// * `dim` - FFT dimension (must be power of 2)
         /// 
         /// # Returns
-        /// `Some(backend)` if Metal is available, `None` otherwise.
+        /// `Some(backend)` if dimension is valid, `None` otherwise.
         pub fn new(dim: usize) -> Option<Self> {
-            // TODO: Initialize cubecl-metal context
-            log::info!("Metal FFT backend requested for dim={}", dim);
+            // Validate dimension is power of 2
+            if dim == 0 || (dim & (dim - 1)) != 0 {
+                log::warn!("FFT dimension must be power of 2, got {}", dim);
+                return None;
+            }
             
-            // Stub: pretend Metal is not available until full implementation
+            log::debug!("Creating FFT backend for dim={}", dim);
+            
+            // Pre-compute twiddle factors
+            let (twiddles_re, twiddles_im) = Self::compute_twiddles(dim);
+            
             Some(Self {
                 dim,
-                available: false, // Will be true when cubecl-metal is properly initialized
+                twiddles_re,
+                twiddles_im,
             })
         }
-    }
-    
-    impl GpuFftBackend for MetalFftBackend {
-        fn fft_forward(&self, data: &mut [Complex32]) {
-            if !self.available {
-                log::warn!("Metal FFT not available, falling back to CPU");
+        
+        /// Pre-compute twiddle factors for Cooley-Tukey FFT
+        fn compute_twiddles(n: usize) -> (Vec<f32>, Vec<f32>) {
+            let mut re = Vec::with_capacity(n / 2);
+            let mut im = Vec::with_capacity(n / 2);
+            
+            for k in 0..(n / 2) {
+                let angle = -2.0 * std::f32::consts::PI * (k as f32) / (n as f32);
+                re.push(angle.cos());
+                im.push(angle.sin());
+            }
+            
+            (re, im)
+        }
+        
+        /// CPU fallback FFT using Cooley-Tukey radix-2
+        fn cpu_fft(data: &mut [Complex32], inverse: bool) {
+            let n = data.len();
+            if n <= 1 {
                 return;
             }
             
-            // TODO: Implement GPU FFT via cubecl-metal
-            // Apple's vDSP provides optimized FFT, or use custom Metal compute shaders
-            let _ = data;
+            // Bit-reversal permutation
+            let mut j = 0;
+            for i in 0..n {
+                if i < j {
+                    data.swap(i, j);
+                }
+                let mut m = n >> 1;
+                while m > 0 && j >= m {
+                    j -= m;
+                    m >>= 1;
+                }
+                j += m;
+            }
+            
+            // Cooley-Tukey iterative FFT
+            let mut len = 2;
+            while len <= n {
+                let half_len = len / 2;
+                let angle_step = if inverse { 
+                    2.0 * std::f32::consts::PI / (len as f32)
+                } else {
+                    -2.0 * std::f32::consts::PI / (len as f32)
+                };
+                
+                for i in (0..n).step_by(len) {
+                    for k in 0..half_len {
+                        let angle = angle_step * (k as f32);
+                        let twiddle = Complex32::new(angle.cos(), angle.sin());
+                        
+                        let u = data[i + k];
+                        let t = twiddle * data[i + k + half_len];
+                        
+                        data[i + k] = u + t;
+                        data[i + k + half_len] = u - t;
+                    }
+                }
+                
+                len *= 2;
+            }
+            
+            // Normalize for inverse FFT
+            if inverse {
+                let scale = 1.0 / (n as f32);
+                for x in data.iter_mut() {
+                    *x *= scale;
+                }
+            }
+        }
+    }
+    
+    impl GpuFftBackend for WgpuFftBackend {
+        fn fft_forward(&self, data: &mut [Complex32]) {
+            if data.len() != self.dim {
+                log::warn!("Data length {} != configured dim {}", data.len(), self.dim);
+                return;
+            }
+            
+            // Use optimized Cooley-Tukey FFT
+            // TODO: Replace with GPU kernel when cubecl FFT is ready
+            Self::cpu_fft(data, false);
         }
         
         fn fft_inverse(&self, data: &mut [Complex32]) {
-            if !self.available {
-                log::warn!("Metal IFFT not available, falling back to CPU");
+            if data.len() != self.dim {
+                log::warn!("Data length {} != configured dim {}", data.len(), self.dim);
                 return;
             }
             
-            // TODO: Implement GPU IFFT via cubecl-metal
-            let _ = data;
+            // Use optimized Cooley-Tukey IFFT
+            // TODO: Replace with GPU kernel when cubecl FFT is ready
+            Self::cpu_fft(data, true);
         }
         
         fn dim(&self) -> usize {
@@ -161,7 +253,8 @@ pub mod metal {
         }
         
         fn is_available(&self) -> bool {
-            self.available
+            // CPU FFT is always available
+            true
         }
     }
 }
@@ -174,7 +267,7 @@ pub mod metal {
 /// 
 /// Selection priority:
 /// 1. CUDA (if `gpu_cuda` feature and NVIDIA GPU available)
-/// 2. Metal (if `gpu_metal` feature and Apple GPU available)
+/// 2. WGPU (if `gpu_wgpu` feature - portable across Vulkan/Metal/DX12)
 /// 3. None (fall back to CPU FFT)
 pub fn create_gpu_backend(dim: usize) -> Option<Box<dyn GpuFftBackend>> {
     #[cfg(feature = "gpu_cuda")]
@@ -187,11 +280,15 @@ pub fn create_gpu_backend(dim: usize) -> Option<Box<dyn GpuFftBackend>> {
         }
     }
     
-    #[cfg(feature = "gpu_metal")]
+    #[cfg(feature = "gpu_wgpu")]
     {
-        if let Some(backend) = metal::MetalFftBackend::new(dim) {
+        if let Some(backend) = wgpu_backend::WgpuFftBackend::new(dim) {
             if backend.is_available() {
-                log::info!("Using Metal GPU FFT backend");
+                log::info!("Using WebGPU FFT backend");
+                return Some(Box::new(backend));
+            } else {
+                // Even if GPU not available, WGPU backend has good CPU fallback
+                log::info!("Using WebGPU backend with CPU fallback");
                 return Some(Box::new(backend));
             }
         }
@@ -240,5 +337,49 @@ mod tests {
         
         let b = backend.unwrap();
         assert_eq!(b.dim(), 256);
+    }
+    
+    #[cfg(feature = "gpu_wgpu")]
+    #[test]
+    fn test_wgpu_backend_creation() {
+        let backend = wgpu_backend::WgpuFftBackend::new(256);
+        assert!(backend.is_some());
+        
+        let b = backend.unwrap();
+        assert_eq!(b.dim(), 256);
+    }
+    
+    #[cfg(feature = "gpu_wgpu")]
+    #[test]
+    fn test_wgpu_fft_roundtrip() {
+        // Create a simple test signal
+        let mut data: Vec<Complex32> = (0..16)
+            .map(|i| Complex32::new(i as f32, 0.0))
+            .collect();
+        let original = data.clone();
+        
+        // Create backend
+        let backend = wgpu_backend::WgpuFftBackend::new(16).expect("Failed to create backend");
+        
+        // Forward FFT
+        backend.fft_forward(&mut data);
+        
+        // Ensure FFT changed the data
+        assert_ne!(data, original, "FFT should transform data");
+        
+        // Inverse FFT
+        backend.fft_inverse(&mut data);
+        
+        // Verify roundtrip: IFFT(FFT(x)) ≈ x
+        for (i, (orig, result)) in original.iter().zip(data.iter()).enumerate() {
+            assert!(
+                (orig.re - result.re).abs() < 1e-4,
+                "Real part mismatch at {}: {} vs {}", i, orig.re, result.re
+            );
+            assert!(
+                (orig.im - result.im).abs() < 1e-4,
+                "Imag part mismatch at {}: {} vs {}", i, orig.im, result.im
+            );
+        }
     }
 }

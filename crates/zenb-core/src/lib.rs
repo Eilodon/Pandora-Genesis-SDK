@@ -68,6 +68,7 @@ pub mod perception; // VAJRA-001: Sheaf Perception
 
 pub mod ltc; // SOTA: Liquid Time-Constant Networks for adaptive prediction
 pub mod phase_machine;
+pub mod breath_patterns; // ZenOne: Breathing pattern registry
 pub mod policy;
 pub mod replay;
 pub mod resonance;

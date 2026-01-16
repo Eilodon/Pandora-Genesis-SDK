@@ -38,7 +38,7 @@ pub mod uncertainty; // ZENITH Tier 4: Uncertainty-aware retrieval
 pub mod zenith; // ZENITH Unified API
 
 // GPU FFT acceleration (feature-gated)
-#[cfg(any(feature = "gpu_cuda", feature = "gpu_metal"))]
+#[cfg(any(feature = "gpu_cuda", feature = "gpu_metal", feature = "gpu_wgpu"))]
 pub mod gpu_fft;
 
 pub use hdc::{BindingMethod, HdcConfig, HdcMemory, HdcVector, SparseHdcVector, SparsityController};

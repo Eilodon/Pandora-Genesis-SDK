@@ -23,6 +23,8 @@ use async_worker::AsyncWorker;
 pub mod hardware_bridge;
 use hardware_bridge::MobileHardwareProvider;
 
+pub mod zenone; // ZenOne native app runtime
+
 // UniFFI scaffolding
 uniffi::include_scaffolding!("zenb");
 

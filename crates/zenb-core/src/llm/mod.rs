@@ -44,11 +44,14 @@ pub mod providers;
 pub use providers::mock::MockProvider;
 
 // Re-export providers based on feature flags
+#[cfg(feature = "llm-ollama")]
+pub use providers::ollama::OllamaProvider;
+
 #[cfg(feature = "llm-openai")]
 pub use providers::openai::OpenAiProvider;
 
 #[cfg(feature = "llm-llama")]
-pub use providers::llama::LlamaProvider;
+pub use providers::llama_cpp::LlamaCppProvider;
 
 // ============================================================================
 // ERRORS
