@@ -379,6 +379,330 @@ impl IntentTracker {
 }
 
 // ============================================================================
+// KARMA ENGINE (B.ONE V3: Full Karmic Feedback Loop)
+// ============================================================================
+
+/// Karmic outcome for learning.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum KarmicOutcome {
+    /// Positive outcome - action aligned with Dharma
+    Sukha { reward: f32 },
+    /// Negative outcome - karmic debt incurred
+    Dukkha { severity: f32 },
+    /// Neutral outcome - no significant change
+    Upekkha,
+}
+
+impl KarmicOutcome {
+    /// Calculate karma weight from outcome.
+    pub fn karma_weight(&self) -> f32 {
+        match self {
+            Self::Sukha { reward } => reward.clamp(0.0, 1.0),
+            Self::Dukkha { severity } => -severity.clamp(0.0, 1.0),
+            Self::Upekkha => 0.0,
+        }
+    }
+}
+
+/// Statistics tracked by the Karma Engine.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct KarmaStats {
+    /// Total intents processed
+    pub total_intents: u64,
+    /// Successful intents
+    pub sukha_count: u64,
+    /// Failed intents
+    pub dukkha_count: u64,
+    /// Neutral outcomes
+    pub upekkha_count: u64,
+    /// Running karma balance
+    pub karma_balance: f32,
+    /// Average karma weight (EMA)
+    pub karma_ema: f32,
+    /// Success rate (0-1)
+    pub success_rate: f32,
+    /// Total karmic debt accumulated
+    pub total_debt: f32,
+    /// Total karmic merit accumulated
+    pub total_merit: f32,
+}
+
+impl KarmaStats {
+    /// Update statistics with new outcome.
+    pub fn record_outcome(&mut self, outcome: &KarmicOutcome) {
+        self.total_intents += 1;
+        let weight = outcome.karma_weight();
+
+        match outcome {
+            KarmicOutcome::Sukha { .. } => {
+                self.sukha_count += 1;
+                self.total_merit += weight;
+            }
+            KarmicOutcome::Dukkha { .. } => {
+                self.dukkha_count += 1;
+                self.total_debt += weight.abs();
+            }
+            KarmicOutcome::Upekkha => {
+                self.upekkha_count += 1;
+            }
+        }
+
+        // Update karma balance
+        self.karma_balance += weight;
+
+        // Update EMA (alpha = 0.1)
+        const KARMA_EMA_ALPHA: f32 = 0.1;
+        self.karma_ema = KARMA_EMA_ALPHA * weight + (1.0 - KARMA_EMA_ALPHA) * self.karma_ema;
+
+        // Update success rate
+        self.success_rate = self.sukha_count as f32 / self.total_intents.max(1) as f32;
+    }
+}
+
+/// The Karma Engine - Full karmic feedback loop for learning.
+///
+/// # B.ONE V3: Nhân Quả Báo Ứng
+///
+/// This engine tracks the karmic consequences of all intents:
+/// - Every intent is recorded with full context
+/// - Outcomes are mapped to karmic weights (Sukha/Dukkha/Upekkha)
+/// - Statistics guide future policy selection
+/// - Karmic debt triggers corrective behavior
+///
+/// # Design Philosophy
+/// > "Karma is not punishment. Karma is the accumulated memory of outcomes
+/// > that guides future decisions toward alignment with Dharma."
+#[derive(Debug, Default)]
+pub struct KarmaEngine {
+    /// Intent tracker for tracing outcomes back to decisions
+    pub intent_tracker: IntentTracker,
+
+    /// Karma statistics
+    pub stats: KarmaStats,
+
+    /// Threshold for triggering karmic debt warning
+    pub debt_warning_threshold: f32,
+
+    /// Threshold for triggering karmic debt emergency
+    pub debt_emergency_threshold: f32,
+
+    /// Learning rate for policy weight updates
+    pub learning_rate: f32,
+
+    /// Recent outcomes for pattern analysis (circular buffer)
+    recent_outcomes: Vec<(IntentId, KarmicOutcome)>,
+
+    /// Maximum recent outcomes to keep
+    max_recent_outcomes: usize,
+}
+
+impl KarmaEngine {
+    /// Create a new Karma Engine with default settings.
+    pub fn new() -> Self {
+        Self {
+            intent_tracker: IntentTracker::new(),
+            stats: KarmaStats::default(),
+            debt_warning_threshold: 3.0,
+            debt_emergency_threshold: 5.0,
+            learning_rate: 0.05,
+            recent_outcomes: Vec::new(),
+            max_recent_outcomes: 100,
+        }
+    }
+
+    /// Create with custom thresholds.
+    pub fn with_thresholds(debt_warning: f32, debt_emergency: f32) -> Self {
+        Self {
+            debt_warning_threshold: debt_warning,
+            debt_emergency_threshold: debt_emergency,
+            ..Default::default()
+        }
+    }
+
+    /// Track a new intent (delegate to IntentTracker).
+    pub fn track_intent(&mut self, intent: TrackedIntent) {
+        self.intent_tracker.track(intent);
+    }
+
+    /// Record outcome for an intent and update karma.
+    ///
+    /// # Arguments
+    /// * `intent_id` - The intent to record outcome for
+    /// * `success` - Whether the action was successful
+    /// * `severity` - Severity of failure (0.0-1.0), ignored if success=true
+    /// * `ts_us` - Timestamp of outcome
+    ///
+    /// # Returns
+    /// The karmic outcome and whether it triggered any thresholds.
+    pub fn record_outcome(
+        &mut self,
+        intent_id: IntentId,
+        success: bool,
+        severity: f32,
+        ts_us: i64,
+    ) -> (KarmicOutcome, KarmaThresholdStatus) {
+        // Determine karmic outcome
+        let outcome = if success {
+            KarmicOutcome::Sukha {
+                reward: 1.0 - severity.min(0.5), // Higher severity = lower reward
+            }
+        } else if severity > 0.5 {
+            KarmicOutcome::Dukkha { severity }
+        } else if severity > 0.1 {
+            KarmicOutcome::Dukkha {
+                severity: severity * 0.5,
+            }
+        } else {
+            KarmicOutcome::Upekkha
+        };
+
+        // Record in intent tracker
+        self.intent_tracker.record_outcome(intent_id, success, ts_us);
+
+        // Update statistics
+        self.stats.record_outcome(&outcome);
+
+        // Record in recent outcomes
+        self.recent_outcomes.push((intent_id, outcome));
+        if self.recent_outcomes.len() > self.max_recent_outcomes {
+            self.recent_outcomes.remove(0);
+        }
+
+        // Check thresholds
+        let threshold_status = self.check_thresholds();
+
+        (outcome, threshold_status)
+    }
+
+    /// Check if karma thresholds are exceeded.
+    fn check_thresholds(&self) -> KarmaThresholdStatus {
+        let debt = self.stats.total_debt - self.stats.total_merit;
+
+        if debt > self.debt_emergency_threshold {
+            KarmaThresholdStatus::Emergency
+        } else if debt > self.debt_warning_threshold {
+            KarmaThresholdStatus::Warning
+        } else {
+            KarmaThresholdStatus::Normal
+        }
+    }
+
+    /// Get current karma balance.
+    pub fn karma_balance(&self) -> f32 {
+        self.stats.karma_balance
+    }
+
+    /// Check if system is in karmic debt.
+    pub fn is_in_debt(&self) -> bool {
+        self.stats.karma_balance < -self.debt_warning_threshold
+    }
+
+    /// Check if system should enter corrective mode.
+    pub fn should_enter_corrective_mode(&self) -> bool {
+        self.check_thresholds() != KarmaThresholdStatus::Normal
+    }
+
+    /// Get success rate for a specific belief mode.
+    pub fn success_rate_for_mode(&self, belief_mode: u8) -> f32 {
+        let mut success_count = 0u32;
+        let mut total_count = 0u32;
+
+        for (id, outcome) in &self.recent_outcomes {
+            if let Some(intent) = self.intent_tracker.get(*id) {
+                if intent.context.belief_mode == belief_mode {
+                    total_count += 1;
+                    if matches!(outcome, KarmicOutcome::Sukha { .. }) {
+                        success_count += 1;
+                    }
+                }
+            }
+        }
+
+        if total_count == 0 {
+            0.5 // Default neutral
+        } else {
+            success_count as f32 / total_count as f32
+        }
+    }
+
+    /// Compute karma weight for a proposed action based on history.
+    ///
+    /// # Arguments
+    /// * `belief_mode` - Current belief mode
+    /// * `action` - Proposed action type
+    ///
+    /// # Returns
+    /// Expected karma weight based on historical outcomes.
+    pub fn predict_karma_weight(&self, belief_mode: u8, action: &IntentAction) -> f32 {
+        let mut total_weight = 0.0f32;
+        let mut count = 0u32;
+
+        for (id, outcome) in &self.recent_outcomes {
+            if let Some(intent) = self.intent_tracker.get(*id) {
+                if intent.context.belief_mode == belief_mode {
+                    // Check if action type matches
+                    let action_matches = match (&intent.action, action) {
+                        (IntentAction::GuideBreath { .. }, IntentAction::GuideBreath { .. }) => true,
+                        (IntentAction::Observe, IntentAction::Observe) => true,
+                        (IntentAction::SuggestIntervention, IntentAction::SuggestIntervention) => true,
+                        _ => false,
+                    };
+
+                    if action_matches {
+                        total_weight += outcome.karma_weight();
+                        count += 1;
+                    }
+                }
+            }
+        }
+
+        if count == 0 {
+            0.0 // No history, neutral prediction
+        } else {
+            total_weight / count as f32
+        }
+    }
+
+    /// Get karma statistics.
+    pub fn stats(&self) -> &KarmaStats {
+        &self.stats
+    }
+
+    /// Reset karma statistics (use with caution).
+    pub fn reset_stats(&mut self) {
+        self.stats = KarmaStats::default();
+        self.recent_outcomes.clear();
+    }
+
+    /// Cleanup expired intents.
+    pub fn cleanup(&mut self, current_ts_us: i64) {
+        self.intent_tracker.cleanup(current_ts_us);
+    }
+
+    /// Get a summary string for logging.
+    pub fn summary(&self) -> String {
+        format!(
+            "Karma[balance={:.2}, rate={:.1}%, debt={:.2}, merit={:.2}]",
+            self.stats.karma_balance,
+            self.stats.success_rate * 100.0,
+            self.stats.total_debt,
+            self.stats.total_merit
+        )
+    }
+}
+
+/// Status of karma thresholds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KarmaThresholdStatus {
+    /// Karma is within normal bounds
+    Normal,
+    /// Karma debt is above warning threshold
+    Warning,
+    /// Karma debt is above emergency threshold
+    Emergency,
+}
+
+// ============================================================================
 // Guard Reference Types (For Engine Integration)
 // ============================================================================
 
@@ -991,7 +1315,7 @@ mod tests {
     #[test]
     fn test_intent_tracker_capacity() {
         let mut tracker = IntentTracker::with_config(1_000_000, 3);
-        
+
         for _ in 0..5 {
             let intent = TrackedIntent {
                 id: IntentId::new(),
@@ -1004,8 +1328,114 @@ mod tests {
             };
             tracker.track(intent);
         }
-        
+
         // Should have evicted to stay at capacity
         assert!(tracker.len() <= 3);
+    }
+
+    // =========================================================================
+    // KARMA ENGINE TESTS
+    // =========================================================================
+
+    #[test]
+    fn test_karma_engine_creation() {
+        let engine = KarmaEngine::new();
+        assert_eq!(engine.karma_balance(), 0.0);
+        assert!(!engine.is_in_debt());
+        assert!(!engine.should_enter_corrective_mode());
+    }
+
+    #[test]
+    fn test_karma_outcome_weights() {
+        let sukha = KarmicOutcome::Sukha { reward: 0.8 };
+        assert!((sukha.karma_weight() - 0.8).abs() < 0.001);
+
+        let dukkha = KarmicOutcome::Dukkha { severity: 0.6 };
+        assert!((dukkha.karma_weight() - (-0.6)).abs() < 0.001);
+
+        let upekkha = KarmicOutcome::Upekkha;
+        assert_eq!(upekkha.karma_weight(), 0.0);
+    }
+
+    #[test]
+    fn test_karma_engine_track_outcomes() {
+        let mut engine = KarmaEngine::new();
+
+        // Track an intent
+        let intent = TrackedIntent {
+            id: IntentId::new(),
+            flow_event_id: None,
+            action: IntentAction::GuideBreath { target_bpm: 6 },
+            context: ContextSnapshot::default(),
+            target_bpm: 6.0,
+            outcome_ts_us: None,
+            success: None,
+        };
+        let intent_id = intent.id;
+        engine.track_intent(intent);
+
+        // Record successful outcome
+        let (outcome, status) = engine.record_outcome(intent_id, true, 0.0, 1000);
+
+        assert!(matches!(outcome, KarmicOutcome::Sukha { .. }));
+        assert_eq!(status, KarmaThresholdStatus::Normal);
+        assert!(engine.karma_balance() > 0.0);
+    }
+
+    #[test]
+    fn test_karma_engine_debt_threshold() {
+        let mut engine = KarmaEngine::with_thresholds(1.0, 2.0); // Low thresholds for testing
+
+        // Generate multiple failures to accumulate debt
+        for i in 0..5 {
+            let intent = TrackedIntent {
+                id: IntentId::new(),
+                flow_event_id: None,
+                action: IntentAction::GuideBreath { target_bpm: 6 },
+                context: ContextSnapshot::default(),
+                target_bpm: 6.0,
+                outcome_ts_us: None,
+                success: None,
+            };
+            let intent_id = intent.id;
+            engine.track_intent(intent);
+
+            let (_, status) = engine.record_outcome(intent_id, false, 0.8, i * 1000);
+
+            if i >= 3 {
+                assert!(
+                    status != KarmaThresholdStatus::Normal,
+                    "Expected threshold breach at iteration {}", i
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_karma_stats_tracking() {
+        let mut stats = KarmaStats::default();
+
+        stats.record_outcome(&KarmicOutcome::Sukha { reward: 1.0 });
+        assert_eq!(stats.sukha_count, 1);
+        assert_eq!(stats.total_intents, 1);
+        assert!(stats.success_rate > 0.99);
+
+        stats.record_outcome(&KarmicOutcome::Dukkha { severity: 0.5 });
+        assert_eq!(stats.dukkha_count, 1);
+        assert_eq!(stats.total_intents, 2);
+        assert!((stats.success_rate - 0.5).abs() < 0.01);
+
+        stats.record_outcome(&KarmicOutcome::Upekkha);
+        assert_eq!(stats.upekkha_count, 1);
+        assert_eq!(stats.total_intents, 3);
+    }
+
+    #[test]
+    fn test_karma_engine_summary() {
+        let engine = KarmaEngine::new();
+        let summary = engine.summary();
+        assert!(summary.contains("Karma"));
+        assert!(summary.contains("balance="));
+        assert!(summary.contains("rate="));
     }
 }
