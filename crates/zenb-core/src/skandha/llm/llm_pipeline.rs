@@ -43,6 +43,7 @@ pub struct LlmPipeline<P: LlmProvider> {
     sanna: LlmSanna<P>,
     
     /// Pipeline configuration.
+    #[allow(dead_code)] // Reserved for future configuration access
     config: LlmPipelineConfig,
     
     /// Processing counter.
@@ -176,6 +177,7 @@ pub struct TextIntent {
     pub mode: TextMode,
     
     /// Whether to generate a response.
+    #[allow(dead_code)] // Reserved for response generation logic
     pub should_respond: bool,
     
     /// Confidence in intent.

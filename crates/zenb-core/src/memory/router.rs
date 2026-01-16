@@ -113,6 +113,7 @@ impl Default for RouterConfig {
 #[derive(Debug)]
 pub struct AdaptiveMemoryRouter {
     /// Task classifier weights (simplified linear model)
+    #[allow(dead_code)] // Reserved for future ML-based routing
     classifier_weights: Vec<Vec<f32>>,
     /// Performance history per (task_type, backend) pair
     performance_history: HashMap<(TaskType, MemoryBackend), BackendPerformance>,

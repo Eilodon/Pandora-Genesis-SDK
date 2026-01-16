@@ -18,6 +18,7 @@ pub struct LlmSanna<P: LlmProvider> {
     provider: Arc<P>,
     
     /// Holographic memory for pattern storage.
+    #[allow(dead_code)] // Reserved for pattern recall functionality
     memory: HolographicMemory,
     
     /// Enable LLM fallback for unknown patterns.

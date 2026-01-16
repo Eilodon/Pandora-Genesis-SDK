@@ -68,6 +68,8 @@ vajra_void = ["zenb-signals", "ndarray"]
 prometheus = ["dep:prometheus"]
 # VAJRA-VOID: Debug-only safety checks (Krylov energy monitoring, etc.)
 vajra_debug = []
+# Serde serialization support for breath patterns and other types
+serde = []
 # GPU FFT: WebGPU backend (portable: Windows/Linux/macOS/Web)
 gpu_wgpu = ["cubecl", "cubecl-wgpu"]
 # GPU FFT: CUDA backend for NVIDIA GPUs - uses cubecl-cuda

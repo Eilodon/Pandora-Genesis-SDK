@@ -94,6 +94,7 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 ///
 /// For 1D distributions, Wasserstein = integral of |CDF_a - CDF_b|
 /// We approximate by sorting and computing mean absolute diff.
+#[allow(dead_code)] // Reserved for ZENITH Phase 1 multi-similarity
 fn wasserstein_1d(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.5;
@@ -117,6 +118,7 @@ fn wasserstein_1d(a: &[f32], b: &[f32]) -> f32 {
 }
 
 /// Compute multi-similarity score (ZENITH Phase 1)
+#[allow(dead_code)] // Reserved for ZENITH Phase 1
 fn compute_multi_similarity(a: &[f32], b: &[f32], weights: &MultiSimilarity) -> f32 {
     let cosine = cosine_similarity(a, b);
     let wasserstein = wasserstein_1d(a, b);

@@ -1019,7 +1019,6 @@ pub mod zenb {
     use crate::belief::{BeliefEngine, BeliefState, FepState};
     use crate::memory::HolographicMemory;
     use crate::perception::{PhysiologicalContext, SheafPerception};
-    use crate::safety::DharmaFilter;
     use nalgebra::DVector;
     use num_complex::Complex32;
 
@@ -1589,6 +1588,7 @@ pub mod zenb {
         }
         
         /// Convert HSV to RGB
+        #[allow(dead_code)] // Used by result_to_color for visualization
         fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
             let c = v * s;
             let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());

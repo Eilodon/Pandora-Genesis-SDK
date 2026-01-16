@@ -12,6 +12,7 @@
 use thiserror::Error;
 
 /// Errors that can occur in grid world simulation.
+#[allow(dead_code)] // Reserved for future error handling
 #[derive(Debug, Error)]
 pub enum SimulationError {
     #[error("Invalid grid dimensions")]

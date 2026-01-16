@@ -69,6 +69,7 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.13.0@aar")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }
 ```
 
@@ -104,9 +105,35 @@ class PandoraApplication : Application() {
     }
     
     private fun generateOrLoadMasterKey(): ByteArray {
-        // Use Android Keystore for secure key storage
-        // This is a simplified example
-        return ByteArray(32) { 0x42 }
+        // SECURITY: Never hardcode master keys.
+        // Store a per-install random key using Android Keystore (via Jetpack Security).
+        //
+        // Imports:
+        // import android.util.Base64
+        // import androidx.security.crypto.EncryptedSharedPreferences
+        // import androidx.security.crypto.MasterKey
+        // import java.security.SecureRandom
+        val masterKey = MasterKey.Builder(this)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        val prefs = EncryptedSharedPreferences.create(
+            this,
+            "zenb_keys",
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+        val existingB64 = prefs.getString("zenb_master_key_b64", null)
+        if (existingB64 != null) {
+            return Base64.decode(existingB64, Base64.NO_WRAP)
+        }
+        val fresh = ByteArray(32).also { SecureRandom().nextBytes(it) }
+        prefs.edit()
+            .putString("zenb_master_key_b64", Base64.encodeToString(fresh, Base64.NO_WRAP))
+            .apply()
+        // NOTE: The master key will exist in plaintext in process memory while passed to Rust.
+        // Treat rooted/hooked devices as untrusted; consider best-effort root/hook detection if needed.
+        return fresh
     }
 }
 ```
