@@ -14,4 +14,8 @@ pub use guardians::{
     FepConfig, FepMonitor, GuardianDecision, GuardianDiagnostics, HamiltonianConfig,
     HamiltonianGuard, PhysicalState, TripleGuardians,
 };
-pub use monitor::{RuntimeState, SafetyMonitor, SafetyProperty, SafetyViolation, Severity};
+pub use monitor::{
+    RuntimeState, SafetyMonitor, SafetyProperty, SafetyViolation, Severity,
+    // Sati Observer types (B.ONE V3)
+    SatiAlert, SatiAlertType, SatiStats,
+};

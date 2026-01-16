@@ -95,6 +95,7 @@ pub mod simulation; // Grid World test environment
 pub mod monitoring; // Prometheus metrics (feature-gated)
 pub mod llm;        // LLM Provider abstraction for generative model integration
 pub mod vinnana_controller; // B.ONE V3: Supreme Consciousness Control (P4 Ngũ Uẩn)
+pub mod flow_enforcement;   // B.ONE V3: Luật Chánh Niệm - Observability enforcement
 
 #[cfg(test)]
 pub mod tests_config;
@@ -279,4 +280,16 @@ pub use universal_flow::{
     ConsciousnessAspect, ConsciousnessReports, FlowEnrichment, FlowEvent, FlowEventId,
     FlowPayload, FlowStreamStats, GemReport, MinhGioiReport, PhaQuanReport, SkandhaStage,
     SystemHealth, SystemObservation, UniversalFlowStream, VedanaType,
+};
+
+// Flow Enforcement (B.ONE V3: Luật Chánh Niệm)
+pub use flow_enforcement::{FlowGuard, FlowValidator, ObservedResult};
+
+// Sati Observer (B.ONE V3: Meta-Observer)
+pub use safety::{SatiAlert, SatiAlertType, SatiStats};
+
+// Karma Engine (B.ONE V3: Nhân Quả Báo Ứng)
+pub use skandha::sankhara::{
+    ContextSnapshot, IntentId, IntentTracker, KarmaEngine, KarmaStats, KarmaThresholdStatus,
+    KarmicOutcome, TrackedIntent,
 };
